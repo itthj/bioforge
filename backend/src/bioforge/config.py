@@ -1,0 +1,25 @@
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        env_prefix="",
+        extra="ignore",
+    )
+
+    anthropic_api_key: str = Field(default="", alias="ANTHROPIC_API_KEY")
+    db_url: str = Field(
+        default="sqlite+aiosqlite:///./bioforge.db", alias="BIOFORGE_DB_URL"
+    )
+    default_model: str = Field(default="claude-sonnet-4-6", alias="BIOFORGE_DEFAULT_MODEL")
+    default_project_id: str = Field(
+        default="default-project", alias="BIOFORGE_DEFAULT_PROJECT_ID"
+    )
+    entrez_email: str = Field(default="", alias="BIOFORGE_ENTREZ_EMAIL")
+    max_agent_iterations: int = Field(default=4, alias="BIOFORGE_MAX_AGENT_ITERATIONS")
+
+
+settings = Settings()
