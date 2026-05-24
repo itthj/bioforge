@@ -42,6 +42,12 @@ from bioforge.agent.llm import LLM, UsageSummary, summarize_usage
 from bioforge.agent.memory import load_relevant_memory
 from bioforge.agent.planner import Plan, make_plan
 from bioforge.config import settings
+from bioforge.observability.tracing import (
+    record_exception,
+    set_agent_run_attrs,
+    set_status_ok,
+    tracer,
+)
 from bioforge.tools.base import ToolError
 from bioforge.tools.registry import REGISTRY, execute_tool, list_tools, to_anthropic_tools
 
@@ -657,104 +663,139 @@ async def run_agent(
     max_iterations = max_iterations or settings.max_agent_iterations
     llm = llm or LLM()
 
-    all_steps: list[AgentStep] = []
-    total_usage = UsageSummary.zero(model)
-    step_idx = 0
+    # Import the tracer LAZILY here so tests that install a TracerProvider after this
+    # module's import time see real spans. A module-level `tracer = ...` would freeze
+    # to whatever was current at import.
+    from opentelemetry import trace as _otel_trace
+    _tracer = _otel_trace.get_tracer("bioforge.agent")
 
-    available_tools = list_tools(tags=tool_tags)
+    with _tracer.start_as_current_span("agent.run") as root_span:
+        set_agent_run_attrs(root_span, goal=goal, project_id=project_id, model=model)
 
-    # --- MEMORY (loaded once at start; re-used across replans) ---
-    memory_context = ""
-    db_session = get_current_db_session()
-    if db_session is not None and project_id:
-        try:
-            memory_context = await load_relevant_memory(db_session, project_id, goal)
-        except Exception:  # noqa: BLE001
-            # Memory load is best-effort. A failure here MUST NOT abort the agent run.
-            memory_context = ""
+        all_steps: list[AgentStep] = []
+        total_usage = UsageSummary.zero(model)
+        step_idx = 0
 
-    # --- PLAN ---
-    plan, plan_step, plan_usage = await _try_plan(
-        goal,
-        llm=llm,
-        model=model,
-        available_tools_for_planner=available_tools,
-        step_idx=step_idx,
-        is_replan=False,
-        on_step=on_step,
-        memory_context=memory_context,
-    )
-    all_steps.append(plan_step)
-    step_idx += 1
-    if plan_usage.input_tokens or plan_usage.output_tokens:
-        total_usage = total_usage.merge(plan_usage)
+        available_tools = list_tools(tags=tool_tags)
 
-    if plan is not None and plan.is_trivial and not plan.steps:
-        refusal_step = AgentStep(idx=step_idx, type="refusal", duration_ms=0)
-        all_steps.append(refusal_step)
-        await _emit(on_step, refusal_step)
-        return AgentResult(
-            goal=goal,
-            project_id=project_id,
-            response_text=plan.summary,
-            steps=all_steps,
-            usage=total_usage,
-            status="refused",
-            model=model,
-        )
+        # --- MEMORY (loaded once at start; re-used across replans) ---
+        memory_context = ""
+        db_session = get_current_db_session()
+        if db_session is not None and project_id:
+            with _tracer.start_as_current_span("agent.load_memory") as mem_span:
+                try:
+                    memory_context = await load_relevant_memory(
+                        db_session, project_id, goal
+                    )
+                    mem_span.set_attribute(
+                        "bioforge.memory_context_chars", len(memory_context)
+                    )
+                except Exception as e:  # noqa: BLE001
+                    record_exception(mem_span, e)
+                    memory_context = ""
 
-    # --- APPROVAL GATE ---
-    if plan is not None and not skip_approval_gate:
-        requirement = requires_approval(plan, REGISTRY)
-        if requirement.required:
-            approval_step = AgentStep(
-                idx=step_idx,
-                type="approval_requested",
-                duration_ms=0,
-                approval_reasons=requirement.reasons,
+        # --- PLAN ---
+        with _tracer.start_as_current_span("agent.plan") as plan_span:
+            plan, plan_step, plan_usage = await _try_plan(
+                goal,
+                llm=llm,
+                model=model,
+                available_tools_for_planner=available_tools,
+                step_idx=step_idx,
+                is_replan=False,
+                on_step=on_step,
+                memory_context=memory_context,
             )
-            all_steps.append(approval_step)
-            await _emit(on_step, approval_step)
+            if plan is not None:
+                plan_span.set_attribute("bioforge.plan_size", len(plan.steps))
+                plan_span.set_attribute("bioforge.plan_is_trivial", plan.is_trivial)
+        all_steps.append(plan_step)
+        step_idx += 1
+        if plan_usage.input_tokens or plan_usage.output_tokens:
+            total_usage = total_usage.merge(plan_usage)
+
+        if plan is not None and plan.is_trivial and not plan.steps:
+            refusal_step = AgentStep(idx=step_idx, type="refusal", duration_ms=0)
+            all_steps.append(refusal_step)
+            await _emit(on_step, refusal_step)
+            root_span.set_attribute("bioforge.status", "refused")
+            set_status_ok(root_span)
             return AgentResult(
                 goal=goal,
                 project_id=project_id,
-                response_text=(
-                    "Approval required before running this plan. Reasons:\n"
-                    + "\n".join(f"  - {r}" for r in requirement.reasons)
-                ),
+                response_text=plan.summary,
                 steps=all_steps,
                 usage=total_usage,
-                status="pending_approval",
+                status="refused",
                 model=model,
-                pending_plan=plan.model_dump(),
-                approval_reasons=requirement.reasons,
             )
 
-    # --- EXECUTE → CRITIQUE → (REPLAN) ---
-    tail = await _execute_critique_replan(
-        goal=goal,
-        plan=plan,
-        project_id=project_id,
-        llm=llm,
-        model=model,
-        tool_tags=tool_tags,
-        max_iterations=max_iterations,
-        enable_critic=enable_critic,
-        step_idx_start=step_idx,
-        on_step=on_step,
-        memory_context=memory_context,
-    )
-    all_steps.extend(tail.steps)
-    total_usage = total_usage.merge(tail.usage or UsageSummary.zero(model))
-    return AgentResult(
-        goal=goal,
-        project_id=project_id,
-        response_text=tail.response_text,
-        steps=all_steps,
-        usage=total_usage,
-        status=tail.status,
-        model=model,
-    )
+        # --- APPROVAL GATE ---
+        if plan is not None and not skip_approval_gate:
+            with _tracer.start_as_current_span("agent.approval_gate") as approval_span:
+                requirement = requires_approval(plan, REGISTRY)
+                approval_span.set_attribute(
+                    "bioforge.approval_required", requirement.required
+                )
+                approval_span.set_attribute(
+                    "bioforge.approval_reasons_count", len(requirement.reasons)
+                )
+                if requirement.required:
+                    approval_step = AgentStep(
+                        idx=step_idx,
+                        type="approval_requested",
+                        duration_ms=0,
+                        approval_reasons=requirement.reasons,
+                    )
+                    all_steps.append(approval_step)
+                    await _emit(on_step, approval_step)
+                    root_span.set_attribute("bioforge.status", "pending_approval")
+                    set_status_ok(root_span)
+                    return AgentResult(
+                        goal=goal,
+                        project_id=project_id,
+                        response_text=(
+                            "Approval required before running this plan. Reasons:\n"
+                            + "\n".join(f"  - {r}" for r in requirement.reasons)
+                        ),
+                        steps=all_steps,
+                        usage=total_usage,
+                        status="pending_approval",
+                        model=model,
+                        pending_plan=plan.model_dump(),
+                        approval_reasons=requirement.reasons,
+                    )
+
+        # --- EXECUTE → CRITIQUE → (REPLAN) ---
+        tail = await _execute_critique_replan(
+            goal=goal,
+            plan=plan,
+            project_id=project_id,
+            llm=llm,
+            model=model,
+            tool_tags=tool_tags,
+            max_iterations=max_iterations,
+            enable_critic=enable_critic,
+            step_idx_start=step_idx,
+            on_step=on_step,
+            memory_context=memory_context,
+        )
+        all_steps.extend(tail.steps)
+        total_usage = total_usage.merge(tail.usage or UsageSummary.zero(model))
+        root_span.set_attribute("bioforge.status", tail.status)
+        root_span.set_attribute("bioforge.steps_total", len(all_steps))
+        if total_usage.cost_usd:
+            root_span.set_attribute("bioforge.cost_usd", total_usage.cost_usd)
+        set_status_ok(root_span)
+        return AgentResult(
+            goal=goal,
+            project_id=project_id,
+            response_text=tail.response_text,
+            steps=all_steps,
+            usage=total_usage,
+            status=tail.status,
+            model=model,
+        )
 
 
 async def resume_agent(

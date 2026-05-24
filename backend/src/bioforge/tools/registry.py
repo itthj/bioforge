@@ -82,16 +82,47 @@ def to_anthropic_tools(
 
 
 async def execute_tool(name: str, raw_input: dict) -> ToolOutput:
-    """Validate `raw_input` against the tool's schema, run the handler, stamp provenance."""
+    """Validate `raw_input` against the tool's schema, run the handler, stamp provenance.
+
+    Each call gets its own `tool.call` span so the trace shows tools as children of the
+    agent.execute span, including composite tools (find_offtargets → blast nests
+    naturally because both calls hit this function)."""
+    from bioforge.observability.tracing import (
+        record_exception,
+        set_tool_call_attrs,
+        tracer,
+    )
+
     spec = get_tool(name)
-    validated = spec.input_model.model_validate(raw_input)
-    result = await spec.handler(validated)
-    if not isinstance(result, spec.output_model):
-        raise TypeError(
-            f"Tool {name!r} returned {type(result).__name__}, expected {spec.output_model.__name__}"
-        )
-    result.tool_name = spec.name
-    result.tool_version = spec.version
-    if not result.citations:
-        result.citations = list(spec.citations)
-    return result
+    with tracer.start_as_current_span(f"tool.call.{name}") as span:
+        try:
+            input_json_size = 0
+            try:
+                import json as _json
+
+                input_json_size = len(_json.dumps(raw_input))
+            except Exception:  # noqa: BLE001
+                pass
+            set_tool_call_attrs(
+                span,
+                tool_name=spec.name,
+                tool_version=spec.version,
+                cost_hint=spec.cost_hint,
+                destructive=spec.destructive,
+                input_size_bytes=input_json_size,
+            )
+            validated = spec.input_model.model_validate(raw_input)
+            result = await spec.handler(validated)
+            if not isinstance(result, spec.output_model):
+                raise TypeError(
+                    f"Tool {name!r} returned {type(result).__name__}, expected "
+                    f"{spec.output_model.__name__}"
+                )
+            result.tool_name = spec.name
+            result.tool_version = spec.version
+            if not result.citations:
+                result.citations = list(spec.citations)
+            return result
+        except Exception as e:
+            record_exception(span, e)
+            raise

@@ -12,6 +12,7 @@ from bioforge.api.projects import router as projects_router
 from bioforge.constants import DEFAULT_PROJECT_ID
 from bioforge.db.engine import init_db, session_factory
 from bioforge.db.models import Project
+from bioforge.observability import configure_tracing
 
 
 async def _bootstrap_default_project() -> None:
@@ -44,6 +45,10 @@ async def _bootstrap_default_project() -> None:
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
+    # configure_tracing() honors the BIOFORGE_OTEL_ENABLED setting. When disabled,
+    # this is a no-op and the agent loop uses the OpenTelemetry no-op tracer (zero
+    # runtime cost). When enabled with exporter=console, spans print to stdout.
+    configure_tracing()
     await init_db()
     await _bootstrap_default_project()
     yield

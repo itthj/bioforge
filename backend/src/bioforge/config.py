@@ -21,5 +21,13 @@ class Settings(BaseSettings):
     entrez_email: str = Field(default="", alias="BIOFORGE_ENTREZ_EMAIL")
     max_agent_iterations: int = Field(default=4, alias="BIOFORGE_MAX_AGENT_ITERATIONS")
 
+    # OpenTelemetry — disabled by default so the test suite stays quiet. Enable via
+    # BIOFORGE_OTEL_ENABLED=true. The exporter defaults to console; set
+    # BIOFORGE_OTEL_EXPORTER=otlp + BIOFORGE_OTEL_ENDPOINT for real ingest.
+    otel_enabled: bool = Field(default=False, alias="BIOFORGE_OTEL_ENABLED")
+    otel_exporter: str = Field(
+        default="console", alias="BIOFORGE_OTEL_EXPORTER"
+    )  # console | none
+
 
 settings = Settings()

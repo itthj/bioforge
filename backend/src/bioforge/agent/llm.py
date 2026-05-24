@@ -144,6 +144,12 @@ class LLM:
     ) -> Message:
         """`tool_choice` accepts `{"type": "auto"}`, `{"type": "any"}`, or
         `{"type": "tool", "name": ...}` for forced structured output."""
+        from bioforge.observability.tracing import (
+            record_exception,
+            set_llm_call_attrs,
+            tracer,
+        )
+
         kwargs: dict[str, Any] = {
             "model": model,
             "system": system,
@@ -154,4 +160,30 @@ class LLM:
             kwargs["tools"] = tools
         if tool_choice:
             kwargs["tool_choice"] = tool_choice
-        return await self._client.messages.create(**kwargs)
+
+        with tracer.start_as_current_span("llm.complete") as span:
+            span.set_attribute("gen_ai.request.model", model)
+            span.set_attribute("gen_ai.request.max_tokens", max_tokens)
+            if tools:
+                span.set_attribute("bioforge.tool_choice_count", len(tools))
+            if tool_choice:
+                span.set_attribute(
+                    "bioforge.tool_choice_type", tool_choice.get("type", "")
+                )
+            try:
+                response = await self._client.messages.create(**kwargs)
+            except Exception as e:
+                record_exception(span, e)
+                raise
+            set_llm_call_attrs(
+                span,
+                model=model,
+                input_tokens=response.usage.input_tokens,
+                output_tokens=response.usage.output_tokens,
+                cache_creation_tokens=getattr(
+                    response.usage, "cache_creation_input_tokens", 0
+                ) or 0,
+                cache_read_tokens=getattr(response.usage, "cache_read_input_tokens", 0) or 0,
+                stop_reason=response.stop_reason,
+            )
+            return response

@@ -169,24 +169,46 @@ class FakeLLM:
         tool_choice: dict | None = None,
         max_tokens: int = 4096,
     ) -> Message:
-        self.calls.append(
-            CapturedCall(
-                model=model,
-                system=system,
-                messages=[dict(m) for m in messages],
-                tools=list(tools) if tools else None,
-                tool_choice=dict(tool_choice) if tool_choice else None,
-                max_tokens=max_tokens,
+        # Mirror the real LLM.complete instrumentation so OTel-based assertions in tests
+        # see `llm.complete` spans regardless of which LLM is injected.
+        from opentelemetry import trace as _otel_trace
+
+        _tracer = _otel_trace.get_tracer("bioforge.agent")
+        with _tracer.start_as_current_span("llm.complete") as span:
+            span.set_attribute("gen_ai.system", "anthropic")
+            span.set_attribute("gen_ai.request.model", model)
+            span.set_attribute("gen_ai.request.max_tokens", max_tokens)
+            if tools:
+                span.set_attribute("bioforge.tool_choice_count", len(tools))
+            if tool_choice:
+                span.set_attribute(
+                    "bioforge.tool_choice_type", tool_choice.get("type", "")
+                )
+
+            self.calls.append(
+                CapturedCall(
+                    model=model,
+                    system=system,
+                    messages=[dict(m) for m in messages],
+                    tools=list(tools) if tools else None,
+                    tool_choice=dict(tool_choice) if tool_choice else None,
+                    max_tokens=max_tokens,
+                )
             )
-        )
-        if self._idx >= len(self._responses):
-            raise RuntimeError(
-                f"FakeLLM ran out of scripted responses (call #{self._idx + 1}). "
-                "Add more to the `responses=` list in the test."
-            )
-        resp = self._responses[self._idx]
-        self._idx += 1
-        return resp
+            if self._idx >= len(self._responses):
+                raise RuntimeError(
+                    f"FakeLLM ran out of scripted responses (call #{self._idx + 1}). "
+                    "Add more to the `responses=` list in the test."
+                )
+            resp = self._responses[self._idx]
+            self._idx += 1
+
+            span.set_attribute("gen_ai.response.model", model)
+            span.set_attribute("gen_ai.usage.input_tokens", resp.usage.input_tokens)
+            span.set_attribute("gen_ai.usage.output_tokens", resp.usage.output_tokens)
+            if resp.stop_reason:
+                span.set_attribute("gen_ai.response.finish_reason", resp.stop_reason)
+            return resp
 
 
 @pytest.fixture
