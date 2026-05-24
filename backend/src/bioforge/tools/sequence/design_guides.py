@@ -94,6 +94,17 @@ class DesignGuidesInput(ToolInput):
         le=200,
         description="Cap the response to the top N guides ranked by heuristic_score.",
     )
+    compute_on_target_score: bool = Field(
+        default=False,
+        description=(
+            "If true, also call `score_guide_on_target` for each candidate and surface "
+            "the resulting `on_target_score` alongside `heuristic_score`. When this is "
+            "enabled, candidates are ranked by `on_target_score` (with heuristic_score "
+            "as tiebreaker) instead of by `heuristic_score` alone. Default false to "
+            "keep the tool cheap and dependency-free unless the user explicitly wants "
+            "the deeper analysis. Only applies when guide_length == 20."
+        ),
+    )
 
     @field_validator("sequence")
     @classmethod
@@ -160,6 +171,14 @@ class Guide(BaseModel):
         )
     )
     score: HeuristicScore
+    on_target_score: float | None = Field(
+        default=None,
+        description=(
+            "Doench 2014/2016 rule-based on-target score on [0, 1], populated only when "
+            "the caller passed `compute_on_target_score=True`. NOT a Rule Set 2 ML "
+            "prediction — see the `score_guide_on_target` tool for the scoring details."
+        ),
+    )
 
 
 class DesignGuidesOutput(ToolOutput):
@@ -374,9 +393,73 @@ async def design_guides(inp: DesignGuidesInput) -> DesignGuidesOutput:
             ],
         )
 
-    guides.sort(key=lambda g: g.score.heuristic_score, reverse=True)
+    # Optionally enrich each candidate with on_target_score. Only 20-nt protospacers
+    # are supported by score_guide_on_target — for non-canonical guide lengths we skip
+    # silently and emit a note explaining why.
+    on_target_supported = inp.compute_on_target_score and inp.guide_length == 20
+    if on_target_supported:
+        # Import locally to avoid a circular dependency at registration time.
+        from bioforge.tools.sequence.score_guide_on_target import (
+            ScoreGuideOnTargetInput,
+            score_guide_on_target,
+        )
+
+        for g in guides:
+            try:
+                scored = await score_guide_on_target(
+                    ScoreGuideOnTargetInput(
+                        protospacer=g.protospacer, pam=g.pam_sequence
+                    )
+                )
+                g.on_target_score = scored.on_target_score
+            except Exception:  # noqa: BLE001
+                # If scoring fails for any individual guide (shouldn't happen given the
+                # input came from this tool's own scanner), leave on_target_score=None
+                # rather than aborting the whole call.
+                g.on_target_score = None
+
+    # Ranking: when on_target_score is available for ALL candidates, sort by that with
+    # heuristic_score as tiebreaker. Otherwise fall back to heuristic_score alone.
+    all_have_on_target = on_target_supported and all(
+        g.on_target_score is not None for g in guides
+    )
+    if all_have_on_target:
+        guides.sort(
+            key=lambda g: (
+                g.on_target_score if g.on_target_score is not None else 0.0,
+                g.score.heuristic_score,
+            ),
+            reverse=True,
+        )
+    else:
+        guides.sort(key=lambda g: g.score.heuristic_score, reverse=True)
+
     total = len(guides)
     guides = guides[: inp.max_guides]
+
+    notes = [
+        (
+            "`heuristic_score` is a transparent first-pass filter (GC content, polyT, "
+            "mononucleotide run, self-complementarity). It is NOT a Doench Rule Set 2 "
+            "prediction — when you need more nuanced on-target scoring, pass "
+            "`compute_on_target_score=True` or call `score_guide_on_target` directly."
+        ),
+        "Off-target sites are NOT searched here. Compose with `find_offtargets` "
+        "against a reference database for specificity analysis.",
+    ]
+    if inp.compute_on_target_score and not on_target_supported:
+        notes.append(
+            f"`compute_on_target_score=True` ignored: on-target scoring is only "
+            f"defined for 20-nt protospacers and you requested guide_length="
+            f"{inp.guide_length}. Returned guides ranked by heuristic_score alone."
+        )
+    if all_have_on_target:
+        notes.append(
+            "Guides ranked by `on_target_score` (Doench 2014/2016 rule-based) with "
+            "`heuristic_score` as tiebreaker. `on_target_score` populated on each "
+            "guide. See `score_guide_on_target` for scoring details — this is NOT a "
+            "Rule Set 2 ML prediction."
+        )
 
     return DesignGuidesOutput(
         pam=inp.pam,
@@ -385,11 +468,5 @@ async def design_guides(inp: DesignGuidesInput) -> DesignGuidesOutput:
         num_candidates_total=total,
         num_returned=len(guides),
         guides=guides,
-        notes=[
-            "Ranking uses a transparent heuristic (GC content, polyT, mononucleotide "
-            "run, self-complementarity). This is NOT Doench 2016 on-target scoring — "
-            "for that, follow up with a dedicated scoring tool when available.",
-            "Off-target sites are NOT searched here. Compose with the `blast` tool "
-            "against a reference genome for off-target analysis.",
-        ],
+        notes=notes,
     )
