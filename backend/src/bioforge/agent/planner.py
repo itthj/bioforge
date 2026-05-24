@@ -61,14 +61,16 @@ def _format_tools_for_planner(tools: list[ToolSpec]) -> str:
     return "\n".join(lines)
 
 
-def _build_planner_messages(goal: str, tools: list[ToolSpec]) -> list[dict]:
+def _build_planner_messages(
+    goal: str, tools: list[ToolSpec], memory_context: str = ""
+) -> list[dict]:
     tools_block = _format_tools_for_planner(tools)
-    user_content = (
-        f"# Goal\n\n{goal}\n\n"
-        f"# Available tools\n\n{tools_block}\n\n"
-        "Emit your plan by calling `submit_plan`."
-    )
-    return [{"role": "user", "content": user_content}]
+    parts = [f"# Goal\n\n{goal}"]
+    if memory_context.strip():
+        parts.append(memory_context.strip())
+    parts.append(f"# Available tools\n\n{tools_block}")
+    parts.append("Emit your plan by calling `submit_plan`.")
+    return [{"role": "user", "content": "\n\n".join(parts)}]
 
 
 class PlannerResult(BaseModel):
@@ -84,14 +86,20 @@ async def make_plan(
     llm: LLM,
     model: str,
     available_tools: list[ToolSpec],
+    memory_context: str = "",
 ) -> PlannerResult:
     """Call the planner LLM, force `submit_plan`, validate, and return the structured plan.
+
+    `memory_context` is an optional markdown block describing project state (organism,
+    reference genome, persisted memory entries). When non-empty it's appended to the
+    planner's user message — the planner uses it to make better-informed plans without
+    burning a tool call to look things up.
 
     Raises `ValueError` if the model fails to call submit_plan or returns invalid input.
     The caller (the agent loop) catches and records this as a planning error in the trace.
     """
     system = _load_planner_prompt()
-    messages = _build_planner_messages(goal, available_tools)
+    messages = _build_planner_messages(goal, available_tools, memory_context)
     response = await llm.complete(
         model=model,
         system=system,

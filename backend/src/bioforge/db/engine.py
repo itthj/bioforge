@@ -13,7 +13,7 @@ class Base(DeclarativeBase):
 
 
 _engine = create_async_engine(settings.db_url, echo=False, future=True)
-_session_factory = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
+session_factory = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
 
 
 async def init_db() -> None:
@@ -27,7 +27,7 @@ async def init_db() -> None:
 
 async def get_session() -> AsyncIterator[AsyncSession]:
     """FastAPI dependency: yields an AsyncSession, commits on success, rolls back on error."""
-    async with _session_factory() as session:
+    async with session_factory() as session:
         try:
             yield session
             await session.commit()

@@ -36,8 +36,10 @@ from anthropic.types import Message
 from pydantic import ValidationError
 
 from bioforge.agent.approval import requires_approval
+from bioforge.agent.context import get_current_db_session
 from bioforge.agent.critic import CriticVerdict, evaluate
 from bioforge.agent.llm import LLM, UsageSummary, summarize_usage
+from bioforge.agent.memory import load_relevant_memory
 from bioforge.agent.planner import Plan, make_plan
 from bioforge.config import settings
 from bioforge.tools.base import ToolError
@@ -375,6 +377,7 @@ async def _try_plan(
     is_replan: bool,
     previous_complaints: list[str] | None = None,
     on_step: OnStep = None,
+    memory_context: str = "",
 ) -> tuple[Plan | None, AgentStep, UsageSummary]:
     t0 = time.monotonic()
     planner_goal = goal
@@ -390,6 +393,7 @@ async def _try_plan(
             llm=llm,
             model=model,
             available_tools=available_tools_for_planner,
+            memory_context=memory_context,
         )
     except Exception as e:
         step = AgentStep(
@@ -472,6 +476,7 @@ async def _execute_critique_replan(
     enable_critic: bool,
     step_idx_start: int,
     on_step: OnStep = None,
+    memory_context: str = "",
 ) -> AgentResult:
     """The portion of the loop after the plan is approved. Shared by `run_agent` (post
     approval-gate when no approval is needed) and `resume_agent` (when approval was given).
@@ -556,6 +561,7 @@ async def _execute_critique_replan(
         is_replan=True,
         previous_complaints=verdict.concrete_complaints or [verdict.reason],
         on_step=on_step,
+        memory_context=memory_context,
     )
     all_steps.append(replan_step)
     step_idx += 1
@@ -657,6 +663,16 @@ async def run_agent(
 
     available_tools = list_tools(tags=tool_tags)
 
+    # --- MEMORY (loaded once at start; re-used across replans) ---
+    memory_context = ""
+    db_session = get_current_db_session()
+    if db_session is not None and project_id:
+        try:
+            memory_context = await load_relevant_memory(db_session, project_id, goal)
+        except Exception:  # noqa: BLE001
+            # Memory load is best-effort. A failure here MUST NOT abort the agent run.
+            memory_context = ""
+
     # --- PLAN ---
     plan, plan_step, plan_usage = await _try_plan(
         goal,
@@ -666,6 +682,7 @@ async def run_agent(
         step_idx=step_idx,
         is_replan=False,
         on_step=on_step,
+        memory_context=memory_context,
     )
     all_steps.append(plan_step)
     step_idx += 1
@@ -725,6 +742,7 @@ async def run_agent(
         enable_critic=enable_critic,
         step_idx_start=step_idx,
         on_step=on_step,
+        memory_context=memory_context,
     )
     all_steps.extend(tail.steps)
     total_usage = total_usage.merge(tail.usage or UsageSummary.zero(model))
@@ -763,6 +781,15 @@ async def resume_agent(
     max_iterations = max_iterations or settings.max_agent_iterations
     llm = llm or LLM()
 
+    # Memory for the replan inside execute_critique_replan, in case the critic fails.
+    memory_context = ""
+    db_session = get_current_db_session()
+    if db_session is not None and project_id:
+        try:
+            memory_context = await load_relevant_memory(db_session, project_id, goal)
+        except Exception:  # noqa: BLE001
+            memory_context = ""
+
     result = await _execute_critique_replan(
         goal=goal,
         plan=plan,
@@ -774,6 +801,7 @@ async def resume_agent(
         enable_critic=enable_critic,
         step_idx_start=step_idx_start,
         on_step=on_step,
+        memory_context=memory_context,
     )
     return result
 

@@ -300,6 +300,67 @@ def fake_llm_factory():
     return _factory
 
 
+# --- Per-test FastAPI + in-memory DB fixtures ---------------------------------------
+#
+# Shared by test_streaming.py and test_projects.py. The session factory uses a tmp_path-
+# backed SQLite so two requests in the same test can see each other's writes (in-memory
+# `:memory:` would give each connection its own DB).
+
+
+import pytest_asyncio  # noqa: E402
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine  # noqa: E402
+
+
+@pytest_asyncio.fixture
+async def test_session_maker(tmp_path):
+    from bioforge.db.engine import Base
+
+    db_url = f"sqlite+aiosqlite:///{tmp_path.as_posix()}/test.db"
+    engine = create_async_engine(db_url, echo=False)
+    from bioforge.db import models  # noqa: F401  — registers tables on Base.metadata
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    yield async_sessionmaker(engine, expire_on_commit=False)
+    await engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def streaming_client(test_session_maker):
+    """An httpx.AsyncClient bound to the FastAPI app, with get_session overridden to use
+    the per-test on-disk SQLite. The default project row is also bootstrapped so
+    /agent/run calls with project_id='default-project' don't fail FK constraints."""
+    from httpx import ASGITransport, AsyncClient
+
+    from bioforge.constants import DEFAULT_PROJECT_ID
+    from bioforge.db.engine import get_session
+    from bioforge.db.models import Project
+    from bioforge.main import app
+
+    async def override_get_session():
+        async with test_session_maker() as session:
+            try:
+                yield session
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+
+    app.dependency_overrides[get_session] = override_get_session
+
+    # Bootstrap default project for tests that don't create their own.
+    async with test_session_maker() as session:
+        session.add(
+            Project(id=DEFAULT_PROJECT_ID, name="Default project (test)")
+        )
+        await session.commit()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        yield client
+    app.dependency_overrides.clear()
+
+
 @pytest.fixture
 def lambda_phage_fixture() -> dict[str, Any]:
     """Load the lambda phage fixture + its committed metadata.

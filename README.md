@@ -1,6 +1,6 @@
 # BioForge
 
-Agentic AI bioinformatics platform. Current state: Phase 1 (in progress) — full plan→approval→execute→critique→replan loop. Three tools (`gc_content`, `reverse_complement`, `blast`). Structured-output planner and critic via Anthropic forced tool-use. Persisted traces with the approval gate wired through to a `POST /agent/{trace_id}/approve` endpoint.
+Agentic AI bioinformatics platform. Current state: Phase 1 (in progress) — full plan→approval→execute→critique→replan loop with SSE streaming. Five tools (`gc_content`, `reverse_complement`, `blast`, `recall_memory`, `remember`). Projects + persistent project memory with audit/edit endpoints. Structured-output planner and critic via Anthropic forced tool-use.
 
 ## Quickstart
 
@@ -58,27 +58,53 @@ Each event is one `event: <name>\ndata: <json>\n\n` block. Event types:
 - `error` — transport-level error (the agent loop's own errors arrive as `tool_error` step events)
 - Comment lines `: keepalive` flush every ~15s to keep proxies from closing the connection
 
-> **DB schema note**: the `traces` table grew two columns (`awaiting_approval_plan`, `approval_reasons`) in Phase 1. If you have a `bioforge.db` from before this slice, delete it before restarting — `init_db()` is `create_all` not `migrate`. Real migrations (Alembic) arrive when we have non-disposable data.
+> **DB schema note**: the schema gained two new tables (`projects`, `project_memory`) plus columns on `traces` over Phase 1. If you have a `bioforge.db` from before this slice, delete it before restarting — `init_db()` is `create_all` not `migrate`. Real migrations (Alembic) arrive when we have non-disposable data.
+
+### Projects + memory
+
+Every run is scoped to a `project_id` (default: `"default-project"`, auto-created on startup). Each project has its own memory store the agent can read via `recall_memory` and write via `remember`. The user can inspect and edit memory via the `/projects/{id}/memory` API.
+
+```powershell
+# Create a project
+curl.exe -X POST http://localhost:8000/projects -H "Content-Type: application/json" -d "{\"id\":\"crispr-2026\",\"name\":\"CRISPR screen 2026\",\"organism\":\"Homo sapiens\",\"reference_genome\":\"GRCh38\"}"
+
+# Run an agent goal scoped to that project — the planner sees the project's organism + memory entries
+curl.exe -N -X POST http://localhost:8000/agent/run/stream -H "Content-Type: application/json" -d "{\"goal\":\"GC content of ATGCATGC\",\"project_id\":\"crispr-2026\"}"
+
+# Inspect what the agent has remembered
+curl.exe http://localhost:8000/projects/crispr-2026/memory
+
+# Edit / override a memory entry as the user
+curl.exe -X PUT http://localhost:8000/projects/crispr-2026/memory/preferred_organism -H "Content-Type: application/json" -d "{\"value\":\"Mus musculus\",\"kind\":\"preference\"}"
+```
 
 ## Layout
 
 ```
 backend/src/bioforge/
   api/agent.py            POST /agent/run[/stream], POST /agent/{id}/approve[/stream], GET /traces/{id}
+  api/projects.py         POST/GET/PATCH/DELETE /projects + GET/PUT/DELETE /projects/{id}/memory[/{key}]
   api/sse.py              SSE format helpers (format_event, format_keepalive)
   agent/
     planner.py            Plan / make_plan → forced submit_plan tool-use
     critic.py             CriticVerdict / evaluate → forced submit_verdict
     approval.py           requires_approval(plan, registry) → ApprovalRequirement
+    memory.py             load_relevant_memory(session, project_id, goal) → planner context
+    context.py            ContextVars (project_id, db_session) + AgentContextScope
     loop.py               plan → approval → execute → critique → replan-once → respond
     llm.py                AsyncAnthropic wrapper, cost accounting
     prompts/              system.md, planner.md, critic.md (markdown, not strings)
   tools/                  @register_tool registry
-    sequence/gc_content       cheap
-    sequence/reverse_complement  cheap
-    sequence/blast            EXPENSIVE — triggers approval gate
-  db/                     SQLAlchemy async; Trace with project_id + pending plan
-backend/tests/            67 tests: unit + adversarial + multi-step + approval + streaming
+    sequence/gc_content              cheap
+    sequence/reverse_complement      cheap
+    sequence/blast                   EXPENSIVE — triggers approval gate
+    meta/memory_tools.recall_memory  cheap, reads via ContextVar
+    meta/memory_tools.remember       cheap, upserts via ContextVar
+  db/                     SQLAlchemy async
+    Project                          project workspaces
+    ProjectMemory                    (project_id, key) UPSERT; ondelete=CASCADE
+    Trace                            agent run history with project_id
+backend/tests/            89 tests: + projects CRUD + memory tools + agent-memory integration
 backend/tests/fixtures/   regenerate.py (NCBI Entrez), committed FASTA + meta.json
 ```
 
@@ -127,4 +153,6 @@ CRITIC ── forced tool_use(submit_verdict) ──► CriticVerdict        ─
 - **Trace step types**: `plan` / `replan` / `approval_requested` / `approval_decision` / `llm_call` / `tool_call` / `tool_error` / `refusal` / `critique` / `final`. Each carries its own structured payload.
 - **BLAST is remote-only** for now (NCBI public API via `Bio.Blast.NCBIWWW`, wrapped in `asyncio.to_thread`). Local BLAST+ binary integration and a job queue (Celery) are deferred until the synchronous round-trip becomes the bottleneck.
 - **Streaming via `on_step` callback.** Every step-producing function in the agent loop accepts `on_step: Callable[[AgentStep], Awaitable[None]]`. The SSE endpoints plug a queue-backed callback in and drain it into `text/event-stream`. Default `None` preserves the synchronous JSON path. Callback errors are swallowed so a disconnected SSE client doesn't abort the agent run.
+- **Memory injected into the planner, NOT the system prompt.** System prompt is cached (Anthropic prompt-caching); injecting per-project context there would break the cache. Instead memory rides on the planner's user message, which is per-run anyway. `load_relevant_memory()` returns the empty string when there's nothing useful, so the planner's input stays unchanged for empty projects.
+- **Memory tools reach DB via ContextVars, not parameters.** `recall_memory` and `remember` read `get_current_project_id()` / `get_current_db_session()` set by `AgentContextScope` in the API layer. Bio tools that don't need DB access ignore the ContextVars entirely. Tools called outside a scope raise `ToolError` rather than silently no-op'ing.
 - Tests use committed fixtures generated by `tests/fixtures/regenerate.py`. Online suite (`pytest -m online`) hits real APIs and is deselected by default.

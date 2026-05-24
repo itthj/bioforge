@@ -15,15 +15,11 @@ import json
 import re
 
 import pytest
-import pytest_asyncio
-from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from bioforge.agent import AgentStep, Plan, PlanStep, resume_agent, run_agent
 from bioforge.api.agent import get_llm
 from bioforge.api.sse import format_event, format_keepalive
 from bioforge.constants import DEFAULT_PROJECT_ID
-from bioforge.db.engine import Base, get_session
 
 
 # --- Unit: on_step callback ----------------------------------------------------------
@@ -186,40 +182,7 @@ def test_format_keepalive_is_comment_line() -> None:
 # --- Integration: SSE endpoints via in-process FastAPI ------------------------------
 
 
-@pytest_asyncio.fixture
-async def test_session_maker(tmp_path):
-    """A fresh aiosqlite-on-disk DB per test, with the Trace table created."""
-    db_url = f"sqlite+aiosqlite:///{tmp_path.as_posix()}/test.db"
-    engine = create_async_engine(db_url, echo=False)
-    # Importing models registers them on Base.metadata.
-    from bioforge.db import models  # noqa: F401
-
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    yield async_sessionmaker(engine, expire_on_commit=False)
-    await engine.dispose()
-
-
-@pytest_asyncio.fixture
-async def streaming_client(test_session_maker):
-    """An httpx.AsyncClient bound to the FastAPI app, with get_session swapped to use
-    the per-test on-disk SQLite. Callers also override get_llm per test."""
-    from bioforge.main import app
-
-    async def override_get_session():
-        async with test_session_maker() as session:
-            try:
-                yield session
-                await session.commit()
-            except Exception:
-                await session.rollback()
-                raise
-
-    app.dependency_overrides[get_session] = override_get_session
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        yield client
-    app.dependency_overrides.clear()
+# test_session_maker + streaming_client are shared fixtures defined in conftest.py.
 
 
 _SSE_BLOCK_RE = re.compile(r"event: (\S+)\n((?:data: .*\n)+)\n", re.MULTILINE)

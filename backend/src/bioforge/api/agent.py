@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bioforge.agent import AgentResult, AgentStep, Plan, resume_agent, run_agent
+from bioforge.agent.context import AgentContextScope
 from bioforge.agent.llm import LLM
 from bioforge.api.sse import format_event, format_keepalive
 from bioforge.constants import DEFAULT_PROJECT_ID
@@ -121,7 +122,8 @@ async def agent_run(
     session: AsyncSession = Depends(get_session),
     llm: LLM = Depends(get_llm),
 ) -> AgentRunResponse:
-    result = await run_agent(body.goal, project_id=body.project_id, llm=llm)
+    with AgentContextScope(project_id=body.project_id, session=session):
+        result = await run_agent(body.goal, project_id=body.project_id, llm=llm)
     trace = await _persist_new_trace(session, result)
     return _trace_to_response(trace, result)
 
@@ -161,9 +163,10 @@ async def _stream_agent_run(
 
     async def runner() -> None:
         try:
-            result = await run_agent(
-                goal, project_id=project_id, llm=llm, on_step=emit_step
-            )
+            with AgentContextScope(project_id=project_id, session=session):
+                result = await run_agent(
+                    goal, project_id=project_id, llm=llm, on_step=emit_step
+                )
             await queue.put(("result", result))
         except Exception as e:  # noqa: BLE001 — caught & reported, then re-emitted
             await queue.put(("error", f"{type(e).__name__}: {e}"))
@@ -275,13 +278,14 @@ async def agent_approve(
 
     step_idx_start = len(trace.steps) + 1  # +1 because we're about to append decision_step
 
-    new_result = await resume_agent(
-        goal=trace.goal,
-        plan=plan,
-        project_id=trace.project_id,
-        step_idx_start=step_idx_start,
-        llm=llm,
-    )
+    with AgentContextScope(project_id=trace.project_id, session=session):
+        new_result = await resume_agent(
+            goal=trace.goal,
+            plan=plan,
+            project_id=trace.project_id,
+            step_idx_start=step_idx_start,
+            llm=llm,
+        )
 
     new_step_dicts = [asdict(s) for s in new_result.steps]
     trace.steps = list(trace.steps) + [decision_step] + new_step_dicts
@@ -395,14 +399,15 @@ async def _stream_agent_approve(
 
     async def runner() -> None:
         try:
-            result = await resume_agent(
-                goal=trace.goal,
-                plan=plan,
-                project_id=trace.project_id,
-                step_idx_start=step_idx_start,
-                llm=llm,
-                on_step=emit_step,
-            )
+            with AgentContextScope(project_id=trace.project_id, session=session):
+                result = await resume_agent(
+                    goal=trace.goal,
+                    plan=plan,
+                    project_id=trace.project_id,
+                    step_idx_start=step_idx_start,
+                    llm=llm,
+                    on_step=emit_step,
+                )
             await queue.put(("result", result))
         except Exception as e:  # noqa: BLE001
             await queue.put(("error", f"{type(e).__name__}: {e}"))
