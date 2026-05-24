@@ -7,6 +7,7 @@ from bioforge.tools.sequence import (  # noqa: F401  — register on import
     find_orfs,
     gc_content,
     reverse_complement,
+    score_guide_on_target,
     translate,
 )
 
@@ -19,5 +20,6 @@ __all__ = [
     "find_orfs",
     "gc_content",
     "reverse_complement",
+    "score_guide_on_target",
     "translate",
 ]
