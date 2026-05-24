@@ -14,6 +14,12 @@ Shape:
 Single-tool / trivial goals short-circuit past the critic. The loop signature
 `run_agent(goal, project_id, ...)` takes `tool_set` as an explicit argument so the
 multi-agent split later is a routing layer on top, not a rewrite.
+
+**Streaming**: every function that produces an `AgentStep` accepts an optional
+`on_step: Callable[[AgentStep], Awaitable[None]]`. When provided, the callback fires once
+per step as it lands. Default `None` preserves the synchronous behavior. The SSE
+endpoint (`api/agent.py`) plugs a queue-backed callback in and drains it into a
+`text/event-stream`.
 """
 
 from __future__ import annotations
@@ -21,6 +27,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -118,6 +125,22 @@ class AgentResult:
         }
 
 
+# Type alias for the per-step streaming callback. Made permissive (Any) on input so tests
+# can pass simple async lambdas / queue.put references without ceremony.
+OnStep = Callable[[AgentStep], Awaitable[None]] | None
+
+
+async def _emit(on_step: OnStep, step: AgentStep) -> None:
+    """Fire the streaming callback if one was provided. Swallows callback errors so a
+    crashed consumer (e.g. closed SSE connection) never aborts the agent run."""
+    if on_step is None:
+        return
+    try:
+        await on_step(step)
+    except Exception:  # noqa: BLE001 — intentional, see docstring
+        pass
+
+
 def _build_system_prompt() -> list[dict]:
     return [
         {
@@ -178,9 +201,11 @@ async def _execute(
     tool_tags: list[str] | None,
     max_iterations: int,
     step_idx_start: int,
+    on_step: OnStep = None,
 ) -> tuple[str, list[AgentStep], UsageSummary, str]:
     """Run the executor (manual tool-use loop). Returns
-    `(draft_response, steps_emitted, usage, terminal_status)`."""
+    `(draft_response, steps_emitted, usage, terminal_status)`. Every step is also pushed
+    through `on_step` as it lands."""
     tools = to_anthropic_tools(tags=tool_tags)
     system = _build_system_prompt()
     messages: list[dict] = [
@@ -189,6 +214,10 @@ async def _execute(
     steps: list[AgentStep] = []
     total_usage = UsageSummary.zero(model)
     step_idx = step_idx_start
+
+    async def _append(step: AgentStep) -> None:
+        steps.append(step)
+        await _emit(on_step, step)
 
     for _ in range(max_iterations):
         t0 = time.monotonic()
@@ -201,7 +230,7 @@ async def _execute(
                 max_tokens=4096,
             )
         except Exception as e:
-            steps.append(
+            await _append(
                 AgentStep(
                     idx=step_idx,
                     type="tool_error",
@@ -213,7 +242,7 @@ async def _execute(
 
         usage = summarize_usage(model, response)
         total_usage = total_usage.merge(usage)
-        steps.append(
+        await _append(
             AgentStep(
                 idx=step_idx,
                 type="llm_call",
@@ -229,12 +258,12 @@ async def _execute(
 
         if response.stop_reason == "end_turn":
             text = _extract_text_blocks(response)
-            steps.append(AgentStep(idx=step_idx, type="final", duration_ms=0))
+            await _append(AgentStep(idx=step_idx, type="final", duration_ms=0))
             return (text, steps, total_usage, "completed")
 
         if response.stop_reason == "refusal":
             text = _extract_text_blocks(response) or "(model refused the request)"
-            steps.append(AgentStep(idx=step_idx, type="refusal", duration_ms=0))
+            await _append(AgentStep(idx=step_idx, type="refusal", duration_ms=0))
             return (text, steps, total_usage, "refused")
 
         if response.stop_reason == "tool_use":
@@ -253,7 +282,7 @@ async def _execute(
                         f"Tool {tool_name!r} is not registered. "
                         f"Available: {sorted(REGISTRY)}"
                     )
-                    steps.append(
+                    await _append(
                         AgentStep(
                             idx=step_idx,
                             type="tool_error",
@@ -277,7 +306,7 @@ async def _execute(
                 try:
                     output = await execute_tool(tool_name, tool_input)
                     output_dict = output.model_dump()
-                    steps.append(
+                    await _append(
                         AgentStep(
                             idx=step_idx,
                             type="tool_call",
@@ -297,7 +326,7 @@ async def _execute(
                     )
                 except (ToolError, ValidationError, ValueError) as e:
                     err = f"{type(e).__name__}: {e}"
-                    steps.append(
+                    await _append(
                         AgentStep(
                             idx=step_idx,
                             type="tool_error",
@@ -345,6 +374,7 @@ async def _try_plan(
     step_idx: int,
     is_replan: bool,
     previous_complaints: list[str] | None = None,
+    on_step: OnStep = None,
 ) -> tuple[Plan | None, AgentStep, UsageSummary]:
     t0 = time.monotonic()
     planner_goal = goal
@@ -368,6 +398,7 @@ async def _try_plan(
             duration_ms=int((time.monotonic() - t0) * 1000),
             error=f"Planner failed: {type(e).__name__}: {e}",
         )
+        await _emit(on_step, step)
         return (None, step, UsageSummary.zero(model))
 
     step = AgentStep(
@@ -380,6 +411,7 @@ async def _try_plan(
         cache_creation_tokens=result.usage.cache_creation_tokens,
         cache_read_tokens=result.usage.cache_read_tokens,
     )
+    await _emit(on_step, step)
     return (result.plan, step, result.usage)
 
 
@@ -392,6 +424,7 @@ async def _try_critique(
     llm: LLM,
     model: str,
     step_idx: int,
+    on_step: OnStep = None,
 ) -> tuple[CriticVerdict | None, AgentStep, UsageSummary]:
     t0 = time.monotonic()
     try:
@@ -410,6 +443,7 @@ async def _try_critique(
             duration_ms=int((time.monotonic() - t0) * 1000),
             error=f"Critic failed: {type(e).__name__}: {e}",
         )
+        await _emit(on_step, step)
         return (None, step, UsageSummary.zero(model))
 
     step = AgentStep(
@@ -422,6 +456,7 @@ async def _try_critique(
         cache_creation_tokens=result.usage.cache_creation_tokens,
         cache_read_tokens=result.usage.cache_read_tokens,
     )
+    await _emit(on_step, step)
     return (result.verdict, step, result.usage)
 
 
@@ -436,6 +471,7 @@ async def _execute_critique_replan(
     max_iterations: int,
     enable_critic: bool,
     step_idx_start: int,
+    on_step: OnStep = None,
 ) -> AgentResult:
     """The portion of the loop after the plan is approved. Shared by `run_agent` (post
     approval-gate when no approval is needed) and `resume_agent` (when approval was given).
@@ -456,6 +492,7 @@ async def _execute_critique_replan(
         tool_tags=tool_tags,
         max_iterations=max_iterations,
         step_idx_start=step_idx,
+        on_step=on_step,
     )
     all_steps.extend(exec_steps)
     step_idx += len(exec_steps)
@@ -492,6 +529,7 @@ async def _execute_critique_replan(
         llm=llm,
         model=model,
         step_idx=step_idx,
+        on_step=on_step,
     )
     all_steps.append(critique_step)
     step_idx += 1
@@ -517,6 +555,7 @@ async def _execute_critique_replan(
         step_idx=step_idx,
         is_replan=True,
         previous_complaints=verdict.concrete_complaints or [verdict.reason],
+        on_step=on_step,
     )
     all_steps.append(replan_step)
     step_idx += 1
@@ -531,6 +570,7 @@ async def _execute_critique_replan(
         tool_tags=tool_tags,
         max_iterations=max_iterations,
         step_idx_start=step_idx,
+        on_step=on_step,
     )
     all_steps.extend(exec_steps2)
     step_idx += len(exec_steps2)
@@ -555,6 +595,7 @@ async def _execute_critique_replan(
         llm=llm,
         model=model,
         step_idx=step_idx,
+        on_step=on_step,
     )
     all_steps.append(critique_step2)
     total_usage = total_usage.merge(critique_usage2)
@@ -595,11 +636,16 @@ async def run_agent(
     max_iterations: int | None = None,
     enable_critic: bool = True,
     skip_approval_gate: bool = False,
+    on_step: OnStep = None,
 ) -> AgentResult:
     """Run the full plan → (approval) → execute → critique → (replan once) loop.
 
     `skip_approval_gate=True` is for tests/CLI tools that want to bypass the pause-for-
     approval semantics. The API path always leaves it `False`.
+
+    `on_step` is an async callback fired once per `AgentStep` as it lands. Use it for
+    SSE streaming. Default `None` is the non-streaming path used by the JSON endpoint
+    and the unit-test paths that examine `result.steps` after completion.
     """
     model = model or settings.default_model
     max_iterations = max_iterations or settings.max_agent_iterations
@@ -619,6 +665,7 @@ async def run_agent(
         available_tools_for_planner=available_tools,
         step_idx=step_idx,
         is_replan=False,
+        on_step=on_step,
     )
     all_steps.append(plan_step)
     step_idx += 1
@@ -626,7 +673,9 @@ async def run_agent(
         total_usage = total_usage.merge(plan_usage)
 
     if plan is not None and plan.is_trivial and not plan.steps:
-        all_steps.append(AgentStep(idx=step_idx, type="refusal", duration_ms=0))
+        refusal_step = AgentStep(idx=step_idx, type="refusal", duration_ms=0)
+        all_steps.append(refusal_step)
+        await _emit(on_step, refusal_step)
         return AgentResult(
             goal=goal,
             project_id=project_id,
@@ -641,14 +690,14 @@ async def run_agent(
     if plan is not None and not skip_approval_gate:
         requirement = requires_approval(plan, REGISTRY)
         if requirement.required:
-            all_steps.append(
-                AgentStep(
-                    idx=step_idx,
-                    type="approval_requested",
-                    duration_ms=0,
-                    approval_reasons=requirement.reasons,
-                )
+            approval_step = AgentStep(
+                idx=step_idx,
+                type="approval_requested",
+                duration_ms=0,
+                approval_reasons=requirement.reasons,
             )
+            all_steps.append(approval_step)
+            await _emit(on_step, approval_step)
             return AgentResult(
                 goal=goal,
                 project_id=project_id,
@@ -675,6 +724,7 @@ async def run_agent(
         max_iterations=max_iterations,
         enable_critic=enable_critic,
         step_idx_start=step_idx,
+        on_step=on_step,
     )
     all_steps.extend(tail.steps)
     total_usage = total_usage.merge(tail.usage or UsageSummary.zero(model))
@@ -700,6 +750,7 @@ async def resume_agent(
     tool_tags: list[str] | None = None,
     max_iterations: int | None = None,
     enable_critic: bool = True,
+    on_step: OnStep = None,
 ) -> AgentResult:
     """Resume an agent run after approval was granted. The caller has fetched the
     pending trace, validated the persisted plan, and now wants the executor + critic
@@ -722,6 +773,7 @@ async def resume_agent(
         max_iterations=max_iterations,
         enable_critic=enable_critic,
         step_idx_start=step_idx_start,
+        on_step=on_step,
     )
     return result
 

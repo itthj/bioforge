@@ -1,21 +1,30 @@
 from __future__ import annotations
 
+import asyncio
+from collections.abc import AsyncIterator
 from dataclasses import asdict
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from bioforge.agent import AgentResult, Plan, resume_agent, run_agent
+from bioforge.agent import AgentResult, AgentStep, Plan, resume_agent, run_agent
 from bioforge.agent.llm import LLM
+from bioforge.api.sse import format_event, format_keepalive
 from bioforge.constants import DEFAULT_PROJECT_ID
 from bioforge.db.engine import get_session
 from bioforge.db.models import Trace
 
 router = APIRouter()
+
+# How long the SSE loop waits on the queue before flushing a keepalive comment. Short
+# enough that intermediate proxies don't drop the connection during a slow BLAST run;
+# long enough that we don't spam the wire with empty lines on a fast trivial goal.
+_SSE_KEEPALIVE_SECONDS = 15.0
 
 
 class AgentRunRequest(BaseModel):
@@ -117,6 +126,98 @@ async def agent_run(
     return _trace_to_response(trace, result)
 
 
+def _done_payload(trace: Trace, result: AgentResult) -> dict:
+    """Final SSE `done` event — same shape as AgentRunResponse but as a dict so
+    json.dumps can render it inline without instantiating the Pydantic model."""
+    return {
+        "trace_id": trace.id,
+        "status": result.status,
+        "response_text": result.response_text,
+        "model": result.model,
+        "usage": asdict(result.usage) if result.usage else None,
+        "pending_plan": result.pending_plan,
+        "approval_reasons": result.approval_reasons,
+    }
+
+
+async def _stream_agent_run(
+    *,
+    goal: str,
+    project_id: str,
+    session: AsyncSession,
+    llm: LLM,
+) -> AsyncIterator[str]:
+    """Run `run_agent` in a background task, ferry each AgentStep out as an SSE `step`
+    event, persist the trace once the task finishes, then emit `done`.
+
+    Keep-alive comments flush every ~15s of idleness so proxies and clients don't drop
+    a long BLAST connection.
+    """
+    queue: asyncio.Queue = asyncio.Queue()
+    DONE = object()  # sentinel — distinct from any payload kind
+
+    async def emit_step(step: AgentStep) -> None:
+        await queue.put(("step", step))
+
+    async def runner() -> None:
+        try:
+            result = await run_agent(
+                goal, project_id=project_id, llm=llm, on_step=emit_step
+            )
+            await queue.put(("result", result))
+        except Exception as e:  # noqa: BLE001 — caught & reported, then re-emitted
+            await queue.put(("error", f"{type(e).__name__}: {e}"))
+        finally:
+            await queue.put(DONE)
+
+    task = asyncio.create_task(runner())
+    try:
+        while True:
+            try:
+                item = await asyncio.wait_for(
+                    queue.get(), timeout=_SSE_KEEPALIVE_SECONDS
+                )
+            except asyncio.TimeoutError:
+                yield format_keepalive()
+                continue
+
+            if item is DONE:
+                return
+            kind, payload = item  # type: ignore[misc]
+            if kind == "step":
+                yield format_event("step", asdict(payload))
+            elif kind == "result":
+                trace = await _persist_new_trace(session, payload)
+                yield format_event("done", _done_payload(trace, payload))
+            elif kind == "error":
+                yield format_event("error", {"message": payload})
+    finally:
+        if not task.done():
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+
+@router.post("/agent/run/stream")
+async def agent_run_stream(
+    body: AgentRunRequest,
+    session: AsyncSession = Depends(get_session),
+    llm: LLM = Depends(get_llm),
+) -> StreamingResponse:
+    """SSE variant of /agent/run. Emits `step` events as they happen, ends with a
+    `done` event carrying the trace_id, response_text, usage, and (if applicable)
+    pending_plan + approval_reasons for the approval-gate path."""
+    return StreamingResponse(
+        _stream_agent_run(
+            goal=body.goal, project_id=body.project_id, session=session, llm=llm
+        ),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @router.post("/agent/{trace_id}/approve", response_model=AgentRunResponse)
 async def agent_approve(
     trace_id: str,
@@ -197,6 +298,182 @@ async def agent_approve(
     await session.flush()
 
     return _trace_to_response(trace, new_result)
+
+
+def _done_payload_from_trace(trace: Trace) -> dict:
+    """Build a `done` SSE payload from a persisted Trace row alone — used for paths
+    (like a /approve cancel) where there's no AgentResult to read from."""
+    return {
+        "trace_id": trace.id,
+        "status": trace.status,
+        "response_text": trace.response_text,
+        "model": trace.model,
+        "usage": {
+            "input_tokens": trace.tokens_input,
+            "output_tokens": trace.tokens_output,
+            "cache_creation_tokens": trace.tokens_cache_creation,
+            "cache_read_tokens": trace.tokens_cache_read,
+            "cost_usd": trace.cost_usd,
+            "model": trace.model,
+        },
+        "pending_plan": trace.awaiting_approval_plan,
+        "approval_reasons": trace.approval_reasons or [],
+    }
+
+
+async def _stream_agent_approve(
+    *,
+    trace_id: str,
+    approved: bool,
+    reason: str | None,
+    session: AsyncSession,
+    llm: LLM,
+) -> AsyncIterator[str]:
+    """SSE variant of /agent/{trace_id}/approve. Emits a `step` for the approval
+    decision, then (if approved) streams each step of the resumed execution, then
+    `done`. Errors land as `error` events and are also recorded on the trace."""
+    trace = (
+        await session.execute(select(Trace).where(Trace.id == trace_id))
+    ).scalar_one_or_none()
+    if trace is None:
+        yield format_event("error", {"message": f"Trace {trace_id!r} not found"})
+        return
+    if trace.status != "pending_approval":
+        yield format_event(
+            "error",
+            {
+                "message": (
+                    f"Trace {trace_id!r} is not awaiting approval "
+                    f"(status={trace.status!r})"
+                )
+            },
+        )
+        return
+
+    decision_step_dict = {
+        "idx": len(trace.steps),
+        "type": "approval_decision",
+        "duration_ms": 0,
+        "approved": approved,
+        "error": reason if reason else None,
+    }
+    yield format_event("step", decision_step_dict)
+
+    if not approved:
+        trace.status = "cancelled"
+        trace.response_text = "User declined to approve the plan. No tools were run."
+        trace.steps = list(trace.steps) + [decision_step_dict]
+        trace.awaiting_approval_plan = None
+        trace.completed_at = datetime.now(timezone.utc)
+        await session.flush()
+        yield format_event("done", _done_payload_from_trace(trace))
+        return
+
+    # Approved — resume execution streamed.
+    raw_plan = trace.awaiting_approval_plan
+    if raw_plan is None:
+        yield format_event(
+            "error",
+            {"message": "Trace was pending_approval but no plan was persisted."},
+        )
+        return
+    try:
+        plan = Plan.model_validate(raw_plan)
+    except PydanticValidationError as e:
+        yield format_event(
+            "error", {"message": f"Persisted plan failed re-validation: {e}"}
+        )
+        return
+
+    step_idx_start = len(trace.steps) + 1  # +1 for decision_step we just yielded
+
+    queue: asyncio.Queue = asyncio.Queue()
+    DONE = object()
+
+    async def emit_step(step: AgentStep) -> None:
+        await queue.put(("step", step))
+
+    async def runner() -> None:
+        try:
+            result = await resume_agent(
+                goal=trace.goal,
+                plan=plan,
+                project_id=trace.project_id,
+                step_idx_start=step_idx_start,
+                llm=llm,
+                on_step=emit_step,
+            )
+            await queue.put(("result", result))
+        except Exception as e:  # noqa: BLE001
+            await queue.put(("error", f"{type(e).__name__}: {e}"))
+        finally:
+            await queue.put(DONE)
+
+    task = asyncio.create_task(runner())
+    try:
+        while True:
+            try:
+                item = await asyncio.wait_for(
+                    queue.get(), timeout=_SSE_KEEPALIVE_SECONDS
+                )
+            except asyncio.TimeoutError:
+                yield format_keepalive()
+                continue
+            if item is DONE:
+                return
+            kind, payload = item  # type: ignore[misc]
+            if kind == "step":
+                yield format_event("step", asdict(payload))
+            elif kind == "result":
+                new_step_dicts = [asdict(s) for s in payload.steps]
+                trace.steps = (
+                    list(trace.steps) + [decision_step_dict] + new_step_dicts
+                )
+                trace.status = payload.status
+                trace.response_text = payload.response_text
+                trace.awaiting_approval_plan = None
+                trace.completed_at = datetime.now(timezone.utc)
+                if payload.usage is not None:
+                    trace.tokens_input += payload.usage.input_tokens
+                    trace.tokens_output += payload.usage.output_tokens
+                    trace.tokens_cache_creation += payload.usage.cache_creation_tokens
+                    trace.tokens_cache_read += payload.usage.cache_read_tokens
+                    trace.cost_usd = round(
+                        trace.cost_usd + payload.usage.cost_usd, 6
+                    )
+                await session.flush()
+                yield format_event("done", _done_payload(trace, payload))
+            elif kind == "error":
+                yield format_event("error", {"message": payload})
+    finally:
+        if not task.done():
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+
+@router.post("/agent/{trace_id}/approve/stream")
+async def agent_approve_stream(
+    trace_id: str,
+    body: AgentApproveRequest,
+    session: AsyncSession = Depends(get_session),
+    llm: LLM = Depends(get_llm),
+) -> StreamingResponse:
+    """SSE variant of the approve endpoint. Streams the resumed execution after
+    approval; emits a single `step`+`done` pair on cancel."""
+    return StreamingResponse(
+        _stream_agent_approve(
+            trace_id=trace_id,
+            approved=body.approved,
+            reason=body.reason,
+            session=session,
+            llm=llm,
+        ),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/traces/{trace_id}")
