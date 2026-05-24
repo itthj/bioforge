@@ -95,8 +95,12 @@ backend/src/bioforge/
     llm.py                AsyncAnthropic wrapper, cost accounting
     prompts/              system.md, planner.md, critic.md (markdown, not strings)
   tools/                  @register_tool registry
-    sequence/gc_content              cheap
-    sequence/reverse_complement      cheap
+    sequence/gc_content              cheap   — GC% with N-aware denominator
+    sequence/reverse_complement      cheap   — Biopython rev-comp
+    sequence/translate               cheap   — 6 frames, all NCBI codes, leftover-aware
+    sequence/find_orfs               cheap   — 6-frame ORF scan, fwd-strand coords
+    sequence/codon_usage             cheap   — codon counts + per-AA fractions
+    sequence/design_guides           cheap   — Cas9 / Cas12a guide RNA candidates
     sequence/blast                   EXPENSIVE — triggers approval gate
     meta/memory_tools.recall_memory  cheap, reads via ContextVar
     meta/memory_tools.remember       cheap, upserts via ContextVar
@@ -104,7 +108,7 @@ backend/src/bioforge/
     Project                          project workspaces
     ProjectMemory                    (project_id, key) UPSERT; ondelete=CASCADE
     Trace                            agent run history with project_id
-backend/tests/            89 tests: + projects CRUD + memory tools + agent-memory integration
+backend/tests/            134 tests: + bio tools (translate, ORFs, codon_usage, guides)
 backend/tests/fixtures/   regenerate.py (NCBI Entrez), committed FASTA + meta.json
 ```
 
