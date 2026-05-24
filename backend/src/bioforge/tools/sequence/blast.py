@@ -37,6 +37,22 @@ class BlastProgram(str, Enum):
     tblastn = "tblastn"
 
 
+class BlastTask(str, Enum):
+    """Sub-strategy within `blastn`. Required for short queries.
+
+    - `megablast` (NCBI default): highly similar sequences, large query
+    - `dc-megablast`: discontiguous megablast, more sensitive
+    - `blastn`: traditional blastn, balanced
+    - `blastn-short`: optimized for queries <30 nt (CRISPR guides, primers).
+      Uses smaller word size + adjusted match/mismatch scoring.
+    """
+
+    megablast = "megablast"
+    dc_megablast = "dc-megablast"
+    blastn = "blastn"
+    blastn_short = "blastn-short"
+
+
 class BlastInput(ToolInput):
     sequence: str = Field(
         ...,
@@ -69,7 +85,7 @@ class BlastInput(ToolInput):
     expect_threshold: float = Field(
         default=10.0,
         gt=0,
-        le=1000,
+        le=10_000,
         description="E-value threshold; hits with E above this are excluded.",
     )
     max_hits: int = Field(
@@ -79,6 +95,15 @@ class BlastInput(ToolInput):
         description=(
             "Maximum number of top hits to return. Capped at 50 to keep responses small "
             "enough for the agent to reason over."
+        ),
+    )
+    task: BlastTask | None = Field(
+        default=None,
+        description=(
+            "Sub-strategy for blastn. Default `None` lets NCBI pick (typically "
+            "megablast). For queries <30 nt (CRISPR guides, primers) you almost always "
+            "want `blastn-short` — megablast will miss most short matches. Ignored for "
+            "blastp / blastx / tblastn."
         ),
     )
 
@@ -129,6 +154,7 @@ async def _run_ncbi_blast(
     sequence: str,
     expect: float,
     hitlist_size: int,
+    task: str | None = None,
 ) -> tuple[Any, str]:
     """Call NCBIWWW.qblast in a worker thread and parse the XML.
 
@@ -139,13 +165,26 @@ async def _run_ncbi_blast(
     def _sync_call() -> tuple[Any, str]:
         from Bio.Blast import NCBIWWW, NCBIXML
 
-        result_handle = NCBIWWW.qblast(
+        kwargs: dict[str, Any] = dict(
             program=program,
             database=database,
             sequence=sequence,
             expect=expect,
             hitlist_size=hitlist_size,
         )
+        if task is not None:
+            # NCBIWWW.qblast accepts megablast=True/False but routes "task" via the
+            # `service` parameter for the WebUI. The cleanest cross-version handling is
+            # to pass it as `megablast=True` when task=='megablast', and otherwise rely
+            # on the explicit URL parameters Biopython adds. For Phase 1 first cut:
+            # only translate "megablast" to the explicit flag and pass others as the
+            # `task` keyword (Biopython >= 1.81 supports it).
+            if task == "megablast":
+                kwargs["megablast"] = True
+            else:
+                kwargs["megablast"] = False
+            kwargs["task"] = task
+        result_handle = NCBIWWW.qblast(**kwargs)
         rid = getattr(result_handle, "rid", "") or ""
         record = NCBIXML.read(result_handle)
         return (record, rid)
@@ -241,6 +280,7 @@ async def blast(inp: BlastInput) -> BlastOutput:
             sequence=seq,
             expect=inp.expect_threshold,
             hitlist_size=inp.max_hits,
+            task=inp.task.value if inp.task else None,
         )
     except ToolError:
         raise

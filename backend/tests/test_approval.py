@@ -95,9 +95,9 @@ def patch_blast(monkeypatch):
 
     holder: dict = {"response": None, "calls": []}
 
-    async def _fake(*, program, database, sequence, expect, hitlist_size):
+    async def _fake(*, program, database, sequence, expect, hitlist_size, task=None):
         holder["calls"].append(
-            dict(program=program, database=database, sequence=sequence)
+            dict(program=program, database=database, sequence=sequence, task=task)
         )
         return holder["response"]
 

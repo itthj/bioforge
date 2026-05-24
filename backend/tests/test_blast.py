@@ -67,7 +67,7 @@ def patch_ncbi(monkeypatch):
 
     holder: dict = {"response": None, "calls": []}
 
-    async def _fake_run(*, program, database, sequence, expect, hitlist_size):
+    async def _fake_run(*, program, database, sequence, expect, hitlist_size, task=None):
         holder["calls"].append(
             dict(
                 program=program,
@@ -75,6 +75,7 @@ def patch_ncbi(monkeypatch):
                 sequence=sequence,
                 expect=expect,
                 hitlist_size=hitlist_size,
+                task=task,
             )
         )
         if isinstance(holder["response"], Exception):
