@@ -1,8 +1,10 @@
 # BioForge
 
-Agentic AI bioinformatics platform. Current state: Phase 1 (in progress) — full plan→approval→execute→critique→replan loop with SSE streaming. Five tools (`gc_content`, `reverse_complement`, `blast`, `recall_memory`, `remember`). Projects + persistent project memory with audit/edit endpoints. Structured-output planner and critic via Anthropic forced tool-use.
+Agentic AI bioinformatics platform. Current state: Phase 2 (in progress) — full plan→approval→execute→critique→replan loop with SSE streaming, **and now a React frontend** that renders the live trace. Eleven tools across sequence basics, CRISPR design / scoring / off-targets / NHEJ outcomes, and project memory. Projects + persistent project memory with audit/edit endpoints. Structured-output planner and critic via Anthropic forced tool-use. OpenTelemetry tracing on every agent run.
 
 ## Quickstart
+
+### Backend
 
 ```powershell
 # from the repo root
@@ -21,6 +23,16 @@ pytest
 # start the server
 uvicorn bioforge.main:app --app-dir backend/src --reload
 ```
+
+### Frontend (Vite dev server)
+
+```powershell
+cd frontend
+npm install   # first run only
+npm run dev   # serves on http://localhost:5173 with proxy to backend on :8000
+```
+
+Open http://localhost:5173 — type a goal, watch the agent reason. The dev server proxies `/agent`, `/projects`, `/traces`, `/health` to the backend so the SPA uses relative URLs.
 
 Then in another shell:
 
@@ -109,6 +121,15 @@ backend/src/bioforge/
     Project                          project workspaces
     ProjectMemory                    (project_id, key) UPSERT; ondelete=CASCADE
     Trace                            agent run history with project_id
+  observability/          OpenTelemetry tracing — agent.run → agent.plan → tool.call.*
+
+frontend/                 Vite + React 19 + TS strict + Tailwind 3
+  src/api/agent.ts        fetch+ReadableStream SSE consumer (async generators)
+  src/components/
+    ChatInput.tsx                  textarea + Ctrl+Enter submit
+    TraceView / StepCard.tsx       live step rendering, type-styled badges
+    ApprovalCard.tsx               shows on pending_approval; Approve / Cancel
+    FinalCard.tsx                  status badge + response text + token / cost
 backend/tests/            152 tests: + edit_outcome (Cas9 NHEJ simulation)
 backend/tests/fixtures/   regenerate.py (NCBI Entrez), committed FASTA + meta.json
 ```

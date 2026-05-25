@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.env
+.env.local
+*.log
+.DS_Store
+
+# tsc + vite build artifacts (generated from source during `npm run build`)
+*.tsbuildinfo
+vite.config.d.ts
+vite.config.js
