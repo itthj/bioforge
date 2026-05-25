@@ -125,11 +125,14 @@ backend/src/bioforge/
 
 frontend/                 Vite + React 19 + TS strict + Tailwind 3
   src/api/agent.ts        fetch+ReadableStream SSE consumer (async generators)
+  src/api/projects.ts     CRUD wrappers: projects + per-project memory
   src/components/
     ChatInput.tsx                  textarea + Ctrl+Enter submit
     TraceView / StepCard.tsx       live step rendering, type-styled badges
     ApprovalCard.tsx               shows on pending_approval; Approve / Cancel
     FinalCard.tsx                  status badge + response text + token / cost
+    ProjectSwitcher.tsx            header dropdown + create-project dialog
+    MemoryInspector.tsx            list / inline-edit / delete / add memory entries
 backend/tests/            152 tests: + edit_outcome (Cas9 NHEJ simulation)
 backend/tests/fixtures/   regenerate.py (NCBI Entrez), committed FASTA + meta.json
 ```
