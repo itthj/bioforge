@@ -27,7 +27,11 @@ class Settings(BaseSettings):
     otel_enabled: bool = Field(default=False, alias="BIOFORGE_OTEL_ENABLED")
     otel_exporter: str = Field(
         default="console", alias="BIOFORGE_OTEL_EXPORTER"
-    )  # console | none
+    )  # console | none | otlp
+    otel_endpoint: str = Field(
+        default="http://localhost:4318/v1/traces", alias="BIOFORGE_OTEL_ENDPOINT"
+    )
+    otel_headers: str = Field(default="", alias="BIOFORGE_OTEL_HEADERS")
 
 
 settings = Settings()

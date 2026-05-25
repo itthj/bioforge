@@ -82,6 +82,24 @@ Each event is one `event: <name>\ndata: <json>\n\n` block. Event types:
 >
 > A CI test (`test_migrations.py`) applies the full chain to an empty DB and asserts the resulting schema matches `Base.metadata` — catches model-vs-migration drift before merge.
 
+### OpenTelemetry export
+
+Tracing is disabled by default. Enable it when you want spans for agent runs, LLM calls, and tool calls:
+
+```powershell
+# Console spans for local debugging
+$env:BIOFORGE_OTEL_ENABLED = "true"
+$env:BIOFORGE_OTEL_EXPORTER = "console"
+
+# OTLP/HTTP export to a local collector, Jaeger, Honeycomb, Tempo, etc.
+$env:BIOFORGE_OTEL_ENABLED = "true"
+$env:BIOFORGE_OTEL_EXPORTER = "otlp"
+$env:BIOFORGE_OTEL_ENDPOINT = "http://localhost:4318/v1/traces"
+$env:BIOFORGE_OTEL_HEADERS = "authorization=Bearer <token>"  # optional key=value,key2=value2
+```
+
+`BIOFORGE_OTEL_EXPORTER=none` installs a provider without exporting. That is mainly for tests and local instrumentation checks.
+
 ### Projects + memory
 
 Every run is scoped to a `project_id` (default: `"default-project"`, auto-created on startup). Each project has its own memory store the agent can read via `recall_memory` and write via `remember`. The user can inspect and edit memory via the `/projects/{id}/memory` API.

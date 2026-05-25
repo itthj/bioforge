@@ -53,6 +53,7 @@ from opentelemetry import trace
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import (
+    BatchSpanProcessor,
     ConsoleSpanExporter,
     SimpleSpanProcessor,
     SpanProcessor,
@@ -63,6 +64,59 @@ from bioforge.config import settings
 _TRACER_NAME = "bioforge.agent"
 _configured = False
 _lock = threading.Lock()
+
+
+def _parse_otlp_headers(raw: str) -> dict[str, str]:
+    """Parse `k=v,k2=v2` OTLP header config into the shape the exporter expects."""
+    headers: dict[str, str] = {}
+    for chunk in raw.split(","):
+        item = chunk.strip()
+        if not item:
+            continue
+        if "=" not in item:
+            raise ValueError(
+                "BIOFORGE_OTEL_HEADERS must use comma-separated key=value pairs"
+            )
+        key, value = item.split("=", 1)
+        key = key.strip()
+        if not key:
+            raise ValueError("BIOFORGE_OTEL_HEADERS contains an empty header name")
+        headers[key] = value.strip()
+    return headers
+
+
+def _build_export_processor(exporter: str) -> SpanProcessor | None:
+    """Build the configured exporter processor.
+
+    `console` uses SimpleSpanProcessor so local debugging flushes immediately.
+    `otlp` uses BatchSpanProcessor so production ingest does not block the request path.
+    `none` installs no exporter but still lets tests add an InMemory exporter.
+    """
+    chosen = exporter.lower()
+    if chosen == "none":
+        return None
+    if chosen == "console":
+        return SimpleSpanProcessor(ConsoleSpanExporter())
+    if chosen == "otlp":
+        try:
+            from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+                OTLPSpanExporter,
+            )
+        except ImportError as exc:  # pragma: no cover - dependency is declared
+            raise RuntimeError(
+                "BIOFORGE_OTEL_EXPORTER=otlp requires "
+                "opentelemetry-exporter-otlp-proto-http to be installed"
+            ) from exc
+        return BatchSpanProcessor(
+            OTLPSpanExporter(
+                endpoint=settings.otel_endpoint,
+                headers=_parse_otlp_headers(settings.otel_headers),
+            )
+        )
+    raise ValueError(
+        "Unsupported BIOFORGE_OTEL_EXPORTER value "
+        f"{exporter!r}; expected 'console', 'none', or 'otlp'"
+    )
 
 
 def configure_tracing(
@@ -91,8 +145,10 @@ def configure_tracing(
                     }
                 )
             )
-            if is_enabled and chosen == "console":
-                provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
+            if is_enabled:
+                processor = _build_export_processor(chosen)
+                if processor is not None:
+                    provider.add_span_processor(processor)
             for proc in extra_processors or []:
                 provider.add_span_processor(proc)
             trace.set_tracer_provider(provider)

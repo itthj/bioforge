@@ -283,3 +283,43 @@ async def test_noop_tracer_does_not_break_anything() -> None:
     span_ctx = tracing.tracer.start_as_current_span("test.noop")
     span_ctx.__enter__()
     span_ctx.__exit__(None, None, None)
+
+
+# --- Exporter configuration --------------------------------------------------------
+
+
+def test_parse_otlp_headers() -> None:
+    from bioforge.observability.tracing import _parse_otlp_headers
+
+    assert _parse_otlp_headers("x-api-key=abc, tenant = bioforge ") == {
+        "x-api-key": "abc",
+        "tenant": "bioforge",
+    }
+
+
+def test_parse_otlp_headers_rejects_malformed_value() -> None:
+    from bioforge.observability.tracing import _parse_otlp_headers
+
+    with pytest.raises(ValueError, match="key=value"):
+        _parse_otlp_headers("x-api-key")
+
+
+def test_build_export_processor_rejects_unknown_exporter() -> None:
+    from bioforge.observability.tracing import _build_export_processor
+
+    with pytest.raises(ValueError, match="console.*none.*otlp"):
+        _build_export_processor("zipkin")
+
+
+def test_build_otlp_export_processor(monkeypatch) -> None:
+    pytest.importorskip("opentelemetry.exporter.otlp.proto.http.trace_exporter")
+
+    from bioforge.observability import tracing
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+    monkeypatch.setattr(tracing.settings, "otel_endpoint", "http://collector:4318/v1/traces")
+    monkeypatch.setattr(tracing.settings, "otel_headers", "authorization=Bearer test")
+
+    processor = tracing._build_export_processor("otlp")
+
+    assert isinstance(processor, BatchSpanProcessor)
