@@ -1,6 +1,6 @@
 # BioForge
 
-Agentic AI bioinformatics platform. Current state: Phase 2 (in progress) — full plan→approval→execute→critique→replan loop with SSE streaming, **and now a React frontend** that renders the live trace. Twelve tools across sequence basics, CRISPR design / scoring / off-targets / NHEJ outcomes, and project memory. Projects + persistent project memory with audit/edit endpoints. Structured-output planner and critic via Anthropic forced tool-use. OpenTelemetry tracing on every agent run. CI runs ruff + pytest + the frontend build on every push.
+Agentic AI bioinformatics platform. Current state: Phase 2 (in progress) — full plan→approval→execute→critique→replan loop with SSE streaming, **and now a React frontend** that renders the live trace. Thirteen tools across sequence basics, CRISPR design / scoring / off-targets / NHEJ outcomes / integrated edit reports, and project memory. Projects + persistent project memory with audit/edit endpoints. Structured-output planner and critic via Anthropic forced tool-use. OpenTelemetry tracing on every agent run. CI runs ruff + pytest + the frontend build on every push.
 
 ## Quickstart
 
