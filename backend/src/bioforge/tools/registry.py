@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Awaitable, Callable
+from collections.abc import Awaitable, Callable
 
 from bioforge.tools.base import CostHint, ToolInput, ToolOutput, ToolSpec
 

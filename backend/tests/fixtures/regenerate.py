@@ -19,7 +19,7 @@ import hashlib
 import json
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from Bio import Entrez, SeqIO
@@ -91,7 +91,7 @@ def regenerate_lambda_phage_1kb() -> None:
         "accession": accession,
         "seq_start": seq_start,
         "seq_stop": seq_stop,
-        "fetched_at": datetime.now(timezone.utc).isoformat(),
+        "fetched_at": datetime.now(UTC).isoformat(),
         "total_length": len(sequence),
         "gc_count": gc_count,
         "gc_percent": gc_percent,

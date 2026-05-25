@@ -46,7 +46,6 @@ from bioforge.observability.tracing import (
     record_exception,
     set_agent_run_attrs,
     set_status_ok,
-    tracer,
 )
 from bioforge.tools.base import ToolError
 from bioforge.tools.registry import REGISTRY, execute_tool, list_tools, to_anthropic_tools

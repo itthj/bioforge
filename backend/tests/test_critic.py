@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import pytest
-
-from bioforge.agent.critic import CriticVerdict, SUBMIT_VERDICT_TOOL, evaluate
+from bioforge.agent.critic import SUBMIT_VERDICT_TOOL, CriticVerdict, evaluate
 from bioforge.agent.loop import AgentStep
 from bioforge.agent.planner import Plan, PlanStep
 

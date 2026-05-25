@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -104,7 +104,7 @@ async def _persist_new_trace(session: AsyncSession, result: AgentResult) -> Trac
         cost_usd=result.usage.cost_usd if result.usage else 0.0,
         awaiting_approval_plan=result.pending_plan,
         approval_reasons=list(result.approval_reasons or []),
-        completed_at=datetime.now(timezone.utc),
+        completed_at=datetime.now(UTC),
     )
     session.add(trace)
     await session.flush()
@@ -180,7 +180,7 @@ async def _stream_agent_run(
                 item = await asyncio.wait_for(
                     queue.get(), timeout=_SSE_KEEPALIVE_SECONDS
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 yield format_keepalive()
                 continue
 
@@ -257,7 +257,7 @@ async def agent_approve(
         trace.response_text = "User declined to approve the plan. No tools were run."
         trace.steps = list(trace.steps) + [decision_step]
         trace.awaiting_approval_plan = None
-        trace.completed_at = datetime.now(timezone.utc)
+        trace.completed_at = datetime.now(UTC)
         await session.flush()
         return _trace_to_response(trace)
 
@@ -292,7 +292,7 @@ async def agent_approve(
     trace.status = new_result.status
     trace.response_text = new_result.response_text
     trace.awaiting_approval_plan = None
-    trace.completed_at = datetime.now(timezone.utc)
+    trace.completed_at = datetime.now(UTC)
     if new_result.usage is not None:
         trace.tokens_input += new_result.usage.input_tokens
         trace.tokens_output += new_result.usage.output_tokens
@@ -368,7 +368,7 @@ async def _stream_agent_approve(
         trace.response_text = "User declined to approve the plan. No tools were run."
         trace.steps = list(trace.steps) + [decision_step_dict]
         trace.awaiting_approval_plan = None
-        trace.completed_at = datetime.now(timezone.utc)
+        trace.completed_at = datetime.now(UTC)
         await session.flush()
         yield format_event("done", _done_payload_from_trace(trace))
         return
@@ -421,7 +421,7 @@ async def _stream_agent_approve(
                 item = await asyncio.wait_for(
                     queue.get(), timeout=_SSE_KEEPALIVE_SECONDS
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 yield format_keepalive()
                 continue
             if item is DONE:
@@ -437,7 +437,7 @@ async def _stream_agent_approve(
                 trace.status = payload.status
                 trace.response_text = payload.response_text
                 trace.awaiting_approval_plan = None
-                trace.completed_at = datetime.now(timezone.utc)
+                trace.completed_at = datetime.now(UTC)
                 if payload.usage is not None:
                     trace.tokens_input += payload.usage.input_tokens
                     trace.tokens_output += payload.usage.output_tokens

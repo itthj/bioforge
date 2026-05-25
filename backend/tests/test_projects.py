@@ -7,9 +7,6 @@ End-to-end through the FastAPI app via httpx.AsyncClient. The `streaming_client`
 
 from __future__ import annotations
 
-import pytest
-
-
 # --- Projects -------------------------------------------------------------------------
 
 

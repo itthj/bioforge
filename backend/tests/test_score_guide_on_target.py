@@ -10,12 +10,10 @@ from __future__ import annotations
 
 import pydantic
 import pytest
-
 from bioforge.tools.sequence.score_guide_on_target import (
     ScoreGuideOnTargetInput,
     score_guide_on_target,
 )
-
 
 # --- Component-level semantics -------------------------------------------------------
 

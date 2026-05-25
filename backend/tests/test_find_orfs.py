@@ -8,10 +8,7 @@ require_stop semantics, and reverse-strand coordinate mapping.
 
 from __future__ import annotations
 
-import pytest
-
 from bioforge.tools.sequence.find_orfs import FindOrfsInput, find_orfs
-
 
 # A 60-nt forward-strand ORF: ATG + 18 codons + TAA = 60 nt → 19-aa protein
 _FWD_ORF_60NT = (

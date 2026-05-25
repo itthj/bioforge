@@ -10,7 +10,6 @@ These exercise the path the planner/critic/replan slice was built to prove:
 from __future__ import annotations
 
 import pytest
-
 from bioforge.agent import run_agent
 from bioforge.constants import DEFAULT_PROJECT_ID
 

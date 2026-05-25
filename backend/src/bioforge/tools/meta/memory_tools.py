@@ -12,7 +12,7 @@ any entry via `PATCH /projects/{id}/memory/{key}`. Provenance is recorded in
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
@@ -22,7 +22,6 @@ from bioforge.agent.context import get_current_db_session, get_current_project_i
 from bioforge.db.models import ProjectMemory
 from bioforge.tools.base import ToolError, ToolInput, ToolOutput
 from bioforge.tools.registry import register_tool
-
 
 # --- recall_memory --------------------------------------------------------------------
 
@@ -194,7 +193,7 @@ async def remember(inp: RememberInput) -> RememberOutput:
         existing.kind = inp.kind
         existing.rationale = inp.rationale
         existing.source = "agent"
-        existing.updated_at = datetime.now(timezone.utc)
+        existing.updated_at = datetime.now(UTC)
         operation: Literal["created", "updated"] = "updated"
     else:
         new = ProjectMemory(

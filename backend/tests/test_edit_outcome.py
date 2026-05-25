@@ -10,14 +10,12 @@ from __future__ import annotations
 import pydantic
 import pytest
 from Bio.Seq import Seq
-
 from bioforge.tools.base import ToolError
 from bioforge.tools.sequence.edit_outcome import (
-    EditOutcomeInput,
     _RULE_OF_THUMB_PROBS,
+    EditOutcomeInput,
     edit_outcome,
 )
-
 
 # 20-nt protospacer used as a stable guide across tests. Balanced GC, no runs.
 _GUIDE = "ACGTACGTACGTACGTACGT"

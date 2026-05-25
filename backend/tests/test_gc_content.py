@@ -8,9 +8,8 @@ those are validator-behavior assertions, not biological claims.
 
 from __future__ import annotations
 
-import pytest
 import pydantic
-
+import pytest
 from bioforge.tools.sequence.gc_content import (
     GcContentInput,
     GcContentOutput,

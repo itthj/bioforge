@@ -26,7 +26,7 @@ from typing import Literal
 from Bio.Seq import Seq
 from pydantic import BaseModel, Field, field_validator
 
-from bioforge.tools.base import ToolError, ToolInput, ToolOutput
+from bioforge.tools.base import ToolInput, ToolOutput
 from bioforge.tools.registry import register_tool
 
 _DNA_CHARS = set("ACGTNacgtn")

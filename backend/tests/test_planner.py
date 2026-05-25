@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import pytest
-
-from bioforge.agent.planner import Plan, SUBMIT_PLAN_TOOL, make_plan
+from bioforge.agent.planner import SUBMIT_PLAN_TOOL, Plan, make_plan
 from bioforge.tools.registry import list_tools
 
 

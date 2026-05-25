@@ -53,7 +53,7 @@ class UsageSummary:
     cost_usd: float
     model: str
 
-    def merge(self, other: "UsageSummary") -> "UsageSummary":
+    def merge(self, other: UsageSummary) -> UsageSummary:
         if self.model != other.model:
             raise ValueError(
                 f"Cannot merge usage across models: {self.model!r} vs {other.model!r}"
@@ -68,7 +68,7 @@ class UsageSummary:
         )
 
     @classmethod
-    def zero(cls, model: str) -> "UsageSummary":
+    def zero(cls, model: str) -> UsageSummary:
         return cls(
             input_tokens=0,
             output_tokens=0,

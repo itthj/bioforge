@@ -14,13 +14,10 @@ from __future__ import annotations
 import json
 import re
 
-import pytest
-
 from bioforge.agent import AgentStep, Plan, PlanStep, resume_agent, run_agent
 from bioforge.api.agent import get_llm
 from bioforge.api.sse import format_event, format_keepalive
 from bioforge.constants import DEFAULT_PROJECT_ID
-
 
 # --- Unit: on_step callback ----------------------------------------------------------
 

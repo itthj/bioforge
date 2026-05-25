@@ -5,7 +5,6 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-
 from bioforge.agent import (
     Plan,
     PlanStep,
@@ -16,7 +15,6 @@ from bioforge.agent import (
 from bioforge.constants import DEFAULT_PROJECT_ID
 from bioforge.tools.registry import REGISTRY
 from bioforge.tools.sequence import blast as blast_module
-
 
 # --- requires_approval unit tests ----------------------------------------------------
 

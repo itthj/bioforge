@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 _project_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "bioforge_project_id", default=None
 )
-_db_session_var: contextvars.ContextVar["AsyncSession | None"] = contextvars.ContextVar(
+_db_session_var: contextvars.ContextVar[AsyncSession | None] = contextvars.ContextVar(
     "bioforge_db_session", default=None
 )
 
@@ -35,7 +35,7 @@ def get_current_project_id() -> str | None:
     return _project_id_var.get()
 
 
-def get_current_db_session() -> "AsyncSession | None":
+def get_current_db_session() -> AsyncSession | None:
     return _db_session_var.get()
 
 
@@ -52,13 +52,13 @@ class AgentContextScope:
     """
 
     def __init__(
-        self, *, project_id: str | None, session: "AsyncSession | None"
+        self, *, project_id: str | None, session: AsyncSession | None
     ) -> None:
         self._project_id = project_id
         self._session = session
         self._tokens: list[contextvars.Token] = []
 
-    def __enter__(self) -> "AgentContextScope":
+    def __enter__(self) -> AgentContextScope:
         self._tokens.append(_project_id_var.set(self._project_id))
         self._tokens.append(_db_session_var.set(self._session))
         return self

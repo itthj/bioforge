@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import pydantic
 import pytest
-
 from bioforge.tools.base import ToolError
 from bioforge.tools.sequence.translate import (
     TranslateInput,

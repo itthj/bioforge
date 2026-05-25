@@ -9,18 +9,14 @@ from __future__ import annotations
 
 import pydantic
 import pytest
-
 from Bio.Seq import Seq
-
 from bioforge.tools.sequence.design_guides import (
     DesignGuidesInput,
-    Guide,
-    design_guides,
     _longest_run,
     _longest_selfcomp,
     _score,
+    design_guides,
 )
-
 
 # --- Metric-helper unit tests --------------------------------------------------------
 

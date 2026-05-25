@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import pytest
 import pytest_asyncio
-
 from bioforge.agent.context import AgentContextScope
 from bioforge.db.models import Project, ProjectMemory
 from bioforge.tools.base import ToolError

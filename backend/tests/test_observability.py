@@ -8,16 +8,14 @@ Tests are session-scoped because OTel forbids replacing the TracerProvider mid-p
 from __future__ import annotations
 
 import pytest
-import pytest_asyncio
+from bioforge.agent import run_agent
+from bioforge.constants import DEFAULT_PROJECT_ID
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
     InMemorySpanExporter,
 )
-
-from bioforge.agent import run_agent
-from bioforge.constants import DEFAULT_PROJECT_ID
 
 
 @pytest.fixture(scope="session")

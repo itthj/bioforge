@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-
 from bioforge.tools.base import ToolInput, ToolOutput
 from bioforge.tools.registry import (
     REGISTRY,

@@ -11,8 +11,6 @@ from types import SimpleNamespace
 
 import pydantic
 import pytest
-
-from bioforge.tools.base import ToolError
 from bioforge.tools.sequence import blast as blast_module
 from bioforge.tools.sequence.find_offtargets import (
     FindOfftargetsInput,

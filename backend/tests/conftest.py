@@ -352,12 +352,11 @@ async def streaming_client(test_session_maker):
     """An httpx.AsyncClient bound to the FastAPI app, with get_session overridden to use
     the per-test on-disk SQLite. The default project row is also bootstrapped so
     /agent/run calls with project_id='default-project' don't fail FK constraints."""
-    from httpx import ASGITransport, AsyncClient
-
     from bioforge.constants import DEFAULT_PROJECT_ID
     from bioforge.db.engine import get_session
     from bioforge.db.models import Project
     from bioforge.main import app
+    from httpx import ASGITransport, AsyncClient
 
     async def override_get_session():
         async with test_session_maker() as session:

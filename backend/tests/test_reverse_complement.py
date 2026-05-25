@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import pydantic
 import pytest
-
 from bioforge.tools.sequence.reverse_complement import (
     ReverseComplementInput,
     reverse_complement,

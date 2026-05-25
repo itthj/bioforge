@@ -51,7 +51,7 @@ def _load_critic_prompt() -> str:
     return (_PROMPTS_DIR / "critic.md").read_text(encoding="utf-8")
 
 
-def _serialize_step(step: "AgentStep") -> dict:
+def _serialize_step(step: AgentStep) -> dict:
     d = asdict(step)
     return {k: v for k, v in d.items() if v is not None}
 
@@ -59,7 +59,7 @@ def _serialize_step(step: "AgentStep") -> dict:
 def _build_critic_messages(
     goal: str,
     plan: Plan | None,
-    steps: list["AgentStep"],
+    steps: list[AgentStep],
     draft_response: str,
 ) -> list[dict]:
     plan_block = (
@@ -92,7 +92,7 @@ async def evaluate(
     *,
     goal: str,
     plan: Plan | None,
-    steps: list["AgentStep"],
+    steps: list[AgentStep],
     draft_response: str,
     llm: LLM,
     model: str,

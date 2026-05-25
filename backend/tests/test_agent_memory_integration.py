@@ -11,7 +11,6 @@ ContextVars — no FastAPI. The HTTP plumbing is already validated by test_proje
 from __future__ import annotations
 
 import pytest_asyncio
-
 from bioforge.agent import run_agent
 from bioforge.agent.context import AgentContextScope
 from bioforge.db.models import Project, ProjectMemory

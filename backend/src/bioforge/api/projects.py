@@ -9,7 +9,7 @@ inspectable and editable" guarantee from the spec.
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -174,7 +174,7 @@ async def update_project(
         project.organism = body.organism
     if body.reference_genome is not None:
         project.reference_genome = body.reference_genome
-    project.updated_at = datetime.now(timezone.utc)
+    project.updated_at = datetime.now(UTC)
     await session.flush()
     return _to_project_response(project)
 
@@ -240,7 +240,7 @@ async def upsert_memory(
         existing.kind = body.kind
         existing.rationale = body.rationale
         existing.source = "user"
-        existing.updated_at = datetime.now(timezone.utc)
+        existing.updated_at = datetime.now(UTC)
         await session.flush()
         return _to_memory_entry(existing)
 
