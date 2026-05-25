@@ -9,6 +9,8 @@ venv/
 *.db
 *.sqlite
 *.sqlite3
+# Alembic-tracked schema migrations live in backend/alembic/versions/ and ARE
+# committed. The .db files (created at runtime) are not.
 dist/
 build/
 .coverage

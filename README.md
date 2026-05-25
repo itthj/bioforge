@@ -70,7 +70,17 @@ Each event is one `event: <name>\ndata: <json>\n\n` block. Event types:
 - `error` — transport-level error (the agent loop's own errors arrive as `tool_error` step events)
 - Comment lines `: keepalive` flush every ~15s to keep proxies from closing the connection
 
-> **DB schema note**: the schema gained two new tables (`projects`, `project_memory`) plus columns on `traces` over Phase 1. If you have a `bioforge.db` from before this slice, delete it before restarting — `init_db()` is `create_all` not `migrate`. Real migrations (Alembic) arrive when we have non-disposable data.
+> **Database migrations**: schema changes now ship as Alembic revisions in `backend/alembic/versions/`. `init_db()` runs `alembic upgrade head` at FastAPI startup, so the dev path stays one-command. To work with migrations directly:
+>
+> ```powershell
+> cd backend
+> $env:BIOFORGE_DB_URL = "sqlite+aiosqlite:///./bioforge.db"
+> ..\.venv\Scripts\alembic.exe revision --autogenerate -m "describe change"  # after editing a model
+> ..\.venv\Scripts\alembic.exe upgrade head                                    # apply
+> ..\.venv\Scripts\alembic.exe downgrade -1                                    # revert one
+> ```
+>
+> A CI test (`test_migrations.py`) applies the full chain to an empty DB and asserts the resulting schema matches `Base.metadata` — catches model-vs-migration drift before merge.
 
 ### Projects + memory
 
