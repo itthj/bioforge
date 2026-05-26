@@ -82,6 +82,18 @@ Each event is one `event: <name>\ndata: <json>\n\n` block. Event types:
 >
 > A CI test (`test_migrations.py`) applies the full chain to an empty DB and asserts the resulting schema matches `Base.metadata` — catches model-vs-migration drift before merge.
 
+### CI
+
+`.github/workflows/ci.yml` runs on every push + PR to `main`:
+  - **backend** — pip install, `ruff check backend/`, `pytest -v` (online-marker tests excluded by `pyproject.toml`'s `addopts`)
+  - **frontend** — `npm ci`, `npm run typecheck`, `npm run build`
+  - Jobs run in parallel; concurrency cancels superseded refs to save minutes.
+
+`.github/workflows/nightly.yml` runs weekly (Mondays 06:00 UTC) and on manual dispatch:
+  - Regenerates committed fixtures from live NCBI (`regenerate.py`)
+  - Runs the `-m online` test suite — catches upstream API drift (renamed accession, schema change, deprecated endpoint) before users do
+  - Uploads regenerated fixtures as an artifact on failure so you can diff what NCBI changed
+
 ### OpenTelemetry export
 
 Tracing is disabled by default. Enable it when you want spans for agent runs, LLM calls, and tool calls:
