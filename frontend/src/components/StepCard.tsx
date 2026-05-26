@@ -1,7 +1,10 @@
 import type { AgentStep, PlanStep } from "../types/agent";
 import type { CrisprEditReportOutput } from "../types/crispr";
 import { isCrisprEditReport } from "../types/crispr";
+import type { DesignPrimersOutput } from "../types/primers";
+import { isDesignPrimersOutput } from "../types/primers";
 import { CrisprReportCard } from "./CrisprReportCard";
+import { PrimerPairsCard } from "./PrimerPairsCard";
 
 interface StepCardProps {
   step: AgentStep;
@@ -138,6 +141,10 @@ function ToolCallBody({ step }: { step: AgentStep }) {
     step.tool_name === "crispr_edit_report" &&
     step.tool_output &&
     isCrisprEditReport(step.tool_output);
+  const isPrimers =
+    step.tool_name === "design_primers" &&
+    step.tool_output &&
+    isDesignPrimersOutput(step.tool_output);
 
   return (
     <div className="space-y-2">
@@ -157,7 +164,10 @@ function ToolCallBody({ step }: { step: AgentStep }) {
       {isCrispr && step.tool_output && (
         <CrisprReportCard report={step.tool_output as unknown as CrisprEditReportOutput} />
       )}
-      {step.tool_output && !isCrispr && (
+      {isPrimers && step.tool_output && (
+        <PrimerPairsCard output={step.tool_output as unknown as DesignPrimersOutput} />
+      )}
+      {step.tool_output && !isCrispr && !isPrimers && (
         <details className="text-xs">
           <summary className="cursor-pointer text-slate-500 hover:text-slate-700">
             output

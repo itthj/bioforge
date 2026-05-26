@@ -32,6 +32,16 @@ const QUICK_ACTIONS: { label: string; goal: string }[] = [
       "Find all ORFs of at least 30 amino acids in this sequence (forward strand):\n\n" +
       "ATGGCGCCGTTGATCCGTGTCATCCGGAACAACCCGGAGGTTAACAACGGCAACTAACGGTCCAGGTAA",
   },
+  {
+    label: "PCR primers",
+    goal:
+      "Design PCR primers flanking the central 50 nt of this template " +
+      "(Tm ~60°C, product 100-200 bp, top 3 pairs):\n\n" +
+      "GCAATTCCCAATGGCAAAGGTAAAATCCATCGTAACGTGGAATCCAAATAAGGCATATATATGCAACC" +
+      "GATACGTAAGCAGTACCGGTGAACGTGGCTTAATGCCCTTGACATAGCCGTATCAATGGTTCCAAGG" +
+      "CTCTAGGTTCGATCGTACCGTACGATACGAATGGCATTTAGCATGAAGTCATAGCCTTAGCATTGCA" +
+      "ACTGCATGCAA",
+  },
 ];
 
 export function ChatInput({ onSubmit, disabled }: ChatInputProps) {
