@@ -28,8 +28,11 @@ uvicorn bioforge.main:app --app-dir backend/src --reload
 
 ```powershell
 cd frontend
-npm install   # first run only
-npm run dev   # serves on http://localhost:5173 with proxy to backend on :8000
+npm install            # first run only
+npm run dev            # serves on http://localhost:5173 with proxy to backend on :8000
+npm test               # vitest run — component tests against happy-dom
+npm run typecheck      # tsc --noEmit, strict mode
+npm run build          # production bundle in dist/
 ```
 
 Open http://localhost:5173 — type a goal, watch the agent reason. The dev server proxies `/agent`, `/projects`, `/traces`, `/health` to the backend so the SPA uses relative URLs.
