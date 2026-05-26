@@ -25,16 +25,14 @@ _GUIDE = "ACGTACGTACGTACGTACGT"
 # don't get unintended matches.
 _TARGET_FWD = (
     "AAAAATTTTAAAAATTTTAA"  # 20-nt 5' filler (no guide-matching seq)
-    + _GUIDE                # protospacer at [20..40]
-    + "AGG"                 # NGG PAM at [40..43]
-    + "CCCCCCCCCCCCCCCCC"   # 17-nt 3' filler (total 60 nt)
+    + _GUIDE  # protospacer at [20..40]
+    + "AGG"  # NGG PAM at [40..43]
+    + "CCCCCCCCCCCCCCCCC"  # 17-nt 3' filler (total 60 nt)
 )
 
 
 async def test_locates_guide_on_forward_strand() -> None:
-    out = await edit_outcome(
-        EditOutcomeInput(target=_TARGET_FWD, guide=_GUIDE)
-    )
+    out = await edit_outcome(EditOutcomeInput(target=_TARGET_FWD, guide=_GUIDE))
     assert out.guide_strand == "+"
     # Cas9 cuts 3 nt upstream of PAM. PAM at fwd[40..43]; cut at fwd position 37.
     assert out.cut_position_fwd == 37
@@ -43,9 +41,7 @@ async def test_locates_guide_on_forward_strand() -> None:
 async def test_locates_guide_on_reverse_strand() -> None:
     """Reverse-complement the construct so the guide+PAM live on the - strand."""
     rev_construct = str(Seq(_TARGET_FWD).reverse_complement())
-    out = await edit_outcome(
-        EditOutcomeInput(target=rev_construct, guide=_GUIDE)
-    )
+    out = await edit_outcome(EditOutcomeInput(target=rev_construct, guide=_GUIDE))
     assert out.guide_strand == "-"
     # On the original + strand the cut was at position 37 of a 60-nt sequence.
     # On the reverse-complemented strand (now the input), that point maps to 60 - 37 = 23.
@@ -65,7 +61,7 @@ async def test_no_match_raises_clear_error() -> None:
 async def test_ambiguous_match_raises_clear_error() -> None:
     """Guide appears at TWO PAM-adjacent sites → ambiguous edit, must refuse."""
     one_hit = _GUIDE + "AGG"  # 23 nt
-    spacer = "TTTTT" * 4       # 20 nt of T's (no guide-matching content)
+    spacer = "TTTTT" * 4  # 20 nt of T's (no guide-matching content)
     target = "A" * 10 + one_hit + spacer + one_hit + "A" * 10
     with pytest.raises(ToolError, match="multiple PAM-adjacent sites"):
         await edit_outcome(EditOutcomeInput(target=target, guide=_GUIDE))
@@ -91,9 +87,7 @@ async def test_no_edit_returns_unchanged_target() -> None:
 async def test_insertion_adds_one_base_at_cut() -> None:
     out = await edit_outcome(EditOutcomeInput(target=_TARGET_FWD, guide=_GUIDE))
     for base in ("A", "C", "G", "T"):
-        outcome = next(
-            o for o in out.outcomes if o.outcome_type == f"insertion_+1_{base}"
-        )
+        outcome = next(o for o in out.outcomes if o.outcome_type == f"insertion_+1_{base}")
         assert outcome.indel_size == 1
         assert outcome.frameshift is True  # +1 % 3 != 0
         assert len(outcome.edited_sequence) == len(_TARGET_FWD) + 1
@@ -197,9 +191,7 @@ async def test_composes_with_design_guides_output() -> None:
     assert design_out.num_returned >= 1
     top_guide = design_out.guides[0].protospacer
 
-    edit_out = await edit_outcome(
-        EditOutcomeInput(target=_TARGET_FWD, guide=top_guide)
-    )
+    edit_out = await edit_outcome(EditOutcomeInput(target=_TARGET_FWD, guide=top_guide))
     # End-to-end: design_guides → edit_outcome found the same site
     assert edit_out.guide_strand == "+"
     assert any(o.outcome_type == "deletion_-3" for o in edit_out.outcomes)

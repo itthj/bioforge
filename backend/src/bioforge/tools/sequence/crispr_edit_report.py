@@ -356,9 +356,7 @@ async def crispr_edit_report(inp: CrisprEditReportInput) -> CrisprEditReportOutp
             "`run_offtarget_search=true` before choosing a guide."
         )
     else:
-        caveats.append(
-            "Off-target search uses BLAST sequence matches and does not yet verify PAM context at each hit."
-        )
+        caveats.append("Off-target search uses BLAST sequence matches and does not yet verify PAM context at each hit.")
 
     return CrisprEditReportOutput(
         target_length=len(inp.target),

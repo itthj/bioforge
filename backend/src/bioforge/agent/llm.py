@@ -55,9 +55,7 @@ class UsageSummary:
 
     def merge(self, other: UsageSummary) -> UsageSummary:
         if self.model != other.model:
-            raise ValueError(
-                f"Cannot merge usage across models: {self.model!r} vs {other.model!r}"
-            )
+            raise ValueError(f"Cannot merge usage across models: {self.model!r} vs {other.model!r}")
         return UsageSummary(
             input_tokens=self.input_tokens + other.input_tokens,
             output_tokens=self.output_tokens + other.output_tokens,
@@ -84,9 +82,7 @@ def compute_cost(model: str, usage: Any) -> float:
     rates = _PRICING_PER_MTOK.get(model)
     if rates is None:
         return 0.0
-    cache_write = (
-        getattr(usage, "cache_creation_input_tokens", 0) or 0
-    )
+    cache_write = getattr(usage, "cache_creation_input_tokens", 0) or 0
     cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
     cost = (
         usage.input_tokens * rates["input"]
@@ -127,9 +123,7 @@ class LLM:
         else:
             key = api_key or settings.anthropic_api_key
             if not key:
-                raise RuntimeError(
-                    "ANTHROPIC_API_KEY is not set. Add it to .env or pass api_key=."
-                )
+                raise RuntimeError("ANTHROPIC_API_KEY is not set. Add it to .env or pass api_key=.")
             self._client = anthropic.AsyncAnthropic(api_key=key, max_retries=max_retries)
 
     async def complete(
@@ -167,9 +161,7 @@ class LLM:
             if tools:
                 span.set_attribute("bioforge.tool_choice_count", len(tools))
             if tool_choice:
-                span.set_attribute(
-                    "bioforge.tool_choice_type", tool_choice.get("type", "")
-                )
+                span.set_attribute("bioforge.tool_choice_type", tool_choice.get("type", ""))
             try:
                 response = await self._client.messages.create(**kwargs)
             except Exception as e:
@@ -180,9 +172,7 @@ class LLM:
                 model=model,
                 input_tokens=response.usage.input_tokens,
                 output_tokens=response.usage.output_tokens,
-                cache_creation_tokens=getattr(
-                    response.usage, "cache_creation_input_tokens", 0
-                ) or 0,
+                cache_creation_tokens=getattr(response.usage, "cache_creation_input_tokens", 0) or 0,
                 cache_read_tokens=getattr(response.usage, "cache_read_input_tokens", 0) or 0,
                 stop_reason=response.stop_reason,
             )

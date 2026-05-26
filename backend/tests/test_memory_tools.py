@@ -49,41 +49,27 @@ async def test_remember_creates_new_entry(memory_scope) -> None:
     from sqlalchemy import select
 
     row = (
-        await memory_scope.execute(
-            select(ProjectMemory).where(ProjectMemory.key == "preferred_organism")
-        )
+        await memory_scope.execute(select(ProjectMemory).where(ProjectMemory.key == "preferred_organism"))
     ).scalar_one()
     assert row.value == "Homo sapiens"
     assert row.source == "agent"
 
 
 async def test_remember_updates_existing_entry(memory_scope) -> None:
-    await remember(
-        RememberInput(key="ref", value="GRCh38", kind="preference")
-    )
-    out = await remember(
-        RememberInput(key="ref", value="GRCh37", kind="preference")
-    )
+    await remember(RememberInput(key="ref", value="GRCh38", kind="preference"))
+    out = await remember(RememberInput(key="ref", value="GRCh37", kind="preference"))
     assert out.operation == "updated"
 
     from sqlalchemy import select
 
-    rows = (
-        await memory_scope.execute(
-            select(ProjectMemory).where(ProjectMemory.key == "ref")
-        )
-    ).scalars().all()
+    rows = (await memory_scope.execute(select(ProjectMemory).where(ProjectMemory.key == "ref"))).scalars().all()
     assert len(rows) == 1  # update, not duplicate
     assert rows[0].value == "GRCh37"
 
 
 async def test_recall_memory_substring_match_on_key_and_value(memory_scope) -> None:
-    await remember(
-        RememberInput(key="preferred_organism", value="Homo sapiens", kind="preference")
-    )
-    await remember(
-        RememberInput(key="naming_convention", value="snake_case for genes", kind="preference")
-    )
+    await remember(RememberInput(key="preferred_organism", value="Homo sapiens", kind="preference"))
+    await remember(RememberInput(key="naming_convention", value="snake_case for genes", kind="preference"))
     await remember(RememberInput(key="ref_genome", value="GRCh38", kind="preference"))
 
     # Match in the key
@@ -141,9 +127,7 @@ async def test_memory_isolation_between_projects(test_session_maker) -> None:
         await session.commit()
 
         with AgentContextScope(project_id="proj-a", session=session):
-            await remember(
-                RememberInput(key="a_secret", value="only in A", kind="fact")
-            )
+            await remember(RememberInput(key="a_secret", value="only in A", kind="fact"))
         with AgentContextScope(project_id="proj-b", session=session):
             out = await recall_memory(RecallMemoryInput(query="secret"))
             assert out.count == 0  # B cannot see A's memory

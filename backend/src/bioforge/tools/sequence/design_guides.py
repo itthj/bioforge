@@ -36,12 +36,12 @@ _AMBIG_REGEX = {
     "G": "G",
     "T": "T",
     "N": "[ACGT]",
-    "R": "[AG]",   # puRine
-    "Y": "[CT]",   # pYrimidine
-    "S": "[GC]",   # Strong (3 H-bonds)
-    "W": "[AT]",   # Weak  (2 H-bonds)
-    "K": "[GT]",   # Keto
-    "M": "[AC]",   # aMino
+    "R": "[AG]",  # puRine
+    "Y": "[CT]",  # pYrimidine
+    "S": "[GC]",  # Strong (3 H-bonds)
+    "W": "[AT]",  # Weak  (2 H-bonds)
+    "K": "[GT]",  # Keto
+    "M": "[AC]",  # aMino
     "B": "[CGT]",  # not A
     "D": "[AGT]",  # not C
     "H": "[ACT]",  # not G
@@ -124,8 +124,7 @@ class DesignGuidesInput(ToolInput):
         bad = set(cleaned) - set(_AMBIG_REGEX)
         if bad:
             raise ValueError(
-                f"PAM contains unsupported characters: {sorted(bad)!r}. "
-                f"Supported IUPAC codes: {sorted(_AMBIG_REGEX)}"
+                f"PAM contains unsupported characters: {sorted(bad)!r}. Supported IUPAC codes: {sorted(_AMBIG_REGEX)}"
             )
         return cleaned
 
@@ -161,9 +160,7 @@ class Guide(BaseModel):
     pam_end: int
     gc_percent: float
     longest_polyt: int = Field(description="Longest run of consecutive T's in the protospacer.")
-    longest_mononuc_run: int = Field(
-        description="Longest run of ANY single base in the protospacer."
-    )
+    longest_mononuc_run: int = Field(description="Longest run of ANY single base in the protospacer.")
     self_complementarity_max: int = Field(
         description=(
             "Length of the longest substring of the protospacer that is also present in "
@@ -250,9 +247,7 @@ def _longest_selfcomp(seq: str, min_len: int = 4) -> int:
     return longest
 
 
-def _score(
-    gc_pct: float, longest_t: int, longest_run: int, selfcomp: int
-) -> HeuristicScore:
+def _score(gc_pct: float, longest_t: int, longest_run: int, selfcomp: int) -> HeuristicScore:
     # gc: 1.0 in [40,60], linear ramp down to 0 at <=20 or >=80
     if 40 <= gc_pct <= 60:
         gc_score = 1.0
@@ -264,10 +259,7 @@ def _score(
     mononuc_score = 1.0 if longest_run < 5 else 0.0
     selfcomp_score = 1.0 if selfcomp < 6 else 0.0
     final = round(
-        0.4 * gc_score
-        + 0.3 * polyt_score
-        + 0.2 * mononuc_score
-        + 0.1 * selfcomp_score,
+        0.4 * gc_score + 0.3 * polyt_score + 0.2 * mononuc_score + 0.1 * selfcomp_score,
         4,
     )
     return HeuristicScore(
@@ -282,9 +274,7 @@ def _score(
 # --- Scan ---------------------------------------------------------------------------
 
 
-def _scan_strand(
-    fwd_target: str, pam_pattern: str, guide_length: int, strand: Literal["+", "-"]
-) -> list[Guide]:
+def _scan_strand(fwd_target: str, pam_pattern: str, guide_length: int, strand: Literal["+", "-"]) -> list[Guide]:
     """Find all PAM hits on the chosen strand and emit candidate Guides.
 
     Coordinates returned are ALWAYS on the forward strand of the input target — for "-"
@@ -407,9 +397,7 @@ async def design_guides(inp: DesignGuidesInput) -> DesignGuidesOutput:
         for g in guides:
             try:
                 scored = await score_guide_on_target(
-                    ScoreGuideOnTargetInput(
-                        protospacer=g.protospacer, pam=g.pam_sequence
-                    )
+                    ScoreGuideOnTargetInput(protospacer=g.protospacer, pam=g.pam_sequence)
                 )
                 g.on_target_score = scored.on_target_score
             except Exception:  # noqa: BLE001
@@ -420,9 +408,7 @@ async def design_guides(inp: DesignGuidesInput) -> DesignGuidesOutput:
 
     # Ranking: when on_target_score is available for ALL candidates, sort by that with
     # heuristic_score as tiebreaker. Otherwise fall back to heuristic_score alone.
-    all_have_on_target = on_target_supported and all(
-        g.on_target_score is not None for g in guides
-    )
+    all_have_on_target = on_target_supported and all(g.on_target_score is not None for g in guides)
     if all_have_on_target:
         guides.sort(
             key=lambda g: (

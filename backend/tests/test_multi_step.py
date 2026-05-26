@@ -124,20 +124,15 @@ async def test_critic_failure_triggers_replan_then_passes(
             make_submit_verdict_response(  # critic complains
                 failing_verdict(
                     [
-                        "The plan called for reverse_complement before gc_content; "
-                        "this step was skipped.",
+                        "The plan called for reverse_complement before gc_content; this step was skipped.",
                         "The response does not mention the reverse-complemented sequence.",
                     ]
                 )
             ),
             # Replan + attempt 2
             make_submit_plan_response(revised_plan),
-            make_tool_use_response(
-                "reverse_complement", {"sequence": "ATGCATGC"}, tool_use_id="toolu_rc2"
-            ),
-            make_tool_use_response(
-                "gc_content", {"sequence": "GCATGCAT"}, tool_use_id="toolu_gc2"
-            ),
+            make_tool_use_response("reverse_complement", {"sequence": "ATGCATGC"}, tool_use_id="toolu_rc2"),
+            make_tool_use_response("gc_content", {"sequence": "GCATGCAT"}, tool_use_id="toolu_gc2"),
             make_text_response(
                 "Reverse complement: GCATGCAT. GC content: 50.0%. "
                 "Tools used: reverse_complement v1.0.0, gc_content v1.0.0."
@@ -199,9 +194,7 @@ async def test_critique_failed_status_when_both_attempts_rejected(
         ]
     )
 
-    result = await run_agent(
-        "GC of rev comp of ATGC", project_id=DEFAULT_PROJECT_ID, llm=llm
-    )
+    result = await run_agent("GC of rev comp of ATGC", project_id=DEFAULT_PROJECT_ID, llm=llm)
 
     assert result.status == "critique_failed"
     assert "Remaining concerns" in result.response_text
@@ -226,9 +219,7 @@ async def test_complaints_flow_into_replan_planner_prompt(
             make_submit_plan_response(plan),
             make_tool_use_response("gc_content", {"sequence": "ATGC"}),
             make_text_response("50%"),
-            make_submit_verdict_response(
-                failing_verdict(["Missed reverse complement step", "No citations"])
-            ),
+            make_submit_verdict_response(failing_verdict(["Missed reverse complement step", "No citations"])),
             make_submit_plan_response(plan),  # replan
             make_tool_use_response("gc_content", {"sequence": "ATGC"}),
             make_text_response("50% (gc_content v1.0.0)"),

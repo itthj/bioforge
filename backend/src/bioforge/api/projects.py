@@ -115,9 +115,7 @@ def _to_memory_entry(m: ProjectMemory) -> MemoryEntry:
 
 
 @router.post("/projects", response_model=ProjectResponse, status_code=201)
-async def create_project(
-    body: ProjectCreate, session: AsyncSession = Depends(get_session)
-) -> ProjectResponse:
+async def create_project(body: ProjectCreate, session: AsyncSession = Depends(get_session)) -> ProjectResponse:
     _validate_slug(body.id)
     project = Project(
         id=body.id,
@@ -141,16 +139,12 @@ async def create_project(
 async def list_projects(
     session: AsyncSession = Depends(get_session),
 ) -> list[ProjectResponse]:
-    rows = (
-        await session.execute(select(Project).order_by(Project.created_at.desc()))
-    ).scalars().all()
+    rows = (await session.execute(select(Project).order_by(Project.created_at.desc()))).scalars().all()
     return [_to_project_response(p) for p in rows]
 
 
 @router.get("/projects/{project_id}", response_model=ProjectResponse)
-async def get_project(
-    project_id: str, session: AsyncSession = Depends(get_session)
-) -> ProjectResponse:
+async def get_project(project_id: str, session: AsyncSession = Depends(get_session)) -> ProjectResponse:
     project = await session.get(Project, project_id)
     if project is None:
         raise HTTPException(status_code=404, detail=f"Project {project_id!r} not found")
@@ -180,9 +174,7 @@ async def update_project(
 
 
 @router.delete("/projects/{project_id}", status_code=204)
-async def delete_project(
-    project_id: str, session: AsyncSession = Depends(get_session)
-) -> None:
+async def delete_project(project_id: str, session: AsyncSession = Depends(get_session)) -> None:
     project = await session.get(Project, project_id)
     if project is None:
         raise HTTPException(status_code=404, detail=f"Project {project_id!r} not found")
@@ -193,23 +185,23 @@ async def delete_project(
 # --- Memory ---------------------------------------------------------------------------
 
 
-@router.get(
-    "/projects/{project_id}/memory", response_model=list[MemoryEntry]
-)
-async def list_memory(
-    project_id: str, session: AsyncSession = Depends(get_session)
-) -> list[MemoryEntry]:
+@router.get("/projects/{project_id}/memory", response_model=list[MemoryEntry])
+async def list_memory(project_id: str, session: AsyncSession = Depends(get_session)) -> list[MemoryEntry]:
     # Confirm the project exists so the response distinguishes "no memory" from "no project".
     project = await session.get(Project, project_id)
     if project is None:
         raise HTTPException(status_code=404, detail=f"Project {project_id!r} not found")
     rows = (
-        await session.execute(
-            select(ProjectMemory)
-            .where(ProjectMemory.project_id == project_id)
-            .order_by(ProjectMemory.updated_at.desc())
+        (
+            await session.execute(
+                select(ProjectMemory)
+                .where(ProjectMemory.project_id == project_id)
+                .order_by(ProjectMemory.updated_at.desc())
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return [_to_memory_entry(m) for m in rows]
 
 
@@ -230,9 +222,7 @@ async def upsert_memory(
         raise HTTPException(status_code=404, detail=f"Project {project_id!r} not found")
     existing = (
         await session.execute(
-            select(ProjectMemory).where(
-                ProjectMemory.project_id == project_id, ProjectMemory.key == key
-            )
+            select(ProjectMemory).where(ProjectMemory.project_id == project_id, ProjectMemory.key == key)
         )
     ).scalar_one_or_none()
     if existing is not None:
@@ -258,14 +248,10 @@ async def upsert_memory(
 
 
 @router.delete("/projects/{project_id}/memory/{key}", status_code=204)
-async def delete_memory(
-    project_id: str, key: str, session: AsyncSession = Depends(get_session)
-) -> None:
+async def delete_memory(project_id: str, key: str, session: AsyncSession = Depends(get_session)) -> None:
     row = (
         await session.execute(
-            select(ProjectMemory).where(
-                ProjectMemory.project_id == project_id, ProjectMemory.key == key
-            )
+            select(ProjectMemory).where(ProjectMemory.project_id == project_id, ProjectMemory.key == key)
         )
     ).scalar_one_or_none()
     if row is None:

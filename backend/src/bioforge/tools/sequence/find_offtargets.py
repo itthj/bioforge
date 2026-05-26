@@ -46,10 +46,7 @@ class FindOfftargetsInput(ToolInput):
         ...,
         min_length=15,
         max_length=25,
-        description=(
-            "Guide RNA protospacer sequence (DNA bases). Typically 20 nt for SpCas9. "
-            "PAM is NOT included."
-        ),
+        description=("Guide RNA protospacer sequence (DNA bases). Typically 20 nt for SpCas9. PAM is NOT included."),
     )
     database: str = Field(
         default="nt",
@@ -114,9 +111,7 @@ class OfftargetHit(BaseModel):
     subject_definition: str = Field(description="The hit's FASTA defline.")
     mismatch_count: int
     alignment_length: int
-    query_coverage_percent: float = Field(
-        description="Percent of the guide that participated in the alignment."
-    )
+    query_coverage_percent: float = Field(description="Percent of the guide that participated in the alignment.")
     identity_percent: float
     e_value: float
     bit_score: float
@@ -130,9 +125,7 @@ class FindOfftargetsOutput(ToolOutput):
     guide: str
     guide_length: int
     database: str
-    blast_request_id: str = Field(
-        description="NCBI RID from the underlying BLAST search — reproducibility handle."
-    )
+    blast_request_id: str = Field(description="NCBI RID from the underlying BLAST search — reproducibility handle.")
     num_blast_hits_total: int
     num_offtargets_returned: int
     high_risk_count: int
@@ -145,9 +138,7 @@ class FindOfftargetsOutput(ToolOutput):
     )
 
 
-def _classify_risk(
-    mismatch_count: int, query_coverage_percent: float
-) -> tuple[Literal["high", "medium", "low"], str]:
+def _classify_risk(mismatch_count: int, query_coverage_percent: float) -> tuple[Literal["high", "medium", "low"], str]:
     """Simple risk classification. Real-world Cas9 off-target prediction is more
     nuanced — this matches common CRISPR-screen filtering heuristics."""
     if query_coverage_percent < 80:
@@ -176,8 +167,7 @@ def _classify_risk(
         )
     return (
         "low",
-        f"{mismatch_count} mismatches — unlikely to be cleaved by SpCas9 in most "
-        "contexts.",
+        f"{mismatch_count} mismatches — unlikely to be cleaved by SpCas9 in most contexts.",
     )
 
 
@@ -223,9 +213,7 @@ async def find_offtargets(inp: FindOfftargetsInput) -> FindOfftargetsOutput:
     except ToolError:
         raise
     except Exception as e:
-        raise ToolError(
-            f"Underlying BLAST call failed: {type(e).__name__}: {e}"
-        ) from e
+        raise ToolError(f"Underlying BLAST call failed: {type(e).__name__}: {e}") from e
 
     blast_dict = blast_result.model_dump()
     guide_len = len(inp.guide)

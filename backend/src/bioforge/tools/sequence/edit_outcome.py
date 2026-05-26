@@ -49,9 +49,21 @@ from bioforge.tools.registry import register_tool
 
 _DNA_CHARS = set("ACGTNacgtn")
 _IUPAC_REGEX = {
-    "A": "A", "C": "C", "G": "G", "T": "T",
-    "N": "[ACGT]", "R": "[AG]", "Y": "[CT]", "S": "[GC]", "W": "[AT]",
-    "K": "[GT]", "M": "[AC]", "B": "[CGT]", "D": "[AGT]", "H": "[ACT]", "V": "[ACG]",
+    "A": "A",
+    "C": "C",
+    "G": "G",
+    "T": "T",
+    "N": "[ACGT]",
+    "R": "[AG]",
+    "Y": "[CT]",
+    "S": "[GC]",
+    "W": "[AT]",
+    "K": "[GT]",
+    "M": "[AC]",
+    "B": "[CGT]",
+    "D": "[AGT]",
+    "H": "[ACT]",
+    "V": "[ACG]",
 }
 
 
@@ -62,15 +74,15 @@ _IUPAC_REGEX = {
 # They are NOT a prediction for any specific guide. Sum across enumerated outcomes ≈ 1.0.
 
 _RULE_OF_THUMB_PROBS: dict[str, float] = {
-    "no_edit":           0.50,  # perfect repair: dominant when no edit is selected for
-    "insertion_+1_A":    0.07,
-    "insertion_+1_C":    0.03,
-    "insertion_+1_G":    0.03,
-    "insertion_+1_T":    0.07,  # +1A/T biased over +1C/G (Cas9 microhomology bias)
-    "deletion_-1":       0.10,
-    "deletion_-2":       0.05,
-    "deletion_-3":       0.05,
-    "deletion_larger":   0.10,  # aggregated bucket for everything > 3-nt deletion
+    "no_edit": 0.50,  # perfect repair: dominant when no edit is selected for
+    "insertion_+1_A": 0.07,
+    "insertion_+1_C": 0.03,
+    "insertion_+1_G": 0.03,
+    "insertion_+1_T": 0.07,  # +1A/T biased over +1C/G (Cas9 microhomology bias)
+    "deletion_-1": 0.10,
+    "deletion_-2": 0.05,
+    "deletion_-3": 0.05,
+    "deletion_larger": 0.10,  # aggregated bucket for everything > 3-nt deletion
 }
 
 
@@ -132,8 +144,7 @@ class EditOutcomeInput(ToolInput):
     include_outcome_types: list[OutcomeType] | None = Field(
         default=None,
         description=(
-            "Restrict the enumeration to specific outcome types. Default (None) emits "
-            "all 9 standard outcomes."
+            "Restrict the enumeration to specific outcome types. Default (None) emits all 9 standard outcomes."
         ),
     )
 
@@ -155,8 +166,7 @@ class EditOutcomeInput(ToolInput):
         bad = set(cleaned) - set(_IUPAC_REGEX)
         if bad:
             raise ValueError(
-                f"PAM contains unsupported characters: {sorted(bad)!r}. "
-                f"Supported IUPAC codes: {sorted(_IUPAC_REGEX)}"
+                f"PAM contains unsupported characters: {sorted(bad)!r}. Supported IUPAC codes: {sorted(_IUPAC_REGEX)}"
             )
         return cleaned
 
@@ -195,9 +205,7 @@ class EditOutcome(BaseModel):
 class EditOutcomeOutput(ToolOutput):
     guide: str
     guide_strand: Literal["+", "-"]
-    cut_position_fwd: int = Field(
-        description="0-based position on the forward strand where Cas9 cuts."
-    )
+    cut_position_fwd: int = Field(description="0-based position on the forward strand where Cas9 cuts.")
     target_length: int
     outcomes: list[EditOutcome]
     summary_caveats: list[str] = Field(
@@ -216,9 +224,7 @@ def _pam_to_regex(pam: str) -> str:
     return "".join(_IUPAC_REGEX[c] for c in pam)
 
 
-def _locate_guide(
-    target: str, guide: str, pam_regex: str
-) -> tuple[Literal["+", "-"], int]:
+def _locate_guide(target: str, guide: str, pam_regex: str) -> tuple[Literal["+", "-"], int]:
     """Find the guide in the target. Returns (strand, pam_start_on_strand) for the
     strand on which the guide+PAM pattern was found. Raises ToolError if not found OR
     if found at multiple positions ambiguously.
@@ -264,9 +270,7 @@ def _generate_outcomes(
     left = target_fwd[:cut_fwd]
     right = target_fwd[cut_fwd:]
 
-    def maybe_add(
-        otype: OutcomeType, edited: str, indel: int, notes: str = ""
-    ) -> None:
+    def maybe_add(otype: OutcomeType, edited: str, indel: int, notes: str = "") -> None:
         if otype not in include_types:
             return
         prob = _RULE_OF_THUMB_PROBS[otype]
@@ -304,7 +308,7 @@ def _generate_outcomes(
     # Convention: split the deletion as evenly as possible across the cut, biased toward
     # the left flank (consistent with literature handling).
     for size, otype in ((1, "deletion_-1"), (2, "deletion_-2"), (3, "deletion_-3")):
-        left_delete = (size + 1) // 2     # 1, 1, 2
+        left_delete = (size + 1) // 2  # 1, 1, 2
         right_delete = size - left_delete  # 0, 1, 1
         edited = target_fwd[: cut_fwd - left_delete] + target_fwd[cut_fwd + right_delete :]
         maybe_add(
@@ -324,9 +328,7 @@ def _generate_outcomes(
         right_delete = rep_size - left_delete
         # Only add if the target is large enough to support it cleanly.
         if cut_fwd - left_delete >= 0 and cut_fwd + right_delete <= len(target_fwd):
-            edited = (
-                target_fwd[: cut_fwd - left_delete] + target_fwd[cut_fwd + right_delete :]
-            )
+            edited = target_fwd[: cut_fwd - left_delete] + target_fwd[cut_fwd + right_delete :]
             outcomes.append(
                 EditOutcome(
                     outcome_type="deletion_larger",
@@ -398,9 +400,7 @@ async def edit_outcome(inp: EditOutcomeInput) -> EditOutcomeOutput:
     outcomes = _generate_outcomes(inp.target, cut_fwd, include_types)
 
     if not outcomes:
-        raise ToolError(
-            "No outcomes generated — `include_outcome_types` may have been too restrictive."
-        )
+        raise ToolError("No outcomes generated — `include_outcome_types` may have been too restrictive.")
 
     # Sort by probability descending so the user sees the most-likely outcomes first.
     outcomes.sort(key=lambda o: o.probability, reverse=True)

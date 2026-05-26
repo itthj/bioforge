@@ -58,9 +58,7 @@ def _build_submit_plan_response(
         type="message",
         role="assistant",
         model=model,
-        content=[
-            ToolUseBlock(type="tool_use", id=tool_use_id, name="submit_plan", input=plan)
-        ],
+        content=[ToolUseBlock(type="tool_use", id=tool_use_id, name="submit_plan", input=plan)],
         stop_reason="tool_use",
         stop_sequence=None,
         usage=Usage(
@@ -86,11 +84,7 @@ def _build_submit_verdict_response(
         type="message",
         role="assistant",
         model=model,
-        content=[
-            ToolUseBlock(
-                type="tool_use", id=tool_use_id, name="submit_verdict", input=verdict
-            )
-        ],
+        content=[ToolUseBlock(type="tool_use", id=tool_use_id, name="submit_verdict", input=verdict)],
         stop_reason="tool_use",
         stop_sequence=None,
         usage=Usage(
@@ -116,9 +110,7 @@ def _build_tool_use_response(
     content: list = []
     if preamble_text:
         content.append(TextBlock(type="text", text=preamble_text, citations=None))
-    content.append(
-        ToolUseBlock(type="tool_use", id=tool_use_id, name=tool_name, input=tool_input)
-    )
+    content.append(ToolUseBlock(type="tool_use", id=tool_use_id, name=tool_name, input=tool_input))
     return Message(
         id="msg_tooluse_test",
         type="message",
@@ -181,9 +173,7 @@ class FakeLLM:
             if tools:
                 span.set_attribute("bioforge.tool_choice_count", len(tools))
             if tool_choice:
-                span.set_attribute(
-                    "bioforge.tool_choice_type", tool_choice.get("type", "")
-                )
+                span.set_attribute("bioforge.tool_choice_type", tool_choice.get("type", ""))
 
             self.calls.append(
                 CapturedCall(
@@ -235,9 +225,7 @@ def make_submit_verdict_response():
     return _build_submit_verdict_response
 
 
-def _trivial_plan(
-    summary: str = "Single tool call.", tool_name: str | None = None
-) -> dict:
+def _trivial_plan(summary: str = "Single tool call.", tool_name: str | None = None) -> dict:
     return {
         "is_trivial": True,
         "summary": summary,
@@ -256,9 +244,7 @@ def _trivial_plan(
     }
 
 
-def _multi_step_plan(
-    steps: list[tuple[str, str]], summary: str = "Multi-step approach."
-) -> dict:
+def _multi_step_plan(steps: list[tuple[str, str]], summary: str = "Multi-step approach.") -> dict:
     return {
         "is_trivial": False,
         "summary": summary,
@@ -280,9 +266,7 @@ def _passing_verdict(
     return {"satisfies_goal": True, "reason": reason, "concrete_complaints": []}
 
 
-def _failing_verdict(
-    complaints: list[str], reason: str = "Goal incompletely addressed."
-) -> dict:
+def _failing_verdict(complaints: list[str], reason: str = "Goal incompletely addressed.") -> dict:
     return {
         "satisfies_goal": False,
         "reason": reason,
@@ -371,9 +355,7 @@ async def streaming_client(test_session_maker):
 
     # Bootstrap default project for tests that don't create their own.
     async with test_session_maker() as session:
-        session.add(
-            Project(id=DEFAULT_PROJECT_ID, name="Default project (test)")
-        )
+        session.add(Project(id=DEFAULT_PROJECT_ID, name="Default project (test)"))
         await session.commit()
 
     transport = ASGITransport(app=app)

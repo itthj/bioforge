@@ -38,9 +38,7 @@ def _fake_exec_steps() -> list[AgentStep]:
     ]
 
 
-async def test_critic_returns_passing_verdict(
-    fake_llm_factory, make_submit_verdict_response, passing_verdict
-) -> None:
+async def test_critic_returns_passing_verdict(fake_llm_factory, make_submit_verdict_response, passing_verdict) -> None:
     llm = fake_llm_factory([make_submit_verdict_response(passing_verdict())])
 
     result = await evaluate(
@@ -103,9 +101,7 @@ async def test_critic_forces_submit_verdict_tool(
     assert call.tools == [SUBMIT_VERDICT_TOOL]
 
 
-async def test_critic_raises_when_no_verdict_emitted(
-    fake_llm_factory, make_text_response
-) -> None:
+async def test_critic_raises_when_no_verdict_emitted(fake_llm_factory, make_text_response) -> None:
     llm = fake_llm_factory([make_text_response("...")])
     with pytest.raises(ValueError, match="did not call submit_verdict"):
         await evaluate(

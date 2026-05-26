@@ -27,9 +27,7 @@ _STOP_CODONS_STANDARD = {"TAA", "TAG", "TGA"}
 
 
 class FindOrfsInput(ToolInput):
-    sequence: str = Field(
-        ..., min_length=3, description="DNA sequence (A/C/G/T/N, case-insensitive)."
-    )
+    sequence: str = Field(..., min_length=3, description="DNA sequence (A/C/G/T/N, case-insensitive).")
     min_length_aa: int = Field(
         default=50,
         ge=1,
@@ -101,16 +99,14 @@ class FindOrfsOutput(ToolOutput):
     orfs: list[Orf]
 
 
-def _scan_frame(
-    fwd_seq: str, frame: int, table: int, min_length_aa: int, require_stop: bool
-) -> list[Orf]:
+def _scan_frame(fwd_seq: str, frame: int, table: int, min_length_aa: int, require_stop: bool) -> list[Orf]:
     """Walk one frame, emit each ATG..STOP segment that passes the length filter.
 
     Coordinates returned are on the FORWARD strand of the input (`fwd_seq`), regardless
     of whether this frame is reverse.
     """
     strand_seq = fwd_seq if frame > 0 else str(Seq(fwd_seq).reverse_complement())
-    offset = (abs(frame) - 1)
+    offset = abs(frame) - 1
     n = len(strand_seq)
     orfs: list[Orf] = []
 
@@ -126,9 +122,7 @@ def _scan_frame(
         if codon in _STOP_CODONS_STANDARD:
             # Emit ORF [current_start, i) on strand_seq, exclusive of stop codon.
             dna_strand_segment = strand_seq[current_start:i]
-            protein = str(
-                Seq(dna_strand_segment).translate(table=table, to_stop=False)
-            )
+            protein = str(Seq(dna_strand_segment).translate(table=table, to_stop=False))
             if len(protein) >= min_length_aa:
                 orfs.append(
                     _build_orf(

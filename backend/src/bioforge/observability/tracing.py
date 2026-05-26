@@ -74,9 +74,7 @@ def _parse_otlp_headers(raw: str) -> dict[str, str]:
         if not item:
             continue
         if "=" not in item:
-            raise ValueError(
-                "BIOFORGE_OTEL_HEADERS must use comma-separated key=value pairs"
-            )
+            raise ValueError("BIOFORGE_OTEL_HEADERS must use comma-separated key=value pairs")
         key, value = item.split("=", 1)
         key = key.strip()
         if not key:
@@ -104,8 +102,7 @@ def _build_export_processor(exporter: str) -> SpanProcessor | None:
             )
         except ImportError as exc:  # pragma: no cover - dependency is declared
             raise RuntimeError(
-                "BIOFORGE_OTEL_EXPORTER=otlp requires "
-                "opentelemetry-exporter-otlp-proto-http to be installed"
+                "BIOFORGE_OTEL_EXPORTER=otlp requires opentelemetry-exporter-otlp-proto-http to be installed"
             ) from exc
         return BatchSpanProcessor(
             OTLPSpanExporter(
@@ -113,10 +110,7 @@ def _build_export_processor(exporter: str) -> SpanProcessor | None:
                 headers=_parse_otlp_headers(settings.otel_headers),
             )
         )
-    raise ValueError(
-        "Unsupported BIOFORGE_OTEL_EXPORTER value "
-        f"{exporter!r}; expected 'console', 'none', or 'otlp'"
-    )
+    raise ValueError(f"Unsupported BIOFORGE_OTEL_EXPORTER value {exporter!r}; expected 'console', 'none', or 'otlp'")
 
 
 def configure_tracing(
@@ -177,9 +171,7 @@ tracer = get_tracer()
 # --- Span attribute helpers ----------------------------------------------------------
 
 
-def set_agent_run_attrs(
-    span: trace.Span, *, goal: str, project_id: str, model: str
-) -> None:
+def set_agent_run_attrs(span: trace.Span, *, goal: str, project_id: str, model: str) -> None:
     """Stamp the root agent.run span with the conventional attributes."""
     # Truncate the goal — spans don't want multi-KB payloads.
     truncated_goal = goal if len(goal) <= 500 else goal[:497] + "..."

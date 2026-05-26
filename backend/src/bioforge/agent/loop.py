@@ -173,9 +173,7 @@ def _format_plan_for_executor(plan: Plan) -> str:
     return "\n".join(lines)
 
 
-def _build_executor_user_message(
-    goal: str, plan: Plan | None, complaints: list[str] | None = None
-) -> str:
+def _build_executor_user_message(goal: str, plan: Plan | None, complaints: list[str] | None = None) -> str:
     parts = [f"Goal: {goal}"]
     if plan is not None and not plan.is_trivial:
         parts.append("")
@@ -188,9 +186,7 @@ def _build_executor_user_message(
         )
     if complaints:
         parts.append("")
-        parts.append(
-            "A previous attempt at this goal was judged incomplete. Specific issues:"
-        )
+        parts.append("A previous attempt at this goal was judged incomplete. Specific issues:")
         for c in complaints:
             parts.append(f"  - {c}")
         parts.append("")
@@ -215,9 +211,7 @@ async def _execute(
     through `on_step` as it lands."""
     tools = to_anthropic_tools(tags=tool_tags)
     system = _build_system_prompt()
-    messages: list[dict] = [
-        {"role": "user", "content": _build_executor_user_message(goal, plan, complaints)}
-    ]
+    messages: list[dict] = [{"role": "user", "content": _build_executor_user_message(goal, plan, complaints)}]
     steps: list[AgentStep] = []
     total_usage = UsageSummary.zero(model)
     step_idx = step_idx_start
@@ -285,10 +279,7 @@ async def _execute(
                 tool_name = block.name
                 tool_input = block.input if isinstance(block.input, dict) else {}
                 if tool_name not in REGISTRY:
-                    err = (
-                        f"Tool {tool_name!r} is not registered. "
-                        f"Available: {sorted(REGISTRY)}"
-                    )
+                    err = f"Tool {tool_name!r} is not registered. Available: {sorted(REGISTRY)}"
                     await _append(
                         AgentStep(
                             idx=step_idx,
@@ -666,6 +657,7 @@ async def run_agent(
     # module's import time see real spans. A module-level `tracer = ...` would freeze
     # to whatever was current at import.
     from opentelemetry import trace as _otel_trace
+
     _tracer = _otel_trace.get_tracer("bioforge.agent")
 
     with _tracer.start_as_current_span("agent.run") as root_span:
@@ -683,12 +675,8 @@ async def run_agent(
         if db_session is not None and project_id:
             with _tracer.start_as_current_span("agent.load_memory") as mem_span:
                 try:
-                    memory_context = await load_relevant_memory(
-                        db_session, project_id, goal
-                    )
-                    mem_span.set_attribute(
-                        "bioforge.memory_context_chars", len(memory_context)
-                    )
+                    memory_context = await load_relevant_memory(db_session, project_id, goal)
+                    mem_span.set_attribute("bioforge.memory_context_chars", len(memory_context))
                 except Exception as e:  # noqa: BLE001
                     record_exception(mem_span, e)
                     memory_context = ""
@@ -733,12 +721,8 @@ async def run_agent(
         if plan is not None and not skip_approval_gate:
             with _tracer.start_as_current_span("agent.approval_gate") as approval_span:
                 requirement = requires_approval(plan, REGISTRY)
-                approval_span.set_attribute(
-                    "bioforge.approval_required", requirement.required
-                )
-                approval_span.set_attribute(
-                    "bioforge.approval_reasons_count", len(requirement.reasons)
-                )
+                approval_span.set_attribute("bioforge.approval_required", requirement.required)
+                approval_span.set_attribute("bioforge.approval_reasons_count", len(requirement.reasons))
                 if requirement.required:
                     approval_step = AgentStep(
                         idx=step_idx,

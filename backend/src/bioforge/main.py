@@ -24,19 +24,14 @@ async def _bootstrap_default_project() -> None:
     references it.
     """
     async with session_factory() as session:
-        existing = (
-            await session.execute(
-                select(Project).where(Project.id == DEFAULT_PROJECT_ID)
-            )
-        ).scalar_one_or_none()
+        existing = (await session.execute(select(Project).where(Project.id == DEFAULT_PROJECT_ID))).scalar_one_or_none()
         if existing is None:
             session.add(
                 Project(
                     id=DEFAULT_PROJECT_ID,
                     name="Default project",
                     description=(
-                        "Auto-created on first startup. Holds traces and memory "
-                        "until you create named projects."
+                        "Auto-created on first startup. Holds traces and memory until you create named projects."
                     ),
                 )
             )

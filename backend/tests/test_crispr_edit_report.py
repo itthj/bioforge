@@ -124,9 +124,7 @@ async def test_high_risk_offtargets_push_label_to_caution_or_avoid(patch_ncbi) -
         )
     )
 
-    out = await crispr_edit_report(
-        CrisprEditReportInput(target=_TARGET, run_offtarget_search=True)
-    )
+    out = await crispr_edit_report(CrisprEditReportInput(target=_TARGET, run_offtarget_search=True))
 
     assert out.recommended_guide is not None
     assert out.recommended_guide.recommendation_label == "avoid"
@@ -144,9 +142,7 @@ async def test_no_pam_returns_empty_report_with_design_notes() -> None:
 
 
 async def test_simulate_top_n_zero_skips_edit_outcome_summary() -> None:
-    out = await crispr_edit_report(
-        CrisprEditReportInput(target=_TARGET, simulate_top_n=0)
-    )
+    out = await crispr_edit_report(CrisprEditReportInput(target=_TARGET, simulate_top_n=0))
 
     assert out.recommended_guide is not None
     assert out.recommended_guide.edit_outcome_summary is None

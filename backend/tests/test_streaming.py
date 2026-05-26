@@ -92,9 +92,7 @@ async def test_on_step_fires_for_approval_request_step(
 ) -> None:
     """The inline `approval_requested` step (synthesized by run_agent, not by a sub-
     function) must also flow through the callback."""
-    llm = fake_llm_factory(
-        [make_submit_plan_response(multi_step_plan([("blast", "Search NCBI.")]))]
-    )
+    llm = fake_llm_factory([make_submit_plan_response(multi_step_plan([("blast", "Search NCBI.")]))])
     captured: list[AgentStep] = []
 
     async def collector(step: AgentStep) -> None:
@@ -191,10 +189,7 @@ def _parse_sse_blocks(raw: str) -> list[tuple[str, dict | str]]:
     blocks = []
     for match in _SSE_BLOCK_RE.finditer(raw):
         event_name = match.group(1)
-        data_lines = [
-            line[len("data: ") :]
-            for line in match.group(2).strip().split("\n")
-        ]
+        data_lines = [line[len("data: ") :] for line in match.group(2).strip().split("\n")]
         payload = "\n".join(data_lines)
         try:
             parsed = json.loads(payload)
@@ -265,9 +260,7 @@ async def test_sse_approve_stream_cancel_path(
     Two requests, same backing trace."""
     from bioforge.main import app
 
-    plan_llm = fake_llm_factory(
-        [make_submit_plan_response(multi_step_plan([("blast", "Search NCBI nt.")]))]
-    )
+    plan_llm = fake_llm_factory([make_submit_plan_response(multi_step_plan([("blast", "Search NCBI nt.")]))])
     app.dependency_overrides[get_llm] = lambda: plan_llm
 
     # 1. Start the stream — should pause on approval.

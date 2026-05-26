@@ -24,15 +24,11 @@ class PlanStep(BaseModel):
         default=None,
         description="The tool that will run this step, or null for non-tool reasoning steps.",
     )
-    rationale: str = Field(
-        description="Why this step is here and how its output feeds the next. One sentence."
-    )
+    rationale: str = Field(description="Why this step is here and how its output feeds the next. One sentence.")
 
 
 class Plan(BaseModel):
-    is_trivial: bool = Field(
-        description="True if the goal is a single-tool call with no chaining."
-    )
+    is_trivial: bool = Field(description="True if the goal is a single-tool call with no chaining.")
     summary: str = Field(description="One-sentence description of the approach.")
     steps: list[PlanStep] = Field(default_factory=list)
 
@@ -40,8 +36,7 @@ class Plan(BaseModel):
 SUBMIT_PLAN_TOOL: dict = {
     "name": "submit_plan",
     "description": (
-        "Submit your final plan for the user's goal. This is how you respond — there is "
-        "no free-text output."
+        "Submit your final plan for the user's goal. This is how you respond — there is no free-text output."
     ),
     "input_schema": Plan.model_json_schema(),
 }
@@ -61,9 +56,7 @@ def _format_tools_for_planner(tools: list[ToolSpec]) -> str:
     return "\n".join(lines)
 
 
-def _build_planner_messages(
-    goal: str, tools: list[ToolSpec], memory_context: str = ""
-) -> list[dict]:
+def _build_planner_messages(goal: str, tools: list[ToolSpec], memory_context: str = "") -> list[dict]:
     tools_block = _format_tools_for_planner(tools)
     parts = [f"# Goal\n\n{goal}"]
     if memory_context.strip():
@@ -117,8 +110,7 @@ async def make_plan(
     )
     if tool_use_block is None:
         raise ValueError(
-            "Planner did not call submit_plan. "
-            f"Response content types: {[b.type for b in response.content]}"
+            f"Planner did not call submit_plan. Response content types: {[b.type for b in response.content]}"
         )
 
     raw = tool_use_block.input if isinstance(tool_use_block.input, dict) else {}

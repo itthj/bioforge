@@ -34,9 +34,7 @@ class AgentRunRequest(BaseModel):
 
 
 class AgentApproveRequest(BaseModel):
-    approved: bool = Field(
-        description="True to approve and execute; false to cancel the run."
-    )
+    approved: bool = Field(description="True to approve and execute; false to cancel the run.")
     reason: str | None = Field(
         default=None,
         max_length=2000,
@@ -164,9 +162,7 @@ async def _stream_agent_run(
     async def runner() -> None:
         try:
             with AgentContextScope(project_id=project_id, session=session):
-                result = await run_agent(
-                    goal, project_id=project_id, llm=llm, on_step=emit_step
-                )
+                result = await run_agent(goal, project_id=project_id, llm=llm, on_step=emit_step)
             await queue.put(("result", result))
         except Exception as e:  # noqa: BLE001 — caught & reported, then re-emitted
             await queue.put(("error", f"{type(e).__name__}: {e}"))
@@ -177,9 +173,7 @@ async def _stream_agent_run(
     try:
         while True:
             try:
-                item = await asyncio.wait_for(
-                    queue.get(), timeout=_SSE_KEEPALIVE_SECONDS
-                )
+                item = await asyncio.wait_for(queue.get(), timeout=_SSE_KEEPALIVE_SECONDS)
             except TimeoutError:
                 yield format_keepalive()
                 continue
@@ -213,9 +207,7 @@ async def agent_run_stream(
     `done` event carrying the trace_id, response_text, usage, and (if applicable)
     pending_plan + approval_reasons for the approval-gate path."""
     return StreamingResponse(
-        _stream_agent_run(
-            goal=body.goal, project_id=body.project_id, session=session, llm=llm
-        ),
+        _stream_agent_run(goal=body.goal, project_id=body.project_id, session=session, llm=llm),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
@@ -229,18 +221,13 @@ async def agent_approve(
     llm: LLM = Depends(get_llm),
 ) -> AgentRunResponse:
     """Resume a paused agent run. The trace must be in `pending_approval` state."""
-    trace = (
-        await session.execute(select(Trace).where(Trace.id == trace_id))
-    ).scalar_one_or_none()
+    trace = (await session.execute(select(Trace).where(Trace.id == trace_id))).scalar_one_or_none()
     if trace is None:
         raise HTTPException(status_code=404, detail=f"Trace {trace_id!r} not found")
     if trace.status != "pending_approval":
         raise HTTPException(
             status_code=409,
-            detail=(
-                f"Trace {trace_id!r} is not awaiting approval (current status: "
-                f"{trace.status!r})"
-            ),
+            detail=(f"Trace {trace_id!r} is not awaiting approval (current status: {trace.status!r})"),
         )
 
     # Record the decision in the step trail regardless of which way the user went.
@@ -336,21 +323,14 @@ async def _stream_agent_approve(
     """SSE variant of /agent/{trace_id}/approve. Emits a `step` for the approval
     decision, then (if approved) streams each step of the resumed execution, then
     `done`. Errors land as `error` events and are also recorded on the trace."""
-    trace = (
-        await session.execute(select(Trace).where(Trace.id == trace_id))
-    ).scalar_one_or_none()
+    trace = (await session.execute(select(Trace).where(Trace.id == trace_id))).scalar_one_or_none()
     if trace is None:
         yield format_event("error", {"message": f"Trace {trace_id!r} not found"})
         return
     if trace.status != "pending_approval":
         yield format_event(
             "error",
-            {
-                "message": (
-                    f"Trace {trace_id!r} is not awaiting approval "
-                    f"(status={trace.status!r})"
-                )
-            },
+            {"message": (f"Trace {trace_id!r} is not awaiting approval (status={trace.status!r})")},
         )
         return
 
@@ -384,9 +364,7 @@ async def _stream_agent_approve(
     try:
         plan = Plan.model_validate(raw_plan)
     except PydanticValidationError as e:
-        yield format_event(
-            "error", {"message": f"Persisted plan failed re-validation: {e}"}
-        )
+        yield format_event("error", {"message": f"Persisted plan failed re-validation: {e}"})
         return
 
     step_idx_start = len(trace.steps) + 1  # +1 for decision_step we just yielded
@@ -418,9 +396,7 @@ async def _stream_agent_approve(
     try:
         while True:
             try:
-                item = await asyncio.wait_for(
-                    queue.get(), timeout=_SSE_KEEPALIVE_SECONDS
-                )
+                item = await asyncio.wait_for(queue.get(), timeout=_SSE_KEEPALIVE_SECONDS)
             except TimeoutError:
                 yield format_keepalive()
                 continue
@@ -431,9 +407,7 @@ async def _stream_agent_approve(
                 yield format_event("step", asdict(payload))
             elif kind == "result":
                 new_step_dicts = [asdict(s) for s in payload.steps]
-                trace.steps = (
-                    list(trace.steps) + [decision_step_dict] + new_step_dicts
-                )
+                trace.steps = list(trace.steps) + [decision_step_dict] + new_step_dicts
                 trace.status = payload.status
                 trace.response_text = payload.response_text
                 trace.awaiting_approval_plan = None
@@ -443,9 +417,7 @@ async def _stream_agent_approve(
                     trace.tokens_output += payload.usage.output_tokens
                     trace.tokens_cache_creation += payload.usage.cache_creation_tokens
                     trace.tokens_cache_read += payload.usage.cache_read_tokens
-                    trace.cost_usd = round(
-                        trace.cost_usd + payload.usage.cost_usd, 6
-                    )
+                    trace.cost_usd = round(trace.cost_usd + payload.usage.cost_usd, 6)
                 await session.flush()
                 yield format_event("done", _done_payload(trace, payload))
             elif kind == "error":
@@ -482,9 +454,7 @@ async def agent_approve_stream(
 
 
 @router.get("/traces/{trace_id}")
-async def get_trace(
-    trace_id: str, session: AsyncSession = Depends(get_session)
-) -> dict:
+async def get_trace(trace_id: str, session: AsyncSession = Depends(get_session)) -> dict:
     result = await session.execute(select(Trace).where(Trace.id == trace_id))
     trace = result.scalar_one_or_none()
     if trace is None:

@@ -49,14 +49,10 @@ def requires_approval(plan: Plan | None, registry: dict[str, ToolSpec]) -> Appro
             # "not registered" error rather than a confusing "approve unknown tool".
             continue
         if spec.destructive:
-            reasons.append(
-                f"Step {step.idx} ({step.expected_tool}): destructive — may modify or "
-                "delete user data."
-            )
+            reasons.append(f"Step {step.idx} ({step.expected_tool}): destructive — may modify or delete user data.")
         if spec.cost_hint == "expensive":
             reasons.append(
-                f"Step {step.idx} ({step.expected_tool}): expensive — long runtime "
-                "and/or external API cost."
+                f"Step {step.idx} ({step.expected_tool}): expensive — long runtime and/or external API cost."
             )
 
     return ApprovalRequirement(required=bool(reasons), reasons=reasons)

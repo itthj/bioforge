@@ -20,9 +20,7 @@ from bioforge.tools.sequence.score_guide_on_target import (
 
 async def test_optimal_guide_scores_high() -> None:
     """A guide with ~50% GC, no polyT, GG at positions 19-20, no extreme features."""
-    out = await score_guide_on_target(
-        ScoreGuideOnTargetInput(protospacer="AGCTACGTACGTACGTACGG")
-    )
+    out = await score_guide_on_target(ScoreGuideOnTargetInput(protospacer="AGCTACGTACGTACGTACGG"))
     # Should score well above the neutral 0.5 baseline
     assert out.on_target_score >= 0.7
     assert out.score_breakdown.gc_component == 1.0  # 50% GC
@@ -31,26 +29,20 @@ async def test_optimal_guide_scores_high() -> None:
 
 async def test_polyt_run_zeroes_polyt_component() -> None:
     # 4 T's in a row → polyt_component → 0
-    out = await score_guide_on_target(
-        ScoreGuideOnTargetInput(protospacer="ACGACGTTTTACGACGACGG")
-    )
+    out = await score_guide_on_target(ScoreGuideOnTargetInput(protospacer="ACGACGTTTTACGACGACGG"))
     assert out.score_breakdown.polyt_component == 0.0
 
 
 async def test_extreme_gc_drops_gc_component() -> None:
     # 100% GC
-    all_gc = await score_guide_on_target(
-        ScoreGuideOnTargetInput(protospacer="GCGCGCGCGCGCGCGCGCGC")
-    )
+    all_gc = await score_guide_on_target(ScoreGuideOnTargetInput(protospacer="GCGCGCGCGCGCGCGCGCGC"))
     # 100% GC is outside the optimal 40-60% range and outside the ramp-down zone
     assert all_gc.score_breakdown.gc_component == 0.0
 
 
 async def test_low_gc_drops_gc_component() -> None:
     # 0% GC (all A/T)
-    no_gc = await score_guide_on_target(
-        ScoreGuideOnTargetInput(protospacer="AAAAAAAAAAAAAAAAAAAA")
-    )
+    no_gc = await score_guide_on_target(ScoreGuideOnTargetInput(protospacer="AAAAAAAAAAAAAAAAAAAA"))
     assert no_gc.score_breakdown.gc_component == 0.0
 
 
@@ -59,12 +51,8 @@ async def test_low_gc_drops_gc_component() -> None:
 
 async def test_position_20_g_outscores_position_20_t() -> None:
     """Position 20 (last before PAM) strongly prefers G; T scores worst at that position."""
-    g_at_20 = await score_guide_on_target(
-        ScoreGuideOnTargetInput(protospacer="ACGTACGTACGTACGTACGG")
-    )
-    t_at_20 = await score_guide_on_target(
-        ScoreGuideOnTargetInput(protospacer="ACGTACGTACGTACGTACGT")
-    )
+    g_at_20 = await score_guide_on_target(ScoreGuideOnTargetInput(protospacer="ACGTACGTACGTACGTACGG"))
+    t_at_20 = await score_guide_on_target(ScoreGuideOnTargetInput(protospacer="ACGTACGTACGTACGTACGT"))
     assert g_at_20.score_breakdown.position_component > t_at_20.score_breakdown.position_component
 
 
@@ -80,12 +68,8 @@ async def test_seed_region_g_c_outscores_t() -> None:
 
 
 async def test_gg_at_positions_19_20_boosts_dinucleotide_component() -> None:
-    gg_19_20 = await score_guide_on_target(
-        ScoreGuideOnTargetInput(protospacer="ACGTACGTACGTACGTACGG")
-    )
-    tt_19_20 = await score_guide_on_target(
-        ScoreGuideOnTargetInput(protospacer="ACGTACGTACGTACGTACTT")
-    )
+    gg_19_20 = await score_guide_on_target(ScoreGuideOnTargetInput(protospacer="ACGTACGTACGTACGTACGG"))
+    tt_19_20 = await score_guide_on_target(ScoreGuideOnTargetInput(protospacer="ACGTACGTACGTACGTACTT"))
     assert gg_19_20.score_breakdown.dinucleotide_component > tt_19_20.score_breakdown.dinucleotide_component
 
 
@@ -104,9 +88,7 @@ async def test_score_in_unit_interval() -> None:
 
 
 async def test_breakdown_components_in_unit_interval() -> None:
-    out = await score_guide_on_target(
-        ScoreGuideOnTargetInput(protospacer="AGCTACGTACGTACGTACGG")
-    )
+    out = await score_guide_on_target(ScoreGuideOnTargetInput(protospacer="AGCTACGTACGTACGTACGG"))
     b = out.score_breakdown
     assert 0.0 <= b.gc_component <= 1.0
     assert 0.0 <= b.polyt_component <= 1.0
@@ -116,9 +98,7 @@ async def test_breakdown_components_in_unit_interval() -> None:
 
 
 async def test_score_matches_weighted_breakdown() -> None:
-    out = await score_guide_on_target(
-        ScoreGuideOnTargetInput(protospacer="AGCTACGTACGTACGTACGG")
-    )
+    out = await score_guide_on_target(ScoreGuideOnTargetInput(protospacer="AGCTACGTACGTACGTACGG"))
     b = out.score_breakdown
     w = b.component_weights
     expected = (
@@ -134,9 +114,7 @@ async def test_score_matches_weighted_breakdown() -> None:
 
 
 async def test_caveats_mention_not_rule_set_2() -> None:
-    out = await score_guide_on_target(
-        ScoreGuideOnTargetInput(protospacer="AGCTACGTACGTACGTACGG")
-    )
+    out = await score_guide_on_target(ScoreGuideOnTargetInput(protospacer="AGCTACGTACGTACGTACGG"))
     text = " ".join(out.caveats).lower()
     assert "rule set 2" in text
     assert "not" in text

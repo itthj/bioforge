@@ -175,15 +175,11 @@ class ScoreBreakdown(BaseModel):
     gc_component: float = Field(description="0-1: GC% in optimal [40, 60] range.")
     polyt_component: float = Field(description="0-1: no >= 4 consecutive T's.")
     position_component: float = Field(
-        description=(
-            "0-1: normalized sum of position-specific nucleotide preferences from "
-            "Doench 2014 Table S1."
-        )
+        description=("0-1: normalized sum of position-specific nucleotide preferences from Doench 2014 Table S1.")
     )
     dinucleotide_component: float = Field(
         description=(
-            "0-1: normalized sum of dinucleotide preferences (e.g. GG at positions "
-            "19-20). Doench 2014 Table S2."
+            "0-1: normalized sum of dinucleotide preferences (e.g. GG at positions 19-20). Doench 2014 Table S2."
         )
     )
     component_weights: dict[str, float] = Field(
@@ -330,7 +326,6 @@ async def score_guide_on_target(
             "Position-specific weights are derived from Doench 2014 Tables S1/S2 "
             "qualitative preferences, normalized into [0,1]. Different downstream "
             "tools (CRISPRko, CRISPick) use different weightings of the same features.",
-            "This score does NOT predict off-target activity — use `find_offtargets` "
-            "for specificity assessment.",
+            "This score does NOT predict off-target activity — use `find_offtargets` for specificity assessment.",
         ],
     )

@@ -29,16 +29,13 @@ class ReverseComplementInput(ToolInput):
         bad = set(cleaned) - _DNA_CHARS
         if bad:
             raise ValueError(
-                f"sequence contains non-DNA characters: {sorted(bad)!r}. "
-                "Expected only A/C/G/T/N (case-insensitive)."
+                f"sequence contains non-DNA characters: {sorted(bad)!r}. Expected only A/C/G/T/N (case-insensitive)."
             )
         return cleaned
 
 
 class ReverseComplementOutput(ToolOutput):
-    reverse_complement: str = Field(
-        description="The reverse complement of the input, uppercase, 5'→3'."
-    )
+    reverse_complement: str = Field(description="The reverse complement of the input, uppercase, 5'→3'.")
     length: int = Field(description="Length of the sequence.")
 
 

@@ -99,9 +99,7 @@ async def test_root_span_truncates_long_goals(
 ) -> None:
     """Goals over 500 chars get truncated in the span attribute but goal_length stays accurate."""
     long_goal = "x" * 1000
-    llm = fake_llm_factory(
-        [make_submit_plan_response({"is_trivial": True, "summary": "no", "steps": []})]
-    )
+    llm = fake_llm_factory([make_submit_plan_response({"is_trivial": True, "summary": "no", "steps": []})])
     await run_agent(long_goal, project_id=DEFAULT_PROJECT_ID, llm=llm)
 
     root = _spans_by_name(memory_exporter, "agent.run")[0]
@@ -156,9 +154,7 @@ async def test_tool_call_span_carries_tool_attributes(
     )
     await run_agent("x", project_id=DEFAULT_PROJECT_ID, llm=llm)
 
-    tool_spans = [
-        s for s in memory_exporter.get_finished_spans() if s.name == "tool.call.gc_content"
-    ]
+    tool_spans = [s for s in memory_exporter.get_finished_spans() if s.name == "tool.call.gc_content"]
     assert len(tool_spans) == 1
     attrs = tool_spans[0].attributes
     assert attrs["bioforge.tool_name"] == "gc_content"
@@ -202,13 +198,7 @@ async def test_refused_status_recorded_on_root_span(
     make_submit_plan_response,
 ) -> None:
     """Planner emits trivial=true + empty steps → status=refused on the root span."""
-    llm = fake_llm_factory(
-        [
-            make_submit_plan_response(
-                {"is_trivial": True, "summary": "Cannot help.", "steps": []}
-            )
-        ]
-    )
+    llm = fake_llm_factory([make_submit_plan_response({"is_trivial": True, "summary": "Cannot help.", "steps": []})])
     await run_agent("BLAST this", project_id=DEFAULT_PROJECT_ID, llm=llm)
 
     root = _spans_by_name(memory_exporter, "agent.run")[0]
@@ -222,9 +212,7 @@ async def test_pending_approval_status_recorded_on_root_span(
     multi_step_plan,
 ) -> None:
     """Approval gate fires → status=pending_approval, gate's `bioforge.approval_required` is True."""
-    llm = fake_llm_factory(
-        [make_submit_plan_response(multi_step_plan([("blast", "search")]))]
-    )
+    llm = fake_llm_factory([make_submit_plan_response(multi_step_plan([("blast", "search")]))])
     await run_agent("blast this", project_id=DEFAULT_PROJECT_ID, llm=llm)
 
     root = _spans_by_name(memory_exporter, "agent.run")[0]
@@ -256,11 +244,7 @@ async def test_tool_error_recorded_on_tool_span(
     )
     await run_agent("x", project_id=DEFAULT_PROJECT_ID, llm=llm)
 
-    tool_spans = [
-        s
-        for s in memory_exporter.get_finished_spans()
-        if s.name == "tool.call.gc_content"
-    ]
+    tool_spans = [s for s in memory_exporter.get_finished_spans() if s.name == "tool.call.gc_content"]
     assert len(tool_spans) == 1
     # The tool span should have recorded the exception
     assert tool_spans[0].status.status_code == StatusCode.ERROR

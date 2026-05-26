@@ -24,9 +24,7 @@ class CriticVerdict(BaseModel):
     satisfies_goal: bool = Field(
         description="True iff the draft response answers the user's full goal, grounded in tool outputs."
     )
-    reason: str = Field(
-        description="One-sentence summary of the verdict. The user does not see this directly."
-    )
+    reason: str = Field(description="One-sentence summary of the verdict. The user does not see this directly.")
     concrete_complaints: list[str] = Field(
         default_factory=list,
         description=(
@@ -116,8 +114,7 @@ async def evaluate(
     )
     if tool_use_block is None:
         raise ValueError(
-            "Critic did not call submit_verdict. "
-            f"Response content types: {[b.type for b in response.content]}"
+            f"Critic did not call submit_verdict. Response content types: {[b.type for b in response.content]}"
         )
     raw = tool_use_block.input if isinstance(tool_use_block.input, dict) else {}
     try:

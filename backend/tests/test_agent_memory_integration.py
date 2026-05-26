@@ -74,9 +74,7 @@ async def test_agent_remember_then_recall_across_runs(
     from sqlalchemy import select
 
     row = (
-        await mem_session.execute(
-            select(ProjectMemory).where(ProjectMemory.key == "preferred_organism")
-        )
+        await mem_session.execute(select(ProjectMemory).where(ProjectMemory.key == "preferred_organism"))
     ).scalar_one()
     assert "Homo sapiens" in row.value
 
@@ -84,9 +82,7 @@ async def test_agent_remember_then_recall_across_runs(
     llm2 = fake_llm_factory(
         [
             make_submit_plan_response(trivial_plan(tool_name="recall_memory")),
-            make_tool_use_response(
-                "recall_memory", {"query": "organism"}
-            ),
+            make_tool_use_response("recall_memory", {"query": "organism"}),
             make_text_response("Your preferred organism is Homo sapiens (GRCh38)."),
         ]
     )
@@ -119,9 +115,7 @@ async def test_planner_sees_project_context_and_memory(
     )
     await mem_session.commit()
 
-    llm = fake_llm_factory(
-        [make_submit_plan_response(trivial_plan(tool_name="gc_content"))]
-    )
+    llm = fake_llm_factory([make_submit_plan_response(trivial_plan(tool_name="gc_content"))])
     await run_agent(
         "GC content of ATGCATGC",
         project_id="mem-int",
@@ -151,9 +145,7 @@ async def test_no_memory_context_when_project_has_no_data(
         await session.commit()
 
         with AgentContextScope(project_id="empty-proj", session=session):
-            llm = fake_llm_factory(
-                [make_submit_plan_response(trivial_plan(tool_name="gc_content"))]
-            )
+            llm = fake_llm_factory([make_submit_plan_response(trivial_plan(tool_name="gc_content"))])
             await run_agent(
                 "GC of ATGCATGC",
                 project_id="empty-proj",

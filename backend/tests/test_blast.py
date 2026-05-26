@@ -130,9 +130,7 @@ async def test_blast_parses_hits(patch_ncbi) -> None:
 
 
 async def test_blast_respects_max_hits(patch_ncbi) -> None:
-    record = _fake_blast_record(
-        [_fake_alignment(accession=f"ACC{i}", hit_def=f"hit {i}") for i in range(20)]
-    )
+    record = _fake_blast_record([_fake_alignment(accession=f"ACC{i}", hit_def=f"hit {i}") for i in range(20)])
     patch_ncbi((record, "RID-X"))
 
     out = await blast(BlastInput(sequence="ATGCATGCATGCATGC", max_hits=5))

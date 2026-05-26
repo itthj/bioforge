@@ -29,8 +29,7 @@ async def test_happy_path_trivial_plan_then_tool_use_then_final(
                 preamble_text="Computing GC content.",
             ),
             make_text_response(
-                "GC content of ATGCATGC is 50.0% (4/8 bases). "
-                "(tool: gc_content v1.0.0, Biopython gc_fraction)"
+                "GC content of ATGCATGC is 50.0% (4/8 bases). (tool: gc_content v1.0.0, Biopython gc_fraction)"
             ),
         ]
     )
@@ -82,9 +81,7 @@ async def test_planner_call_uses_submit_plan_tool_choice(
     assert executor_call_1.tools[-1].get("cache_control") == {"type": "ephemeral"}
 
 
-async def test_planner_refusal_short_circuits_executor(
-    fake_llm_factory, make_submit_plan_response
-) -> None:
+async def test_planner_refusal_short_circuits_executor(fake_llm_factory, make_submit_plan_response) -> None:
     """Planner emits trivial=true, steps=[], summary explains missing capability →
     executor is bypassed; refusal returned directly. No fabrication."""
     refusal_summary = (
@@ -92,13 +89,7 @@ async def test_planner_refusal_short_circuits_executor(
         "reference genome), which is not registered. Tools available: gc_content, "
         "reverse_complement. You could try the NCBI BLAST web interface."
     )
-    llm = fake_llm_factory(
-        [
-            make_submit_plan_response(
-                {"is_trivial": True, "summary": refusal_summary, "steps": []}
-            )
-        ]
-    )
+    llm = fake_llm_factory([make_submit_plan_response({"is_trivial": True, "summary": refusal_summary, "steps": []})])
 
     result = await run_agent(
         "BLAST this against the human genome: ATGCATGC",
@@ -130,9 +121,7 @@ async def test_unknown_tool_call_in_executor_becomes_error_step(
         ]
     )
 
-    result = await run_agent(
-        "BLAST this", project_id=DEFAULT_PROJECT_ID, llm=llm
-    )
+    result = await run_agent("BLAST this", project_id=DEFAULT_PROJECT_ID, llm=llm)
     error_steps = [s for s in result.steps if s.type == "tool_error"]
     assert len(error_steps) == 1
     assert error_steps[0].tool_name == "run_blast"

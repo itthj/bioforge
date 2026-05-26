@@ -46,9 +46,7 @@ async def test_create_project_rejects_invalid_slug(streaming_client) -> None:
 
 async def test_create_project_conflict_on_duplicate_id(streaming_client) -> None:
     await streaming_client.post("/projects", json={"id": "dup", "name": "first"})
-    response = await streaming_client.post(
-        "/projects", json={"id": "dup", "name": "second"}
-    )
+    response = await streaming_client.post("/projects", json={"id": "dup", "name": "second"})
     assert response.status_code == 409
 
 
@@ -68,9 +66,7 @@ async def test_get_project_404(streaming_client) -> None:
 
 async def test_patch_project_updates_fields(streaming_client) -> None:
     await streaming_client.post("/projects", json={"id": "pp", "name": "old"})
-    response = await streaming_client.patch(
-        "/projects/pp", json={"name": "new", "organism": "Mus musculus"}
-    )
+    response = await streaming_client.patch("/projects/pp", json={"name": "new", "organism": "Mus musculus"})
     assert response.status_code == 200
     assert response.json()["name"] == "new"
     assert response.json()["organism"] == "Mus musculus"

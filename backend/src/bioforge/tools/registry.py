@@ -62,9 +62,7 @@ def list_tools(tags: list[str] | None = None) -> list[ToolSpec]:
     return [t for t in REGISTRY.values() if tag_set.intersection(t.tags)]
 
 
-def to_anthropic_tools(
-    tags: list[str] | None = None, cache_last: bool = True
-) -> list[dict]:
+def to_anthropic_tools(tags: list[str] | None = None, cache_last: bool = True) -> list[dict]:
     """Convert the registry to Anthropic's `tools` array.
 
     With `cache_last=True`, attaches `cache_control: {"type": "ephemeral"}` to the last
@@ -115,8 +113,7 @@ async def execute_tool(name: str, raw_input: dict) -> ToolOutput:
             result = await spec.handler(validated)
             if not isinstance(result, spec.output_model):
                 raise TypeError(
-                    f"Tool {name!r} returned {type(result).__name__}, expected "
-                    f"{spec.output_model.__name__}"
+                    f"Tool {name!r} returned {type(result).__name__}, expected {spec.output_model.__name__}"
                 )
             result.tool_name = spec.name
             result.tool_version = spec.version

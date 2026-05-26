@@ -134,9 +134,7 @@ class RememberInput(ToolInput):
     rationale: str | None = Field(
         default=None,
         max_length=500,
-        description=(
-            "Why this is worth remembering (one sentence). Helps the user audit memory."
-        ),
+        description=("Why this is worth remembering (one sentence). Helps the user audit memory."),
     )
 
     @field_validator("value")
@@ -182,9 +180,7 @@ async def remember(inp: RememberInput) -> RememberOutput:
 
     existing = (
         await session.execute(
-            select(ProjectMemory).where(
-                ProjectMemory.project_id == project_id, ProjectMemory.key == inp.key
-            )
+            select(ProjectMemory).where(ProjectMemory.project_id == project_id, ProjectMemory.key == inp.key)
         )
     ).scalar_one_or_none()
 

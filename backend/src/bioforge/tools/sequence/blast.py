@@ -263,15 +263,11 @@ async def blast(inp: BlastInput) -> BlastOutput:
         # blastn query is DNA; tblastn query is protein. So only blastn here.
         if inp.program == BlastProgram.blastn and not set(seq).issubset(_DNA_CHARS):
             bad = sorted(set(seq) - _DNA_CHARS)
-            raise ToolError(
-                f"blastn requires a DNA query (A/C/G/T/N). Found unexpected residues: {bad!r}."
-            )
+            raise ToolError(f"blastn requires a DNA query (A/C/G/T/N). Found unexpected residues: {bad!r}.")
     if inp.program in (BlastProgram.blastp, BlastProgram.tblastn):
         if not set(seq).issubset(_PROTEIN_CHARS):
             bad = sorted(set(seq) - _PROTEIN_CHARS)
-            raise ToolError(
-                f"{inp.program.value} requires a protein query. Found unexpected residues: {bad!r}."
-            )
+            raise ToolError(f"{inp.program.value} requires a protein query. Found unexpected residues: {bad!r}.")
 
     try:
         record, rid = await _run_ncbi_blast(

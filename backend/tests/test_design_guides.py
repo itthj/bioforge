@@ -61,17 +61,15 @@ def test_score_polyt_zeroes_that_component() -> None:
 # Choose a balanced 20-nt protospacer for good metrics.
 _BALANCED_20NT = "ACGTACGTACGTACGTACGT"  # 50% GC, 25% each, no runs
 _PROBLEM_FREE_TARGET = (
-    "AAAAAAAAAA"           # 10-nt 5' filler so PAM has room for guide upstream
-    + _BALANCED_20NT       # 20-nt protospacer at positions 10-30
-    + "AGG"                # NGG PAM at positions 30-33
+    "AAAAAAAAAA"  # 10-nt 5' filler so PAM has room for guide upstream
+    + _BALANCED_20NT  # 20-nt protospacer at positions 10-30
+    + "AGG"  # NGG PAM at positions 30-33
     + "TTTTTTTTTTTTTTTTT"  # 17-nt 3' filler (total 50 nt)
 )
 
 
 async def test_finds_single_forward_strand_pam() -> None:
-    out = await design_guides(
-        DesignGuidesInput(sequence=_PROBLEM_FREE_TARGET, strands=["+"])
-    )
+    out = await design_guides(DesignGuidesInput(sequence=_PROBLEM_FREE_TARGET, strands=["+"]))
     assert out.num_returned >= 1
     g = next((x for x in out.guides if x.protospacer == _BALANCED_20NT), None)
     assert g is not None, f"Did not find the constructed protospacer in {out.guides}"
@@ -97,9 +95,7 @@ async def test_reverse_strand_pam_coordinates_map_to_forward() -> None:
     coordinates that point into the right region of the input."""
     # Put the PAM site on the REVERSE strand by reverse-complementing the construct.
     fwd = str(Seq(_PROBLEM_FREE_TARGET).reverse_complement())
-    out = await design_guides(
-        DesignGuidesInput(sequence=fwd, strands=["-"])
-    )
+    out = await design_guides(DesignGuidesInput(sequence=fwd, strands=["-"]))
     rev_guides = [g for g in out.guides if g.strand == "-"]
     assert rev_guides, f"Expected at least one - strand guide, got {out.guides}"
     g = rev_guides[0]
@@ -122,7 +118,7 @@ async def test_protospacer_with_n_bases_is_excluded() -> None:
 async def test_guides_sorted_by_heuristic_score_desc() -> None:
     # Construct a target with several PAM hits of varying quality.
     high_quality = "ACGTACGTACGTACGTACGT" + "AGG"  # balanced
-    poly_t = ("TTTTTTTTTT" "ACGTACGTAC") + "AGG"  # has polyT run → lower score
+    poly_t = ("TTTTTTTTTTACGTACGTAC") + "AGG"  # has polyT run → lower score
     target = ("A" * 5) + high_quality + ("A" * 10) + poly_t + ("A" * 5)
     out = await design_guides(DesignGuidesInput(sequence=target, strands=["+"]))
     scores = [g.score.heuristic_score for g in out.guides]
@@ -132,9 +128,7 @@ async def test_guides_sorted_by_heuristic_score_desc() -> None:
 async def test_max_guides_caps_response() -> None:
     # Multiple NGG sites separated by enough room for distinct protospacers
     target = ("A" * 25 + "AGG") * 5
-    out = await design_guides(
-        DesignGuidesInput(sequence=target, max_guides=2)
-    )
+    out = await design_guides(DesignGuidesInput(sequence=target, max_guides=2))
     assert len(out.guides) <= 2
     assert out.num_candidates_total >= 2
 
@@ -147,9 +141,7 @@ async def test_custom_pam_iupac_codes() -> None:
     # tool's responsibility but currently treats PAM as 3' (Cas9-style). This test only
     # confirms IUPAC ambiguity handling.
     target = "A" * 25 + "TTTA" + "C" * 5  # TTTA matches TTTV
-    out = await design_guides(
-        DesignGuidesInput(sequence=target, pam="TTTV", strands=["+"])
-    )
+    out = await design_guides(DesignGuidesInput(sequence=target, pam="TTTV", strands=["+"]))
     assert out.num_returned >= 1
     assert out.guides[0].pam_sequence in ("TTTA", "TTTC", "TTTG")
 
@@ -191,9 +183,7 @@ async def test_is_registered_with_crispr_tag() -> None:
 
 async def test_on_target_score_not_populated_by_default() -> None:
     """Default behavior: compute_on_target_score=False → on_target_score field is None."""
-    out = await design_guides(
-        DesignGuidesInput(sequence=_PROBLEM_FREE_TARGET, strands=["+"])
-    )
+    out = await design_guides(DesignGuidesInput(sequence=_PROBLEM_FREE_TARGET, strands=["+"]))
     assert all(g.on_target_score is None for g in out.guides)
     # Note: the default notes DO mention the `compute_on_target_score=True` upgrade
     # path — that's intentional UX, not a leak of computed-when-not-asked behavior.
@@ -201,9 +191,7 @@ async def test_on_target_score_not_populated_by_default() -> None:
 
 async def test_compute_on_target_score_populates_field() -> None:
     out = await design_guides(
-        DesignGuidesInput(
-            sequence=_PROBLEM_FREE_TARGET, strands=["+"], compute_on_target_score=True
-        )
+        DesignGuidesInput(sequence=_PROBLEM_FREE_TARGET, strands=["+"], compute_on_target_score=True)
     )
     assert out.num_returned >= 1
     for g in out.guides:
@@ -216,9 +204,7 @@ async def test_compute_on_target_score_changes_ranking() -> None:
     heuristic_score alone. We don't assert a specific order — just that the sort
     key is on_target_score (with heuristic_score tiebreaker) when populated."""
     out = await design_guides(
-        DesignGuidesInput(
-            sequence=_PROBLEM_FREE_TARGET, strands=["+"], compute_on_target_score=True
-        )
+        DesignGuidesInput(sequence=_PROBLEM_FREE_TARGET, strands=["+"], compute_on_target_score=True)
     )
     scores = [g.on_target_score for g in out.guides]
     # All non-None and sorted descending
@@ -243,9 +229,7 @@ async def test_compute_on_target_score_with_non_20nt_guide_emits_note() -> None:
 
 async def test_notes_mention_on_target_when_computed() -> None:
     out = await design_guides(
-        DesignGuidesInput(
-            sequence=_PROBLEM_FREE_TARGET, strands=["+"], compute_on_target_score=True
-        )
+        DesignGuidesInput(sequence=_PROBLEM_FREE_TARGET, strands=["+"], compute_on_target_score=True)
     )
     note_text = " ".join(out.notes).lower()
     assert "on_target_score" in note_text or "on-target" in note_text
@@ -255,8 +239,6 @@ async def test_notes_mention_on_target_when_computed() -> None:
 async def test_notes_always_mention_off_target_separation() -> None:
     """Whether or not on_target_score is computed, the notes must direct the user to
     `find_offtargets` for specificity — that's a separate concern."""
-    out = await design_guides(
-        DesignGuidesInput(sequence=_PROBLEM_FREE_TARGET, strands=["+"])
-    )
+    out = await design_guides(DesignGuidesInput(sequence=_PROBLEM_FREE_TARGET, strands=["+"]))
     text = " ".join(out.notes).lower()
     assert "find_offtargets" in text or "off-target" in text

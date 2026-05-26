@@ -64,8 +64,7 @@ class TranslateInput(ToolInput):
         bad = set(cleaned) - _DNA_CHARS
         if bad:
             raise ValueError(
-                f"sequence contains non-DNA characters: {sorted(bad)!r}. "
-                "Expected only A/C/G/T/N (case-insensitive)."
+                f"sequence contains non-DNA characters: {sorted(bad)!r}. Expected only A/C/G/T/N (case-insensitive)."
             )
         return cleaned
 
@@ -134,9 +133,7 @@ async def translate(inp: TranslateInput) -> TranslateOutput:
         )
 
     try:
-        protein_full = str(
-            Seq(codon_aligned).translate(table=inp.genetic_code, to_stop=False)
-        )
+        protein_full = str(Seq(codon_aligned).translate(table=inp.genetic_code, to_stop=False))
     except Exception as e:  # noqa: BLE001
         raise ToolError(
             f"Translation failed: {type(e).__name__}: {e}. "

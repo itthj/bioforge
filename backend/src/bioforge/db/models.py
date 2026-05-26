@@ -40,9 +40,7 @@ class Project(Base):
     organism: Mapped[str | None] = mapped_column(String(80), nullable=True)
     reference_genome: Mapped[str | None] = mapped_column(String(40), nullable=True)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=_utcnow
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
     )
@@ -58,9 +56,7 @@ class ProjectMemory(Base):
     __tablename__ = "project_memory"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_id)
-    project_id: Mapped[str] = mapped_column(
-        String(64), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
-    )
+    project_id: Mapped[str] = mapped_column(String(64), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
     key: Mapped[str] = mapped_column(String(120), nullable=False)
     value: Mapped[str] = mapped_column(Text, nullable=False)
     kind: Mapped[str] = mapped_column(String(40), nullable=False)
@@ -69,9 +65,7 @@ class ProjectMemory(Base):
     source: Mapped[str] = mapped_column(String(20), nullable=False, default="agent")
     rationale: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=_utcnow
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
     )
@@ -109,11 +103,7 @@ class Trace(Base):
     awaiting_approval_plan: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     approval_reasons: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=_utcnow
-    )
-    completed_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=_utcnow
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
 
     __table_args__ = (Index("ix_traces_project_created", "project_id", "created_at"),)

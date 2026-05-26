@@ -19,9 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bioforge.db.models import Project, ProjectMemory
 
 
-async def load_relevant_memory(
-    session: AsyncSession, project_id: str, goal: str, limit: int = 20
-) -> str:
+async def load_relevant_memory(session: AsyncSession, project_id: str, goal: str, limit: int = 20) -> str:
     """Return a markdown-formatted memory summary, or an empty string if there's nothing
     to inject. Safe to call when the project has no memory entries — returns ''."""
     if not project_id or session is None:

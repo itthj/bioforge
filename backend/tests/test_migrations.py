@@ -65,8 +65,7 @@ def test_baseline_migration_produces_metadata_schema(tmp_path: Path) -> None:
         "Generate a new revision with `alembic revision --autogenerate`."
     )
     assert not extra, (
-        f"Migration creates tables not declared in models: {extra}. "
-        "Either add the model or drop the migration."
+        f"Migration creates tables not declared in models: {extra}. Either add the model or drop the migration."
     )
 
     # Per-table column comparison
@@ -79,12 +78,8 @@ def test_baseline_migration_produces_metadata_schema(tmp_path: Path) -> None:
 
         missing_cols = set(declared_cols) - set(reflected_cols)
         extra_cols = set(reflected_cols) - set(declared_cols)
-        assert not missing_cols, (
-            f"Table {table_name!r}: migration missing columns {missing_cols}"
-        )
-        assert not extra_cols, (
-            f"Table {table_name!r}: migration has extra columns {extra_cols}"
-        )
+        assert not missing_cols, f"Table {table_name!r}: migration missing columns {missing_cols}"
+        assert not extra_cols, f"Table {table_name!r}: migration has extra columns {extra_cols}"
 
         # Nullability must match — a NOT NULL declared in the model but nullable in
         # the migration (or vice versa) is a silent bug.

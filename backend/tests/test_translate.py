@@ -26,9 +26,7 @@ async def test_basic_forward_translation() -> None:
 
 
 async def test_to_stop_truncates_at_first_stop() -> None:
-    out = await translate(
-        TranslateInput(sequence="ATGAAACTGTAGGCG", to_stop=True)
-    )
+    out = await translate(TranslateInput(sequence="ATGAAACTGTAGGCG", to_stop=True))
     assert out.protein == "MKL"
     assert out.length_aa == 3
     # first_stop_position is reported even with to_stop=True

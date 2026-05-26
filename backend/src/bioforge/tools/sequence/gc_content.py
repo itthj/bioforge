@@ -29,8 +29,7 @@ class GcContentInput(ToolInput):
         bad = set(cleaned) - _DNA_CHARS
         if bad:
             raise ValueError(
-                f"sequence contains non-DNA characters: {sorted(bad)!r}. "
-                "Expected only A/C/G/T/N (case-insensitive)."
+                f"sequence contains non-DNA characters: {sorted(bad)!r}. Expected only A/C/G/T/N (case-insensitive)."
             )
         return cleaned
 
@@ -63,9 +62,7 @@ async def gc_content(inp: GcContentInput) -> GcContentOutput:
     n_count = seq.count("N")
     informative_length = len(seq) - n_count
     if informative_length == 0:
-        raise ToolError(
-            "Cannot compute GC content: sequence is entirely N (ambiguous bases)."
-        )
+        raise ToolError("Cannot compute GC content: sequence is entirely N (ambiguous bases).")
     # `ambiguous="remove"` excludes N bases from the denominator, so reported GC% is the
     # fraction of *informative* bases that are G or C. This matches the tool's docstring
     # ("Ambiguous N bases are excluded from the percentage") and is the convention

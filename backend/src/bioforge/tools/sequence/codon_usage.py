@@ -25,9 +25,7 @@ _DNA_CHARS = set("ACGTNacgtn")
 
 
 class CodonUsageInput(ToolInput):
-    sequence: str = Field(
-        ..., min_length=3, description="DNA sequence (A/C/G/T/N, case-insensitive)."
-    )
+    sequence: str = Field(..., min_length=3, description="DNA sequence (A/C/G/T/N, case-insensitive).")
     frame: Literal[1, 2, 3] = Field(
         default=1,
         description="Reading frame: 1/2/3. Negative frames not supported here — reverse-complement first if you need them.",
@@ -68,9 +66,7 @@ class CodonUsageOutput(ToolOutput):
     informative_codons: int = Field(
         description="Codons with no ambiguous bases — used as the denominator for fractions."
     )
-    ambiguous_codons: int = Field(
-        description="Codons containing N. Excluded from per-AA fractions."
-    )
+    ambiguous_codons: int = Field(description="Codons containing N. Excluded from per-AA fractions.")
     leftover_nucleotides: int
     frame: int
     genetic_code: int
@@ -113,9 +109,7 @@ async def codon_usage(inp: CodonUsageInput) -> CodonUsageOutput:
     if leftover:
         framed = framed[:-leftover]
     if not framed:
-        raise ToolError(
-            f"Frame {inp.frame} on a {len(seq)}-nt sequence leaves no complete codons."
-        )
+        raise ToolError(f"Frame {inp.frame} on a {len(seq)}-nt sequence leaves no complete codons.")
 
     try:
         codon_to_aa = dict(unambiguous_dna_by_id[inp.genetic_code].forward_table)
@@ -123,9 +117,7 @@ async def codon_usage(inp: CodonUsageInput) -> CodonUsageOutput:
         for stop in unambiguous_dna_by_id[inp.genetic_code].stop_codons:
             codon_to_aa[stop] = "*"
     except KeyError as e:
-        raise ToolError(
-            f"Unknown genetic_code table id: {inp.genetic_code}"
-        ) from e
+        raise ToolError(f"Unknown genetic_code table id: {inp.genetic_code}") from e
 
     counts: Counter[str] = Counter()
     aa_counts: Counter[str] = Counter()

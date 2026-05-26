@@ -23,9 +23,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
 
-_project_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar(
-    "bioforge_project_id", default=None
-)
+_project_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar("bioforge_project_id", default=None)
 _db_session_var: contextvars.ContextVar[AsyncSession | None] = contextvars.ContextVar(
     "bioforge_db_session", default=None
 )
@@ -51,9 +49,7 @@ class AgentContextScope:
     `get_current_db_session()` return the scoped values.
     """
 
-    def __init__(
-        self, *, project_id: str | None, session: AsyncSession | None
-    ) -> None:
+    def __init__(self, *, project_id: str | None, session: AsyncSession | None) -> None:
         self._project_id = project_id
         self._session = session
         self._tokens: list[contextvars.Token] = []

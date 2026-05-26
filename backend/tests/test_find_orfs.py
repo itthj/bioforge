@@ -13,18 +13,30 @@ from bioforge.tools.sequence.find_orfs import FindOrfsInput, find_orfs
 # A 60-nt forward-strand ORF: ATG + 18 codons + TAA = 60 nt → 19-aa protein
 _FWD_ORF_60NT = (
     "ATG"
-    "GCG" "GCG" "GCG" "GCG" "GCG"  # 5 codons
-    "GCG" "GCG" "GCG" "GCG" "GCG"  # 5 codons
-    "GCG" "GCG" "GCG" "GCG" "GCG"  # 5 codons
-    "GCG" "GCG" "GCG"              # 3 codons → 19 total
+    "GCG"
+    "GCG"
+    "GCG"
+    "GCG"
+    "GCG"  # 5 codons
+    "GCG"
+    "GCG"
+    "GCG"
+    "GCG"
+    "GCG"  # 5 codons
+    "GCG"
+    "GCG"
+    "GCG"
+    "GCG"
+    "GCG"  # 5 codons
+    "GCG"
+    "GCG"
+    "GCG"  # 3 codons → 19 total
     "TAA"
 )
 
 
 async def test_finds_forward_strand_orf() -> None:
-    out = await find_orfs(
-        FindOrfsInput(sequence=_FWD_ORF_60NT, min_length_aa=10)
-    )
+    out = await find_orfs(FindOrfsInput(sequence=_FWD_ORF_60NT, min_length_aa=10))
     assert out.num_orfs >= 1
     fwd_orfs = [o for o in out.orfs if o.strand == "+"]
     assert any(o.length_aa == 19 and o.protein.startswith("M") for o in fwd_orfs)
@@ -32,9 +44,7 @@ async def test_finds_forward_strand_orf() -> None:
 
 async def test_min_length_filter_excludes_short_orfs() -> None:
     """The 19-aa ORF must be excluded when min_length_aa > 19."""
-    out = await find_orfs(
-        FindOrfsInput(sequence=_FWD_ORF_60NT, min_length_aa=30)
-    )
+    out = await find_orfs(FindOrfsInput(sequence=_FWD_ORF_60NT, min_length_aa=30))
     long_orfs = [o for o in out.orfs if o.length_aa >= 30]
     assert long_orfs == []
 
@@ -48,9 +58,7 @@ async def test_reverse_strand_orf_coordinates_map_back() -> None:
     upstream = "AAAA" * 5  # 20 nt of filler
     fwd_seq = str(Seq(upstream + _FWD_ORF_60NT).reverse_complement())
 
-    out = await find_orfs(
-        FindOrfsInput(sequence=fwd_seq, min_length_aa=15)
-    )
+    out = await find_orfs(FindOrfsInput(sequence=fwd_seq, min_length_aa=15))
     rev_orfs = [o for o in out.orfs if o.strand == "-"]
     assert rev_orfs, f"Expected at least one reverse-strand ORF, got {out.orfs}"
     rev = rev_orfs[0]
@@ -60,22 +68,16 @@ async def test_reverse_strand_orf_coordinates_map_back() -> None:
 
 
 async def test_restricting_frames_skips_others() -> None:
-    out = await find_orfs(
-        FindOrfsInput(sequence=_FWD_ORF_60NT, min_length_aa=10, frames=[1])
-    )
+    out = await find_orfs(FindOrfsInput(sequence=_FWD_ORF_60NT, min_length_aa=10, frames=[1]))
     assert all(o.frame == 1 for o in out.orfs)
 
 
 async def test_require_stop_excludes_unterminated() -> None:
     # 24 nt = ATG + 7 codons, NO stop. require_stop=True → excluded, require_stop=False → kept
     no_stop = "ATG" + "GCG" * 7
-    out_strict = await find_orfs(
-        FindOrfsInput(sequence=no_stop, min_length_aa=5, require_stop=True)
-    )
+    out_strict = await find_orfs(FindOrfsInput(sequence=no_stop, min_length_aa=5, require_stop=True))
     assert out_strict.num_orfs == 0
-    out_loose = await find_orfs(
-        FindOrfsInput(sequence=no_stop, min_length_aa=5, require_stop=False)
-    )
+    out_loose = await find_orfs(FindOrfsInput(sequence=no_stop, min_length_aa=5, require_stop=False))
     assert out_loose.num_orfs >= 1
     assert not out_loose.orfs[0].has_stop
 
@@ -98,9 +100,7 @@ async def test_orfs_sorted_longest_first() -> None:
 async def test_max_orfs_caps_result() -> None:
     # Several ORFs in different frames.
     repeated = ("ATG" + "GCG" * 20 + "TAA" + "AAAA") * 5
-    out = await find_orfs(
-        FindOrfsInput(sequence=repeated, min_length_aa=10, max_orfs=2)
-    )
+    out = await find_orfs(FindOrfsInput(sequence=repeated, min_length_aa=10, max_orfs=2))
     assert len(out.orfs) <= 2
 
 

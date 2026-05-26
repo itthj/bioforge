@@ -31,9 +31,7 @@ def _fake_hsp(*, expect=1e-10, bits=40.0, identities=20, align_length=20) -> Sim
     )
 
 
-def _fake_alignment(
-    *, accession: str, hit_def: str, identities: int, align_length: int = 20
-) -> SimpleNamespace:
+def _fake_alignment(*, accession: str, hit_def: str, identities: int, align_length: int = 20) -> SimpleNamespace:
     return SimpleNamespace(
         accession=accession,
         hit_def=hit_def,
@@ -101,9 +99,7 @@ async def test_zero_mismatch_hit_is_high_risk(patch_ncbi) -> None:
 
 
 async def test_2_mismatches_still_high_risk(patch_ncbi) -> None:
-    record = _fake_record(
-        [_fake_alignment(accession="ACC", hit_def="x", identities=18, align_length=20)]
-    )
+    record = _fake_record([_fake_alignment(accession="ACC", hit_def="x", identities=18, align_length=20)])
     patch_ncbi((record, "RID"))
     out = await find_offtargets(FindOfftargetsInput(guide=_GUIDE))
     assert out.hits[0].mismatch_count == 2
@@ -111,9 +107,7 @@ async def test_2_mismatches_still_high_risk(patch_ncbi) -> None:
 
 
 async def test_3_mismatches_is_medium(patch_ncbi) -> None:
-    record = _fake_record(
-        [_fake_alignment(accession="ACC", hit_def="x", identities=17, align_length=20)]
-    )
+    record = _fake_record([_fake_alignment(accession="ACC", hit_def="x", identities=17, align_length=20)])
     patch_ncbi((record, "RID"))
     out = await find_offtargets(FindOfftargetsInput(guide=_GUIDE))
     assert out.hits[0].mismatch_count == 3
@@ -121,9 +115,7 @@ async def test_3_mismatches_is_medium(patch_ncbi) -> None:
 
 
 async def test_4_mismatches_is_low(patch_ncbi) -> None:
-    record = _fake_record(
-        [_fake_alignment(accession="ACC", hit_def="x", identities=16, align_length=20)]
-    )
+    record = _fake_record([_fake_alignment(accession="ACC", hit_def="x", identities=16, align_length=20)])
     patch_ncbi((record, "RID"))
     out = await find_offtargets(FindOfftargetsInput(guide=_GUIDE))
     assert out.hits[0].mismatch_count == 4
@@ -131,9 +123,7 @@ async def test_4_mismatches_is_low(patch_ncbi) -> None:
 
 
 async def test_above_max_mismatches_excluded(patch_ncbi) -> None:
-    record = _fake_record(
-        [_fake_alignment(accession="ACC", hit_def="x", identities=10, align_length=20)]
-    )
+    record = _fake_record([_fake_alignment(accession="ACC", hit_def="x", identities=10, align_length=20)])
     patch_ncbi((record, "RID"))
     out = await find_offtargets(FindOfftargetsInput(guide=_GUIDE, max_mismatches=4))
     assert out.num_offtargets_returned == 0
@@ -141,9 +131,7 @@ async def test_above_max_mismatches_excluded(patch_ncbi) -> None:
 
 async def test_partial_alignment_low_coverage_is_low_risk(patch_ncbi) -> None:
     # 15/15 perfect identity but only 15 of 20 nt aligned (75% coverage)
-    record = _fake_record(
-        [_fake_alignment(accession="ACC", hit_def="x", identities=15, align_length=15)]
-    )
+    record = _fake_record([_fake_alignment(accession="ACC", hit_def="x", identities=15, align_length=15)])
     patch_ncbi((record, "RID"))
     out = await find_offtargets(FindOfftargetsInput(guide=_GUIDE))
     hit = out.hits[0]
@@ -166,9 +154,7 @@ async def test_uses_blastn_short_task(patch_ncbi) -> None:
 
 async def test_propagates_database_parameter(patch_ncbi) -> None:
     patch_ncbi((_fake_record([]), "RID"))
-    await find_offtargets(
-        FindOfftargetsInput(guide=_GUIDE, database="refseq_genomic")
-    )
+    await find_offtargets(FindOfftargetsInput(guide=_GUIDE, database="refseq_genomic"))
     assert patch_ncbi.calls[0]["database"] == "refseq_genomic"
 
 
@@ -201,10 +187,7 @@ async def test_hits_sorted_high_then_low_risk(patch_ncbi) -> None:
 
 async def test_max_hits_caps_response(patch_ncbi) -> None:
     record = _fake_record(
-        [
-            _fake_alignment(accession=f"ACC{i}", hit_def="x", identities=20, align_length=20)
-            for i in range(10)
-        ]
+        [_fake_alignment(accession=f"ACC{i}", hit_def="x", identities=20, align_length=20) for i in range(10)]
     )
     patch_ncbi((record, "RID"))
     out = await find_offtargets(FindOfftargetsInput(guide=_GUIDE, max_hits=3))

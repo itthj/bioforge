@@ -94,9 +94,7 @@ def patch_blast(monkeypatch):
     holder: dict = {"response": None, "calls": []}
 
     async def _fake(*, program, database, sequence, expect, hitlist_size, task=None):
-        holder["calls"].append(
-            dict(program=program, database=database, sequence=sequence, task=task)
-        )
+        holder["calls"].append(dict(program=program, database=database, sequence=sequence, task=task))
         return holder["response"]
 
     monkeypatch.setattr(blast_module, "_run_ncbi_blast", _fake)
@@ -168,17 +166,12 @@ async def test_skip_approval_gate_runs_blast_directly(
     patch_blast(_fake_blast_record_with_one_hit())
     llm = fake_llm_factory(
         [
-            make_submit_plan_response(
-                multi_step_plan([("blast", "Search for homologs.")])
-            ),
+            make_submit_plan_response(multi_step_plan([("blast", "Search for homologs.")])),
             make_tool_use_response(
                 "blast",
                 {"sequence": "ATGCATGCATGCATGCATGC", "program": "blastn", "database": "nt"},
             ),
-            make_text_response(
-                "Top hit: NM_007294.4 (BRCA1) at 98% identity, e-value 1e-80. "
-                "Search via NCBI BLAST."
-            ),
+            make_text_response("Top hit: NM_007294.4 (BRCA1) at 98% identity, e-value 1e-80. Search via NCBI BLAST."),
             make_submit_verdict_response(passing_verdict()),
         ]
     )
@@ -225,9 +218,7 @@ async def test_resume_agent_executes_pending_plan(
                 "blast",
                 {"sequence": "ATGCATGCATGCATGCATGC"},
             ),
-            make_text_response(
-                "BRCA1 mRNA (NM_007294.4) at 98% identity. Source: NCBI BLAST."
-            ),
+            make_text_response("BRCA1 mRNA (NM_007294.4) at 98% identity. Source: NCBI BLAST."),
             make_submit_verdict_response(passing_verdict()),
         ]
     )
@@ -273,8 +264,6 @@ async def test_run_agent_does_not_pause_for_non_expensive_plan(
             make_submit_verdict_response(passing_verdict()),
         ]
     )
-    result = await run_agent(
-        "GC of rev comp of ATGCATGC", project_id=DEFAULT_PROJECT_ID, llm=llm
-    )
+    result = await run_agent("GC of rev comp of ATGCATGC", project_id=DEFAULT_PROJECT_ID, llm=llm)
     assert result.status == "completed"
     assert all(s.type != "approval_requested" for s in result.steps)
