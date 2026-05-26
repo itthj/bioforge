@@ -5,6 +5,35 @@ interface ChatInputProps {
   disabled?: boolean;
 }
 
+// Pre-filled goal templates exposed as quick-action chips above the textarea. Picked
+// to demonstrate the agent's range: a trivial single-tool goal, a two-tool chain, the
+// CRISPR composite workflow, and a refusal-shaped goal so users can see how the agent
+// handles capability gaps. Clicking a chip just pre-fills the textarea — the user can
+// edit before sending.
+const QUICK_ACTIONS: { label: string; goal: string }[] = [
+  {
+    label: "GC content",
+    goal: "What is the GC content of ATGCATGCATGCATGC?",
+  },
+  {
+    label: "Reverse-complement + GC",
+    goal: "Give me the GC content of the reverse complement of ATGCATGCATGCATGCATGC.",
+  },
+  {
+    label: "CRISPR edit report",
+    goal:
+      "Run a CRISPR edit report against this target locus and recommend a guide " +
+      "(NGG PAM, top 5 candidates, simulate the top 3 outcomes):\n\n" +
+      "ATGGCGCCGTTGATCCGTGTCATCCGGAACAACCCGGAGGTTAACAACGGCAACTAACGGTCCAGGTAA",
+  },
+  {
+    label: "ORF finder",
+    goal:
+      "Find all ORFs of at least 30 amino acids in this sequence (forward strand):\n\n" +
+      "ATGGCGCCGTTGATCCGTGTCATCCGGAACAACCCGGAGGTTAACAACGGCAACTAACGGTCCAGGTAA",
+  },
+];
+
 export function ChatInput({ onSubmit, disabled }: ChatInputProps) {
   const [text, setText] = useState("");
 
@@ -27,6 +56,20 @@ export function ChatInput({ onSubmit, disabled }: ChatInputProps) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-2">
+      <div className="flex flex-wrap gap-1.5">
+        {QUICK_ACTIONS.map((action) => (
+          <button
+            key={action.label}
+            type="button"
+            onClick={() => setText(action.goal)}
+            disabled={disabled}
+            className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-600 shadow-sm hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            title={action.goal}
+          >
+            {action.label}
+          </button>
+        ))}
+      </div>
       <textarea
         value={text}
         onChange={(e) => setText(e.target.value)}
@@ -37,7 +80,7 @@ export function ChatInput({ onSubmit, disabled }: ChatInputProps) {
         className="w-full rounded-md border border-slate-300 bg-white p-3 font-mono text-sm shadow-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500 disabled:bg-slate-100"
       />
       <div className="flex items-center justify-between text-xs text-slate-500">
-        <span>Ctrl/Cmd + Enter to send</span>
+        <span>Ctrl/Cmd + Enter to send · click a chip to pre-fill</span>
         <button
           type="submit"
           disabled={disabled || !text.trim()}

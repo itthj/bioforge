@@ -1,4 +1,7 @@
 import type { AgentStep, PlanStep } from "../types/agent";
+import type { CrisprEditReportOutput } from "../types/crispr";
+import { isCrisprEditReport } from "../types/crispr";
+import { CrisprReportCard } from "./CrisprReportCard";
 
 interface StepCardProps {
   step: AgentStep;
@@ -128,6 +131,14 @@ function PlanBody({ steps, summary }: { steps: PlanStep[]; summary: string }) {
 }
 
 function ToolCallBody({ step }: { step: AgentStep }) {
+  // Tool-specific custom renderers. When a tool produces a rich structured output,
+  // we render it as a readable card instead of a JSON details blob. The default
+  // collapsed-JSON fallback below still handles every other tool.
+  const isCrispr =
+    step.tool_name === "crispr_edit_report" &&
+    step.tool_output &&
+    isCrisprEditReport(step.tool_output);
+
   return (
     <div className="space-y-2">
       <div className="font-mono text-xs font-semibold text-emerald-800">
@@ -143,7 +154,10 @@ function ToolCallBody({ step }: { step: AgentStep }) {
           </pre>
         </details>
       )}
-      {step.tool_output && (
+      {isCrispr && step.tool_output && (
+        <CrisprReportCard report={step.tool_output as unknown as CrisprEditReportOutput} />
+      )}
+      {step.tool_output && !isCrispr && (
         <details className="text-xs">
           <summary className="cursor-pointer text-slate-500 hover:text-slate-700">
             output
