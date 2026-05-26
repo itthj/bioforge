@@ -183,3 +183,102 @@ async def test_blast_is_registered_as_expensive() -> None:
     assert spec.cost_hint == "expensive"
     assert spec.destructive is False
     assert "alignment" in spec.tags
+
+
+# --- Local backend ---------------------------------------------------------------------
+#
+# Local BLAST+ shells out to a binary. We patch BOTH the local runner (no real subprocess)
+# AND shutil.which (so the binary-found check passes without BLAST+ installed). The path
+# coverage is the same shape as the remote one: success, missing-binary, nonzero exit.
+
+
+@pytest.fixture
+def patch_local(monkeypatch):
+    """Monkeypatch _run_local_blast + shutil.which so the local backend path is testable
+    without an actual BLAST+ install."""
+    holder: dict = {"response": None, "calls": []}
+
+    async def _fake_local(*, program, database, sequence, expect, hitlist_size, task=None):
+        holder["calls"].append(
+            dict(
+                program=program,
+                database=database,
+                sequence=sequence,
+                expect=expect,
+                hitlist_size=hitlist_size,
+                task=task,
+            )
+        )
+        if isinstance(holder["response"], Exception):
+            raise holder["response"]
+        return holder["response"]
+
+    monkeypatch.setattr(blast_module, "_run_local_blast", _fake_local)
+    # shutil.which is called inside the REAL _run_local_blast, but our fake replaces
+    # the whole function — no need to patch shutil. Kept here as a comment so future
+    # tests of the real subprocess path know where to look.
+
+    def setter(response):
+        holder["response"] = response
+
+    setter.calls = holder["calls"]
+    return setter
+
+
+async def test_local_backend_routes_to_local_runner(patch_local) -> None:
+    """database_type=local sends the call through _run_local_blast, NOT NCBIWWW.qblast."""
+    record = _fake_blast_record([_fake_alignment(accession="LOCAL", hit_def="local hit [Homo sapiens]")])
+    patch_local((record, ""))
+
+    out = await blast(
+        BlastInput(
+            sequence="ATGCATGCATGCATGC",
+            database="my_local_db",
+            database_type="local",
+        )
+    )
+    assert out.backend == "local"
+    # Local searches have no NCBI RID
+    assert out.request_id == ""
+    assert out.num_hits_returned == 1
+    assert out.hits[0].accession == "LOCAL"
+    # The local runner was called with the user's local db name verbatim
+    assert patch_local.calls[0]["database"] == "my_local_db"
+
+
+async def test_remote_backend_is_default_and_unchanged(patch_ncbi) -> None:
+    """Default database_type=remote still hits the NCBI runner (regression check
+    for the refactor)."""
+    record = _fake_blast_record([_fake_alignment(accession="REMOTE", hit_def="remote hit")])
+    patch_ncbi((record, "RID-DEFAULT"))
+    out = await blast(BlastInput(sequence="ATGCATGCATGCATGC"))
+    assert out.backend == "remote"
+    assert out.request_id == "RID-DEFAULT"
+
+
+async def test_local_backend_missing_binary_raises_with_install_hint(monkeypatch) -> None:
+    """Real _run_local_blast: shutil.which returns None → ToolError with install hint."""
+    import shutil as _shutil
+
+    monkeypatch.setattr(_shutil, "which", lambda name: None)
+    with pytest.raises(ToolError, match="not found in PATH"):
+        await blast(
+            BlastInput(
+                sequence="ATGCATGCATGCATGC",
+                database="some_local_db",
+                database_type="local",
+            )
+        )
+
+
+async def test_local_backend_subprocess_failure_maps_to_tool_error(patch_local) -> None:
+    """The local runner raising a generic error is wrapped in ToolError by the handler."""
+    patch_local(RuntimeError("makeblastdb produced corrupted index"))
+    with pytest.raises(ToolError, match="Local BLAST"):
+        await blast(
+            BlastInput(
+                sequence="ATGCATGCATGCATGC",
+                database="bad_db",
+                database_type="local",
+            )
+        )

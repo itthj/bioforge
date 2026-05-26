@@ -10,13 +10,23 @@ The expensive runtime + cost classification (`cost_hint="expensive"`) means a pl
 includes BLAST triggers the approval gate before any network call is made — see
 `agent/approval.py`. The tool itself does not enforce approval; that's the loop's job.
 
-Local BLAST+ binary integration is a later slice; this version is remote-only.
+Two backends now supported via `database_type`:
+  - `remote` (default): NCBIWWW.qblast against NCBI's public service. Slow (30s-5min),
+    free, no install.
+  - `local`: shells out to a locally-installed blastn / blastp / blastx / tblastn
+    binary via asyncio.create_subprocess_exec. Requires BLAST+ in PATH and a local
+    database (built via `makeblastdb`). When local is requested but the binary is
+    missing, the tool raises ToolError with a clear "install BLAST+" message — no
+    silent fallback to remote.
 """
 
 from __future__ import annotations
 
 import asyncio
+import shutil
+import xml.etree.ElementTree as ET
 from enum import Enum
+from io import StringIO
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
@@ -26,6 +36,19 @@ from bioforge.tools.registry import register_tool
 
 _DNA_CHARS = set("ACGTNacgtn")
 _PROTEIN_CHARS = set("ACDEFGHIKLMNPQRSTVWYBXZJUO*acdefghiklmnpqrstvwybxzjuo")
+
+
+class BlastBackend(str, Enum):
+    """Where the BLAST search runs.
+
+    - `remote`: NCBIWWW.qblast against public NCBI service. No setup; slow.
+    - `local`: shell out to a locally-installed `blastn` / `blastp` / etc. binary.
+      Faster (~ms per short query), private (no network), but requires BLAST+
+      installed and the chosen database to be built locally with `makeblastdb`.
+    """
+
+    remote = "remote"
+    local = "local"
 
 
 class BlastProgram(str, Enum):
@@ -106,6 +129,16 @@ class BlastInput(ToolInput):
             "blastp / blastx / tblastn."
         ),
     )
+    database_type: BlastBackend = Field(
+        default=BlastBackend.remote,
+        description=(
+            "Where to run the search. `remote` calls NCBI's public service (default — "
+            "no setup needed). `local` shells out to a locally-installed BLAST+ binary "
+            "with a locally-built database — much faster but requires BLAST+ in PATH "
+            "and the `database` argument to name a local database file prefix (not a "
+            "remote NCBI name like 'nt')."
+        ),
+    )
 
     @field_validator("sequence")
     @classmethod
@@ -133,12 +166,13 @@ class BlastHit(BaseModel):
 class BlastOutput(ToolOutput):
     program: str
     database: str
+    backend: str = Field(description="Which backend ran the search: 'remote' or 'local'.")
     query_length: int
     num_hits_returned: int
     request_id: str = Field(
         description=(
-            "NCBI Request ID (RID) for the BLAST search — reproducibility handle for "
-            "later retrieval via the NCBI web interface."
+            "NCBI Request ID (RID) for remote searches — reproducibility handle for "
+            "later retrieval via the NCBI web interface. Empty string for local searches."
         )
     )
     hits: list[BlastHit]
@@ -193,6 +227,88 @@ async def _run_ncbi_blast(
 
 
 # --- Parsing -------------------------------------------------------------------------
+
+
+async def _run_local_blast(
+    *,
+    program: str,
+    database: str,
+    sequence: str,
+    expect: float,
+    hitlist_size: int,
+    task: str | None = None,
+) -> tuple[Any, str]:
+    """Run BLAST+ locally via the shipped binary. Pipes the query as FASTA on stdin,
+    asks for XML output (outfmt=5) on stdout, parses with the same NCBIXML reader the
+    remote path uses so downstream parsing stays unified.
+
+    Returns `(blast_record, "")`. The empty string in slot 2 is the deliberate
+    convention — local searches have no NCBI RID. Patched in tests.
+    """
+    binary = shutil.which(program)
+    if binary is None:
+        raise ToolError(
+            f"BLAST+ binary {program!r} not found in PATH. Install NCBI BLAST+ "
+            "(https://www.ncbi.nlm.nih.gov/books/NBK279690/) and ensure the chosen "
+            "database has been built locally with `makeblastdb`. Or set "
+            "`database_type=remote` to use NCBI's public service."
+        )
+
+    cmd = [
+        binary,
+        "-db",
+        database,
+        "-outfmt",
+        "5",  # XML, parseable by NCBIXML
+        "-evalue",
+        str(expect),
+        "-max_target_seqs",
+        str(hitlist_size),
+    ]
+    if task is not None and program == "blastn":
+        cmd += ["-task", task]
+
+    fasta = f">query\n{sequence}\n"
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate(fasta.encode("ascii"))
+    except FileNotFoundError as e:
+        # Race between shutil.which() and exec — extremely rare but worth a clean error.
+        raise ToolError(f"BLAST+ binary {program!r} disappeared between check and exec.") from e
+
+    if proc.returncode != 0:
+        err_text = stderr.decode("utf-8", errors="replace").strip()
+        raise ToolError(
+            f"Local BLAST+ ({program}) failed with exit {proc.returncode}. "
+            f"stderr: {err_text or '(empty)'}. Verify the database {database!r} "
+            "exists (no .nhr/.nin/.nsq files? run makeblastdb)."
+        )
+
+    xml_text = stdout.decode("utf-8", errors="replace")
+    if not xml_text.strip():
+        raise ToolError(
+            f"Local BLAST+ ({program}) returned empty output. Check that the database "
+            "is intact and the query is well-formed."
+        )
+
+    # NCBIXML.read parses a file-like; wrap the text. The structure is identical to
+    # what the remote path produces, so _parse_blast_record handles both transparently.
+    from Bio.Blast import NCBIXML
+
+    try:
+        record = NCBIXML.read(StringIO(xml_text))
+    except (ValueError, ET.ParseError) as e:
+        raise ToolError(
+            f"Could not parse BLAST+ XML output: {type(e).__name__}: {e}. "
+            "This usually means the binary version disagrees with the parser; check "
+            "that BLAST+ is reasonably current (>= 2.10)."
+        ) from e
+    return record, ""
 
 
 def _parse_blast_record(record: Any, max_hits: int) -> list[BlastHit]:
@@ -269,8 +385,11 @@ async def blast(inp: BlastInput) -> BlastOutput:
             bad = sorted(set(seq) - _PROTEIN_CHARS)
             raise ToolError(f"{inp.program.value} requires a protein query. Found unexpected residues: {bad!r}.")
 
+    backend_choice = inp.database_type
+    runner = _run_local_blast if backend_choice == BlastBackend.local else _run_ncbi_blast
+
     try:
-        record, rid = await _run_ncbi_blast(
+        record, rid = await runner(
             program=inp.program.value,
             database=inp.database,
             sequence=seq,
@@ -281,9 +400,14 @@ async def blast(inp: BlastInput) -> BlastOutput:
     except ToolError:
         raise
     except Exception as e:
+        backend_label = "Local BLAST+" if backend_choice == BlastBackend.local else "NCBI BLAST"
         raise ToolError(
-            f"NCBI BLAST call failed: {type(e).__name__}: {e}. "
-            "This is usually a transient network issue or NCBI rate-limiting; retry in a moment."
+            f"{backend_label} call failed: {type(e).__name__}: {e}. "
+            + (
+                "Verify the local database exists and is built (makeblastdb)."
+                if backend_choice == BlastBackend.local
+                else "This is usually a transient network issue or NCBI rate-limiting; retry in a moment."
+            )
         ) from e
 
     hits = _parse_blast_record(record, inp.max_hits)
@@ -291,6 +415,7 @@ async def blast(inp: BlastInput) -> BlastOutput:
     return BlastOutput(
         program=inp.program.value,
         database=inp.database,
+        backend=backend_choice.value,
         query_length=len(seq),
         num_hits_returned=len(hits),
         request_id=rid,
