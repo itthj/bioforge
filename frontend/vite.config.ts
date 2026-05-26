@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
@@ -15,5 +16,17 @@ export default defineConfig({
       "/traces": { target: "http://localhost:8000", changeOrigin: true },
       "/health": { target: "http://localhost:8000", changeOrigin: true },
     },
+  },
+  test: {
+    // happy-dom is faster than jsdom and covers everything React Testing Library
+    // needs (DOM, MutationObserver, requestAnimationFrame). If we ever need
+    // browser-specific behavior we don't get here, switch to jsdom or playwright.
+    environment: "happy-dom",
+    globals: true,
+    setupFiles: ["./src/test/setup.ts"],
+    include: ["src/**/*.{test,spec}.{ts,tsx}"],
+    // CSS is build-time (Tailwind); no need to process @tailwind directives during
+    // tests. Skip the postcss pipeline for speed.
+    css: false,
   },
 });
