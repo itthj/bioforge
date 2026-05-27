@@ -141,21 +141,40 @@ export function PdbStructureCard({ structure }: PdbStructureCardProps) {
         </ul>
       </details>
 
-      {/* 3D viewer (lazy-loaded) */}
-      <MolstarViewer pdbText={structure.pdb_text} pdbUrl={structure.pdb_url} />
+      {/* 3D viewer (lazy-loaded). When the entry is mmCIF-only (very large
+          complexes — ribosomes, capsids), backend returns cif_text + format='cif'
+          and Mol* uses its mmCIF loader. */}
+      <MolstarViewer
+        structureText={
+          structure.structure_format === "cif"
+            ? (structure.cif_text ?? null)
+            : structure.pdb_text
+        }
+        format={structure.structure_format ?? "pdb"}
+        downloadUrl={
+          structure.structure_format === "cif"
+            ? structure.cif_url
+            : structure.pdb_url
+        }
+      />
 
-      {/* Raw PDB text collapsible */}
-      {structure.pdb_text && (
-        <details className="text-xs">
-          <summary className="cursor-pointer text-slate-500 hover:text-slate-700">
-            Raw PDB text ({(structure.pdb_text.length / 1024).toFixed(1)} KB)
-          </summary>
-          <pre className="mt-1 max-h-60 overflow-auto rounded bg-white p-2 font-mono text-[10px] text-slate-700">
-            {structure.pdb_text.slice(0, 8000)}
-            {structure.pdb_text.length > 8000 && "\n…[truncated]"}
-          </pre>
-        </details>
-      )}
+      {/* Raw structure text collapsible */}
+      {(() => {
+        const fmt = structure.structure_format ?? "pdb";
+        const rawText = fmt === "cif" ? structure.cif_text : structure.pdb_text;
+        if (!rawText) return null;
+        return (
+          <details className="text-xs">
+            <summary className="cursor-pointer text-slate-500 hover:text-slate-700">
+              Raw {fmt.toUpperCase()} text ({(rawText.length / 1024).toFixed(1)} KB)
+            </summary>
+            <pre className="mt-1 max-h-60 overflow-auto rounded bg-white p-2 font-mono text-[10px] text-slate-700">
+              {rawText.slice(0, 8000)}
+              {rawText.length > 8000 && "\n…[truncated]"}
+            </pre>
+          </details>
+        );
+      })()}
     </div>
   );
 }

@@ -102,7 +102,7 @@ describe("PdbStructureCard", () => {
 
   it("falls back to a download link when pdb_text is null", () => {
     render(<PdbStructureCard structure={makeStructure({ pdb_text: null })} />);
-    expect(screen.getByText(/No PDB text in this response/)).toBeInTheDocument();
+    expect(screen.getByText(/No structure text in this response/)).toBeInTheDocument();
     expect(
       screen.getByRole("link", { name: /files\.rcsb\.org/ }),
     ).toBeInTheDocument();
@@ -128,5 +128,34 @@ describe("PdbStructureCard", () => {
     // The header summary's "chains" text (lowercase) is always present.
     expect(screen.queryByText("Chains")).not.toBeInTheDocument();
     expect(screen.queryByText(/aa$/)).not.toBeInTheDocument();
+  });
+
+  it("labels the Mol* button for mmCIF when structure_format='cif'", () => {
+    render(
+      <PdbStructureCard
+        structure={makeStructure({
+          structure_format: "cif",
+          pdb_text: null,
+          cif_text: "data_BIG\n_entity.id 1\n",
+        })}
+      />,
+    );
+    // The viewer button is rendered with the mmCIF suffix.
+    expect(
+      screen.getByRole("button", { name: /Load Mol\* viewer \(mmCIF\)/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("shows the raw CIF section header when structure_format='cif'", () => {
+    render(
+      <PdbStructureCard
+        structure={makeStructure({
+          structure_format: "cif",
+          pdb_text: null,
+          cif_text: "data_BIG\n_entity.id 1\n",
+        })}
+      />,
+    );
+    expect(screen.getByText(/Raw CIF text/)).toBeInTheDocument();
   });
 });

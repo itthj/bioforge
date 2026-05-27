@@ -19,6 +19,8 @@ export interface FetchPdbOutput {
   pdb_url: string;
   cif_url: string;
   pdb_text: string | null;
+  cif_text?: string | null;
+  structure_format?: "pdb" | "cif";
   caveats: string[];
   tool_name?: string;
   tool_version?: string;

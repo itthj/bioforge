@@ -103,27 +103,57 @@ class FetchPdbOutput(ToolOutput):
     )
     pdb_url: str
     cif_url: str
-    pdb_text: str | None
+    pdb_text: str | None = Field(
+        default=None,
+        description=(
+            "PDB-format text. Populated when the entry has a PDB representation "
+            "AND include_pdb_text=True AND size <= max_pdb_kb. For mmCIF-only "
+            "entries (very large complexes), see cif_text + structure_format."
+        ),
+    )
+    cif_text: str | None = Field(
+        default=None,
+        description=(
+            "mmCIF-format text. Populated only when the entry has NO legacy PDB "
+            "file (typical for ribosomes, viral capsids, very large assemblies) "
+            "and we fell back to CIF. Includes the same atomic data; both formats "
+            "are renderable by Mol*."
+        ),
+    )
+    structure_format: str = Field(
+        default="pdb",
+        description=(
+            "Format of the returned structure text: 'pdb' (default) or 'cif' "
+            "(fallback for mmCIF-only entries). The frontend uses this to "
+            "tell Mol* which loader to invoke."
+        ),
+    )
     caveats: list[str] = Field(default_factory=list)
 
 
 # --- HTTP, factored out for test patching --------------------------------------------
 
 
-async def _fetch_pdb(pdb_id: str) -> tuple[dict, str | None]:
-    """Fetch metadata JSON + PDB text from RCSB.
+async def _fetch_pdb(pdb_id: str) -> tuple[dict, str | None, str]:
+    """Fetch metadata JSON + structure text from RCSB.
 
-    Returns `(metadata_dict, pdb_text_or_none)`. Patched in tests.
+    Returns `(metadata_dict, structure_text_or_none, format)` where `format` is
+    "pdb" (preferred) or "cif" (fallback for entries too large for the legacy
+    PDB format — ribosomes, viral capsids, very large complexes). Patched in tests.
 
-    The metadata endpoint is structured JSON; the PDB endpoint serves the raw
-    fixed-width PDB text we parse for chains/ligands/B-factors downstream.
+    Tries the .pdb endpoint first. If RCSB returns 404 for the PDB file, falls
+    back to the .cif endpoint — every entry has a CIF representation, so this
+    rarely fails. If both fail, returns `(metadata, None, "pdb")` so the caller
+    can render whatever metadata is available with a clear caveat.
 
     Raises:
-        ToolError: on 404 (no such PDB ID), other HTTP errors, network failures.
+        ToolError: on 404 from the metadata endpoint (entry doesn't exist),
+            other HTTP errors, or network failures.
     """
     pdb_id_upper = pdb_id.upper()
     meta_url = f"{RCSB_API_BASE}/{pdb_id_upper}"
     pdb_url = f"{RCSB_DOWNLOAD_BASE}/{pdb_id_upper}.pdb"
+    cif_url = f"{RCSB_DOWNLOAD_BASE}/{pdb_id_upper}.cif"
     async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
         try:
             meta_resp = await client.get(meta_url)
@@ -148,19 +178,29 @@ async def _fetch_pdb(pdb_id: str) -> tuple[dict, str | None]:
         except ValueError as e:
             raise ToolError(f"RCSB API returned non-JSON body: {meta_resp.text[:200]!r}") from e
 
+        # Try PDB first.
         try:
             pdb_resp = await client.get(pdb_url)
         except httpx.HTTPError as e:
             raise ToolError(f"RCSB PDB download failed: {type(e).__name__}: {e}.") from e
 
-        if pdb_resp.status_code == 404:
-            # The entry exists but the PDB format isn't served (very large
-            # structures are sometimes mmCIF-only). The caller decides whether
-            # to soldier on with metadata only.
-            return metadata, None
-        if pdb_resp.status_code != 200:
+        if pdb_resp.status_code == 200:
+            return metadata, pdb_resp.text, "pdb"
+
+        if pdb_resp.status_code != 404:
             raise ToolError(f"RCSB PDB download returned HTTP {pdb_resp.status_code}: {pdb_url}")
-        return metadata, pdb_resp.text
+
+        # PDB 404 → try CIF. Large complexes (ribosomes, capsids) are mmCIF-only.
+        try:
+            cif_resp = await client.get(cif_url)
+        except httpx.HTTPError as e:
+            raise ToolError(f"RCSB CIF fallback failed: {type(e).__name__}: {e}.") from e
+        if cif_resp.status_code == 200:
+            return metadata, cif_resp.text, "cif"
+        if cif_resp.status_code != 404:
+            raise ToolError(f"RCSB CIF download returned HTTP {cif_resp.status_code}: {cif_url}")
+        # Both 404 — entry exists in the metadata DB but no downloadable structure.
+        return metadata, None, "pdb"
 
 
 # --- PDB parsing ---------------------------------------------------------------------
@@ -349,41 +389,67 @@ def _build_caveats(meta_fields: dict, structure_stats: dict) -> list[str]:
 )
 async def fetch_pdb_structure(inp: FetchPdbInput) -> FetchPdbOutput:
     pdb_id_upper = inp.pdb_id.upper()
-    metadata, pdb_text = await _fetch_pdb(pdb_id_upper)
+    metadata, structure_text, structure_format = await _fetch_pdb(pdb_id_upper)
 
-    if pdb_text is None:
+    if structure_text is None:
         raise ToolError(
-            f"RCSB entry {pdb_id_upper} exists but the PDB-format file is not "
-            "available (typically the entry is mmCIF-only because the assembly "
-            "is too large for the legacy PDB format). The frontend viewer "
-            "currently expects PDB; consider rendering as CIF in a future slice."
-        )
-
-    meta_fields = _extract_metadata_fields(metadata)
-    structure_stats = _parse_pdb_structure_stats(pdb_text)
-
-    if structure_stats["num_residues"] == 0:
-        raise ToolError(
-            f"Could not parse any CA atoms from the RCSB PDB text for {pdb_id_upper!r}. "
-            "The file may be DNA/RNA-only, ligand-only, or corrupted. Verify at "
+            f"RCSB entry {pdb_id_upper} exists but neither the PDB nor the mmCIF "
+            "file could be downloaded. This is unusual — verify the entry status at "
             f"https://www.rcsb.org/structure/{pdb_id_upper}."
         )
 
-    caveats = _build_caveats(meta_fields, structure_stats)
+    meta_fields = _extract_metadata_fields(metadata)
 
-    # Size cap — same shape as fetch_alphafold_structure.
-    pdb_size_kb = len(pdb_text.encode("utf-8")) / 1024
-    if not inp.include_pdb_text:
-        returned_pdb: str | None = None
-    elif pdb_size_kb > inp.max_pdb_kb:
-        returned_pdb = None
-        caveats.append(
-            f"PDB file is {pdb_size_kb:.0f} KB, exceeding the {inp.max_pdb_kb} KB "
-            "limit — text omitted from response. Increase max_pdb_kb or fetch "
-            f"directly from {RCSB_DOWNLOAD_BASE}/{pdb_id_upper}.pdb."
-        )
+    # Atom-level stats are only computed for PDB-format text (the fixed-width
+    # parser doesn't read mmCIF). For CIF-only entries we return the rendered
+    # structure but null structural-stats fields, and explain why in a caveat.
+    if structure_format == "pdb":
+        structure_stats = _parse_pdb_structure_stats(structure_text)
+        if structure_stats["num_residues"] == 0:
+            raise ToolError(
+                f"Could not parse any CA atoms from the RCSB PDB text for {pdb_id_upper!r}. "
+                "The file may be DNA/RNA-only, ligand-only, or corrupted. Verify at "
+                f"https://www.rcsb.org/structure/{pdb_id_upper}."
+            )
+        caveats = _build_caveats(meta_fields, structure_stats)
     else:
-        returned_pdb = pdb_text
+        # CIF fallback — the entry is too large for legacy PDB format. Skip
+        # atom-level parsing; the 3D viewer still works, and the agent gets
+        # explicit context that fine-grained stats aren't available.
+        structure_stats = {
+            "chain_ids": [],
+            "num_chains": 0,
+            "num_residues": 0,
+            "residues_per_chain": {},
+            "ligand_ids": [],
+            "mean_b_factor": None,
+        }
+        caveats = _build_caveats(meta_fields, structure_stats)
+        caveats.append(
+            f"Entry {pdb_id_upper} has no legacy PDB-format file (typical for "
+            "very large complexes — ribosomes, viral capsids, large multi-chain "
+            "assemblies). Returning mmCIF format instead. Per-chain residue "
+            "counts, ligand identification, and mean B-factor are not computed "
+            "for CIF in this version — see the source at "
+            f"{RCSB_DOWNLOAD_BASE}/{pdb_id_upper}.cif if you need them."
+        )
+
+    # Size cap — applies to both formats.
+    size_kb = len(structure_text.encode("utf-8")) / 1024
+    returned_pdb: str | None = None
+    returned_cif: str | None = None
+    if inp.include_pdb_text:
+        if size_kb > inp.max_pdb_kb:
+            caveats.append(
+                f"{structure_format.upper()} file is {size_kb:.0f} KB, exceeding "
+                f"the {inp.max_pdb_kb} KB limit — text omitted from response. "
+                f"Increase max_pdb_kb or fetch directly from "
+                f"{RCSB_DOWNLOAD_BASE}/{pdb_id_upper}.{structure_format}."
+            )
+        elif structure_format == "pdb":
+            returned_pdb = structure_text
+        else:
+            returned_cif = structure_text
 
     return FetchPdbOutput(
         pdb_id=pdb_id_upper,
@@ -403,5 +469,7 @@ async def fetch_pdb_structure(inp: FetchPdbInput) -> FetchPdbOutput:
         pdb_url=f"{RCSB_DOWNLOAD_BASE}/{pdb_id_upper}.pdb",
         cif_url=f"{RCSB_DOWNLOAD_BASE}/{pdb_id_upper}.cif",
         pdb_text=returned_pdb,
+        cif_text=returned_cif,
+        structure_format=structure_format,
         caveats=caveats,
     )

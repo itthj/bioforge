@@ -109,7 +109,7 @@ describe("StructureCard", () => {
 
   it("falls back to a download link when no PDB text is in the response", () => {
     render(<StructureCard structure={makeStructure({ pdb_text: null })} />);
-    expect(screen.getByText(/No PDB text in this response/)).toBeInTheDocument();
+    expect(screen.getByText(/No structure text in this response/)).toBeInTheDocument();
     const link = screen.getByRole("link");
     expect(link).toHaveAttribute(
       "href",

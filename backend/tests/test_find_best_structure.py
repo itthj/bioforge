@@ -81,6 +81,11 @@ def patch_all(monkeypatch):
         v = holder["rcsb"]
         if isinstance(v, Exception):
             raise v
+        # Legacy 2-tuple → auto-pad with default format. _fetch_pdb now returns
+        # a 3-tuple (meta, text, format) to support CIF fallback.
+        if isinstance(v, tuple) and len(v) == 2:
+            meta, text = v
+            return meta, text, "pdb"
         return v
 
     async def _fake_af(uniprot_id: str):

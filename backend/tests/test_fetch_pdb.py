@@ -166,6 +166,9 @@ def _fake_metadata(
 
 @pytest.fixture
 def patch_pdb(monkeypatch):
+    """Patches _fetch_pdb. Accepts both legacy 2-tuples (meta, text) — which
+    are auto-padded to (meta, text, "pdb") — and explicit 3-tuples for the
+    CIF-fallback path."""
     holder: dict = {"response": None, "calls": []}
 
     async def _fake(pdb_id: str):
@@ -173,6 +176,10 @@ def patch_pdb(monkeypatch):
         resp = holder["response"]
         if isinstance(resp, Exception):
             raise resp
+        if isinstance(resp, tuple) and len(resp) == 2:
+            # Legacy shape — pad with default format.
+            meta, text = resp
+            return meta, text, "pdb"
         return resp
 
     monkeypatch.setattr(pdb_module, "_fetch_pdb", _fake)
@@ -350,10 +357,40 @@ async def test_fetch_pdb_404_raises_with_actionable_message(patch_pdb) -> None:
 
 
 async def test_fetch_pdb_text_unavailable_raises(patch_pdb) -> None:
-    """Metadata exists, but the PDB file URL gave 404 (mmCIF-only entry)."""
+    """Metadata exists, but BOTH the PDB and the CIF file URLs 404'd.
+    This is rare — most entries have at least mmCIF — but should produce a
+    clean error rather than crashing or returning a structureless result."""
     patch_pdb((_fake_metadata("HUGE"), None))
-    with pytest.raises(ToolError, match="not available"):
+    with pytest.raises(ToolError, match="neither the PDB nor the mmCIF"):
         await fetch_pdb_structure(FetchPdbInput(pdb_id="HUGE"))
+
+
+async def test_fetch_pdb_falls_back_to_cif_when_pdb_404(patch_pdb) -> None:
+    """When the .pdb endpoint 404s and the .cif endpoint serves, we return
+    the CIF text + format='cif' + a caveat that fine-grained stats aren't
+    computed for CIF in this version."""
+    fake_cif = "data_4HHB\n_entity.id 1\n# minimal CIF body for test\n"
+    patch_pdb((_fake_metadata("RIBO"), fake_cif, "cif"))
+    out = await fetch_pdb_structure(FetchPdbInput(pdb_id="RIBO"))
+    assert out.structure_format == "cif"
+    assert out.cif_text == fake_cif
+    assert out.pdb_text is None
+    # Stats fields are None / 0 for CIF-only results.
+    assert out.num_residues == 0
+    assert out.chain_ids == []
+    assert out.mean_b_factor is None
+    # The agent gets explicit context about the format swap.
+    assert any("no legacy PDB-format file" in c for c in out.caveats)
+
+
+async def test_cif_fallback_respects_size_cap(patch_pdb) -> None:
+    """Cap applies to CIF text too. 100 KB of fake CIF with a 20 KB cap → text omitted."""
+    fake_cif = "data_BIGX\n" + ("x" * 110_000)
+    patch_pdb((_fake_metadata("BIGX"), fake_cif, "cif"))
+    out = await fetch_pdb_structure(FetchPdbInput(pdb_id="BIGX", max_pdb_kb=20))
+    assert out.cif_text is None
+    assert out.structure_format == "cif"
+    assert any("CIF file is" in c for c in out.caveats)
 
 
 async def test_fetch_pdb_no_ca_atoms_raises(patch_pdb) -> None:

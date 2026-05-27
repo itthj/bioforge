@@ -1,13 +1,24 @@
 import { useEffect, useRef, useState } from "react";
 
+type StructureFormat = "pdb" | "cif";
+
 interface MolstarViewerProps {
-  /** Full PDB text to render. If null, the viewer shows a download-link fallback. */
-  pdbText: string | null;
-  /** Source URL — shown in the missing-PDB fallback so the user can grab the file directly. */
-  pdbUrl: string;
+  /** Full structure file contents (PDB or mmCIF). If null, the viewer shows a download-link fallback. */
+  structureText?: string | null;
+  /** Format of structureText. Determines which Mol* loader is used. Default 'pdb'. */
+  format?: StructureFormat;
+  /** Source URL — shown in the missing-text fallback so the user can grab the file directly. */
+  downloadUrl?: string;
+  /**
+   * Optional legacy alias for structureText. Existing call sites that pass
+   * `pdbText` continue to work; new call sites should use structureText.
+   */
+  pdbText?: string | null;
+  /** Optional legacy alias for downloadUrl. */
+  pdbUrl?: string;
 }
 
-type ViewerState = "idle" | "loading" | "ready" | "error" | "missing-pdb";
+type ViewerState = "idle" | "loading" | "ready" | "error" | "missing-structure";
 
 /**
  * Lazy-loaded Mol* (`molstar`) viewer.
@@ -19,11 +30,16 @@ type ViewerState = "idle" | "loading" | "ready" | "error" | "missing-pdb";
  * Shared by StructureCard (AlphaFold predictions) and PdbStructureCard (RCSB
  * experimental structures) — the renderer doesn't care what produced the PDB.
  */
-export function MolstarViewer({ pdbText, pdbUrl }: MolstarViewerProps) {
+export function MolstarViewer(props: MolstarViewerProps) {
+  // Resolve legacy aliases — old call sites passed pdbText/pdbUrl directly.
+  const text = props.structureText ?? props.pdbText ?? null;
+  const url = props.downloadUrl ?? props.pdbUrl ?? "";
+  const format: StructureFormat = props.format ?? "pdb";
+
   const containerRef = useRef<HTMLDivElement | null>(null);
   const pluginRef = useRef<unknown>(null);
   const [state, setState] = useState<ViewerState>(
-    pdbText ? "idle" : "missing-pdb",
+    text ? "idle" : "missing-structure",
   );
   const [errorMsg, setErrorMsg] = useState<string>("");
 
@@ -42,7 +58,7 @@ export function MolstarViewer({ pdbText, pdbUrl }: MolstarViewerProps) {
   }, []);
 
   async function handleLoad() {
-    if (!pdbText || !containerRef.current) return;
+    if (!text || !containerRef.current) return;
     setState("loading");
     setErrorMsg("");
     try {
@@ -65,7 +81,9 @@ export function MolstarViewer({ pdbText, pdbUrl }: MolstarViewerProps) {
         dispose?: () => void;
       };
       pluginRef.current = plugin;
-      await plugin.loadStructureFromData(pdbText, "pdb");
+      // Mol*'s format ID for mmCIF is "mmcif" (NOT "cif"). PDB stays "pdb".
+      const molstarFormat = format === "cif" ? "mmcif" : "pdb";
+      await plugin.loadStructureFromData(text, molstarFormat);
       setState("ready");
     } catch (err) {
       const msg =
@@ -86,17 +104,17 @@ export function MolstarViewer({ pdbText, pdbUrl }: MolstarViewerProps) {
     }
   }
 
-  if (state === "missing-pdb") {
+  if (state === "missing-structure") {
     return (
       <div className="rounded border border-slate-200 bg-white p-2 text-xs text-slate-600">
-        No PDB text in this response. Download directly from{" "}
+        No structure text in this response. Download directly from{" "}
         <a
-          href={pdbUrl}
+          href={url}
           target="_blank"
           rel="noopener noreferrer"
           className="text-blue-700 underline"
         >
-          {pdbUrl}
+          {url}
         </a>
         .
       </div>
@@ -115,7 +133,7 @@ export function MolstarViewer({ pdbText, pdbUrl }: MolstarViewerProps) {
             onClick={handleLoad}
             className="rounded bg-slate-800 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-slate-900"
           >
-            Load Mol* viewer
+            Load Mol* viewer{format === "cif" ? " (mmCIF)" : ""}
           </button>
         )}
         {state === "loading" && (
