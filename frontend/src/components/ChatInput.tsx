@@ -42,6 +42,12 @@ const QUICK_ACTIONS: { label: string; goal: string }[] = [
       "CTCTAGGTTCGATCGTACCGTACGATACGAATGGCATTTAGCATGAAGTCATAGCCTTAGCATTGCA" +
       "ACTGCATGCAA",
   },
+  {
+    label: "BRCA1 structure",
+    goal:
+      "Fetch the AlphaFold structure for BRCA1 (UniProt P38398) and summarize " +
+      "where the prediction is confident vs uncertain.",
+  },
 ];
 
 export function ChatInput({ onSubmit, disabled }: ChatInputProps) {

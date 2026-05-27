@@ -3,8 +3,11 @@ import type { CrisprEditReportOutput } from "../types/crispr";
 import { isCrisprEditReport } from "../types/crispr";
 import type { DesignPrimersOutput } from "../types/primers";
 import { isDesignPrimersOutput } from "../types/primers";
+import type { FetchAlphaFoldOutput } from "../types/structure";
+import { isAlphaFoldOutput } from "../types/structure";
 import { CrisprReportCard } from "./CrisprReportCard";
 import { PrimerPairsCard } from "./PrimerPairsCard";
+import { StructureCard } from "./StructureCard";
 
 interface StepCardProps {
   step: AgentStep;
@@ -145,6 +148,10 @@ function ToolCallBody({ step }: { step: AgentStep }) {
     step.tool_name === "design_primers" &&
     step.tool_output &&
     isDesignPrimersOutput(step.tool_output);
+  const isStructure =
+    step.tool_name === "fetch_alphafold_structure" &&
+    step.tool_output &&
+    isAlphaFoldOutput(step.tool_output);
 
   return (
     <div className="space-y-2">
@@ -167,7 +174,10 @@ function ToolCallBody({ step }: { step: AgentStep }) {
       {isPrimers && step.tool_output && (
         <PrimerPairsCard output={step.tool_output as unknown as DesignPrimersOutput} />
       )}
-      {step.tool_output && !isCrispr && !isPrimers && (
+      {isStructure && step.tool_output && (
+        <StructureCard structure={step.tool_output as unknown as FetchAlphaFoldOutput} />
+      )}
+      {step.tool_output && !isCrispr && !isPrimers && !isStructure && (
         <details className="text-xs">
           <summary className="cursor-pointer text-slate-500 hover:text-slate-700">
             output
