@@ -62,6 +62,12 @@ const QUICK_ACTIONS: { label: string; goal: string }[] = [
       "automatically between an experimental structure and an AlphaFold prediction, " +
       "and explain the trade-off in your answer.",
   },
+  {
+    label: "BRCA1 domains",
+    goal:
+      "Fetch the InterPro domain annotations for BRCA1 (UniProt P38398) and " +
+      "describe the major functional regions of the protein.",
+  },
 ];
 
 export function ChatInput({ onSubmit, disabled }: ChatInputProps) {

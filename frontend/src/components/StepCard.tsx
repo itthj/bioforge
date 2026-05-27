@@ -5,12 +5,15 @@ import type { DesignPrimersOutput } from "../types/primers";
 import { isDesignPrimersOutput } from "../types/primers";
 import type { FindBestStructureOutput } from "../types/find_best_structure";
 import { isFindBestStructureOutput } from "../types/find_best_structure";
+import type { FetchInterproOutput } from "../types/interpro";
+import { isInterproOutput } from "../types/interpro";
 import type { FetchPdbOutput } from "../types/pdb_structure";
 import { isPdbStructureOutput } from "../types/pdb_structure";
 import type { FetchAlphaFoldOutput } from "../types/structure";
 import { isAlphaFoldOutput } from "../types/structure";
 import { CrisprReportCard } from "./CrisprReportCard";
 import { FindBestStructureCard } from "./FindBestStructureCard";
+import { InterproCard } from "./InterproCard";
 import { PdbStructureCard } from "./PdbStructureCard";
 import { PrimerPairsCard } from "./PrimerPairsCard";
 import { StructureCard } from "./StructureCard";
@@ -166,6 +169,10 @@ function ToolCallBody({ step }: { step: AgentStep }) {
     step.tool_name === "find_best_structure" &&
     step.tool_output &&
     isFindBestStructureOutput(step.tool_output);
+  const isInterpro =
+    step.tool_name === "fetch_interpro_domains" &&
+    step.tool_output &&
+    isInterproOutput(step.tool_output);
 
   return (
     <div className="space-y-2">
@@ -197,12 +204,16 @@ function ToolCallBody({ step }: { step: AgentStep }) {
       {isFindBest && step.tool_output && (
         <FindBestStructureCard result={step.tool_output as unknown as FindBestStructureOutput} />
       )}
+      {isInterpro && step.tool_output && (
+        <InterproCard output={step.tool_output as unknown as FetchInterproOutput} />
+      )}
       {step.tool_output &&
         !isCrispr &&
         !isPrimers &&
         !isStructure &&
         !isPdbStructure &&
-        !isFindBest && (
+        !isFindBest &&
+        !isInterpro && (
         <details className="text-xs">
           <summary className="cursor-pointer text-slate-500 hover:text-slate-700">
             output
