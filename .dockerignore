@@ -1,0 +1,50 @@
+# Files that should never enter ANY image's build context. Keeps build context small
+# (faster `docker build`) and prevents leaking secrets / dev-only state.
+
+# Version control
+.git/
+.gitignore
+
+# Python local dev
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Node / frontend (per-image .dockerignore in frontend/ would refine; this root file
+# applies to backend builds where node_modules must NOT leak in)
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
+frontend/vite.config.d.ts
+frontend/vite.config.js
+
+# Local databases (never bake into the image — runtime volume mount provides /data)
+*.db
+*.sqlite
+*.sqlite3
+bioforge.db
+
+# Secrets
+.env
+.env.local
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# IDE state
+.vscode/
+.idea/
+
+# Docker artifacts — don't recurse into the image we're building
+Dockerfile.backend
+docker-compose.yml
+.dockerignore

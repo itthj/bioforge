@@ -1,0 +1,61 @@
+# BioForge — one-command local stack.
+#
+#   docker compose up --build
+#
+# Brings up:
+#   - backend       FastAPI + agent loop, SQLite at /data/bioforge.db (volume)
+#   - frontend      Vite static bundle served by nginx, proxying /agent + /projects
+#                   + /traces + /health to backend
+#
+# Open http://localhost:5173 (or whichever host port the frontend service publishes).
+# Set ANTHROPIC_API_KEY in a .env file beside this compose file (gitignored) before
+# running. Postgres + Celery would slot in here later when SQLite stops being enough.
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: bioforge-backend
+    restart: unless-stopped
+    environment:
+      # Required: pulled from .env in the compose dir, or your shell.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY must be set}
+      # Optional overrides — defaults baked into the image work for local dev.
+      BIOFORGE_DEFAULT_MODEL: ${BIOFORGE_DEFAULT_MODEL:-claude-sonnet-4-6}
+      BIOFORGE_ENTREZ_EMAIL: ${BIOFORGE_ENTREZ_EMAIL:-}
+      BIOFORGE_OTEL_ENABLED: ${BIOFORGE_OTEL_ENABLED:-false}
+      BIOFORGE_OTEL_EXPORTER: ${BIOFORGE_OTEL_EXPORTER:-console}
+      BIOFORGE_OTEL_ENDPOINT: ${BIOFORGE_OTEL_ENDPOINT:-http://localhost:4318/v1/traces}
+    volumes:
+      - bioforge-data:/data
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: bioforge-frontend
+    restart: unless-stopped
+    ports:
+      - "5173:80"
+    depends_on:
+      backend:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://localhost/"]
+      interval: 30s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+
+volumes:
+  bioforge-data:
+    # Named volume — survives `docker compose down` (use `down -v` to wipe).

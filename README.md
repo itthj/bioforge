@@ -1,8 +1,18 @@
 # BioForge
 
-Agentic AI bioinformatics platform. Current state: Phase 2 (in progress) — full plan→approval→execute→critique→replan loop with SSE streaming, **and now a React frontend** that renders the live trace. Thirteen tools across sequence basics, CRISPR design / scoring / off-targets / NHEJ outcomes / integrated edit reports, and project memory. Projects + persistent project memory with audit/edit endpoints. Structured-output planner and critic via Anthropic forced tool-use. OpenTelemetry tracing on every agent run. CI runs ruff + pytest + the frontend build on every push.
+Agentic AI bioinformatics platform. Current state: Phase 2 + Phase 3 in progress — full plan→approval→execute→critique→replan loop with SSE streaming, a React frontend that renders the live trace, and a 15-tool registry covering sequence basics, CRISPR design / scoring / off-targets / NHEJ outcomes / integrated edit reports, PCR primer design (primer3), VCF parsing, and project memory. Projects + persistent project memory with audit/edit endpoints. Structured-output planner and critic via Anthropic forced tool-use. OpenTelemetry tracing on every agent run. CI runs ruff + pytest + the frontend build on every push. Local BLAST+ supported alongside the remote NCBI default. The full stack runs via `docker compose up`.
 
 ## Quickstart
+
+### Docker (one command)
+
+```powershell
+# Set your Anthropic API key in a .env beside docker-compose.yml first.
+# Then:
+docker compose up --build
+```
+
+Open http://localhost:5173. The backend lives in the `bioforge-backend` container on the compose network; the SQLite DB persists in the named volume `bioforge-data`. To wipe state: `docker compose down -v`.
 
 ### Backend
 

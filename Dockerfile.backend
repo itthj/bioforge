@@ -1,0 +1,79 @@
+# BioForge backend — FastAPI + agent loop + bio tools.
+#
+# Multi-stage build:
+#   1. `builder` installs Python deps into a venv at /opt/venv. This stage carries
+#      the build toolchain needed by C extensions (primer3-py, biopython compile bits)
+#      but does NOT ship to the final image.
+#   2. `runtime` is python:3.11-slim with the venv copied across. Roughly 250 MB
+#      compressed.
+#
+# Runs as a non-root `bioforge` user. The SQLite DB lives at /data/bioforge.db so
+# you can mount /data as a volume for persistence:
+#   docker run -v bioforge-data:/data -p 8000:8000 -e ANTHROPIC_API_KEY=... bioforge-backend
+#
+# Set BIOFORGE_DB_URL only if you want to override the default sqlite path.
+
+# --- Stage 1: build ----------------------------------------------------------
+FROM python:3.11-slim AS builder
+
+# Build deps for native extensions (primer3-py, biopython optional C bits).
+# build-essential gives gcc + make; python3-dev is already in -slim's base.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        && rm -rf /var/lib/apt/lists/*
+
+# Isolated venv so we copy a single tree into the runtime stage.
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+WORKDIR /build
+COPY pyproject.toml ./
+COPY backend/ ./backend/
+
+# Install into the venv. The optional `[dev]` extras stay OUT of the image —
+# pytest/ruff/etc. aren't needed at runtime.
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir .
+
+# --- Stage 2: runtime --------------------------------------------------------
+FROM python:3.11-slim AS runtime
+
+# curl is handy for healthcheck + manual debugging; ca-certificates is required
+# for the Anthropic SDK + NCBI HTTPS calls.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl ca-certificates \
+        && rm -rf /var/lib/apt/lists/* \
+    && useradd --create-home --shell /bin/bash --uid 1000 bioforge
+
+# Bring the venv across — no source rebuild in the runtime image.
+COPY --from=builder /opt/venv /opt/venv
+
+# Application source. backend/src ends up at /app/backend/src; alembic.ini at /app/backend.
+WORKDIR /app
+COPY --chown=bioforge:bioforge backend/ ./backend/
+
+USER bioforge
+
+# /data is the volume mount point for the SQLite database. Default the URL here
+# so the typical "just run it" path Just Works without any env config beyond the
+# API key.
+ENV PATH="/opt/venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    BIOFORGE_DB_URL="sqlite+aiosqlite:////data/bioforge.db"
+
+# Note: /data is created at runtime by the container's first DB write because
+# init_db()'s alembic upgrade runs at startup. If you mount a host directory in
+# read-only mode, supply your own --user override that owns the volume.
+VOLUME ["/data"]
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl --fail --silent http://localhost:8000/health || exit 1
+
+# Single worker is the right default for SQLite + agent state. For Postgres + more
+# concurrency, override CMD or set UVICORN_WORKERS via your orchestrator.
+CMD ["uvicorn", "bioforge.main:app", \
+     "--app-dir", "/app/backend/src", \
+     "--host", "0.0.0.0", \
+     "--port", "8000"]
