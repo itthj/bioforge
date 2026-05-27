@@ -9,7 +9,15 @@
 #
 # Open http://localhost:5173 (or whichever host port the frontend service publishes).
 # Set ANTHROPIC_API_KEY in a .env file beside this compose file (gitignored) before
-# running. Postgres + Celery would slot in here later when SQLite stops being enough.
+# running.
+#
+# Optional services:
+#   - redis + worker (Celery): set BIOFORGE_TASK_QUEUE=celery in env to route
+#     expensive tools (blast, fetch_alphafold, fetch_pdb) through the worker
+#     instead of running them in-process. Default 'inline' executes tools
+#     synchronously in the agent loop, which is fine for single-user local.
+#   - minio: S3-compatible object store for large outputs. Set
+#     BIOFORGE_STORAGE_BACKEND=minio to enable.
 
 services:
   backend:
@@ -27,6 +35,16 @@ services:
       BIOFORGE_OTEL_ENABLED: ${BIOFORGE_OTEL_ENABLED:-false}
       BIOFORGE_OTEL_EXPORTER: ${BIOFORGE_OTEL_EXPORTER:-console}
       BIOFORGE_OTEL_ENDPOINT: ${BIOFORGE_OTEL_ENDPOINT:-http://localhost:4318/v1/traces}
+      # Task queue: 'inline' (default) runs tools in the agent process.
+      # Switch to 'celery' to route expensive tools through the Celery worker.
+      BIOFORGE_TASK_QUEUE: ${BIOFORGE_TASK_QUEUE:-inline}
+      BIOFORGE_REDIS_URL: ${BIOFORGE_REDIS_URL:-redis://redis:6379/0}
+      # Storage backend: 'local' (default, in-container) or 'minio'.
+      BIOFORGE_STORAGE_BACKEND: ${BIOFORGE_STORAGE_BACKEND:-local}
+      BIOFORGE_MINIO_ENDPOINT: ${BIOFORGE_MINIO_ENDPOINT:-minio:9000}
+      BIOFORGE_MINIO_ACCESS_KEY: ${BIOFORGE_MINIO_ACCESS_KEY:-bioforge}
+      BIOFORGE_MINIO_SECRET_KEY: ${BIOFORGE_MINIO_SECRET_KEY:-bioforge-dev}
+      BIOFORGE_MINIO_BUCKET: ${BIOFORGE_MINIO_BUCKET:-bioforge}
     volumes:
       - bioforge-data:/data
     expose:
@@ -36,6 +54,62 @@ services:
       interval: 30s
       timeout: 5s
       start_period: 10s
+      retries: 3
+
+  # ── Optional: Celery worker for expensive tool offloading ──────────────────
+  # Bring up with: docker compose --profile workers up
+  redis:
+    image: redis:7-alpine
+    container_name: bioforge-redis
+    profiles: ["workers"]
+    restart: unless-stopped
+    expose:
+      - "6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: bioforge-worker
+    profiles: ["workers"]
+    restart: unless-stopped
+    command: ["celery", "-A", "bioforge.tasks.celery_app", "worker", "--loglevel=info", "--concurrency=2"]
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY must be set}
+      BIOFORGE_REDIS_URL: redis://redis:6379/0
+      BIOFORGE_ENTREZ_EMAIL: ${BIOFORGE_ENTREZ_EMAIL:-}
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - bioforge-data:/data
+
+  # ── Optional: MinIO for large-output object storage ────────────────────────
+  # Bring up with: docker compose --profile storage up
+  minio:
+    image: minio/minio:latest
+    container_name: bioforge-minio
+    profiles: ["storage"]
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${BIOFORGE_MINIO_ACCESS_KEY:-bioforge}
+      MINIO_ROOT_PASSWORD: ${BIOFORGE_MINIO_SECRET_KEY:-bioforge-dev}
+    ports:
+      - "9001:9001"  # console UI
+    expose:
+      - "9000"  # S3 API
+    volumes:
+      - bioforge-minio:/data
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 3s
       retries: 3
 
   frontend:
@@ -59,3 +133,5 @@ services:
 volumes:
   bioforge-data:
     # Named volume — survives `docker compose down` (use `down -v` to wipe).
+  bioforge-minio:
+    # MinIO object store. Wipe with `docker compose --profile storage down -v`.
