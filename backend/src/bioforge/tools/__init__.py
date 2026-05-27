@@ -1,4 +1,4 @@
-from bioforge.tools import meta, sequence  # noqa: F401  — import for registration side effects
+from bioforge.tools import meta, sequence, structure  # noqa: F401  — import for registration side effects
 from bioforge.tools.registry import (
     REGISTRY,
     get_tool,
