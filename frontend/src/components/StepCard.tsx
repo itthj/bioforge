@@ -3,11 +3,14 @@ import type { CrisprEditReportOutput } from "../types/crispr";
 import { isCrisprEditReport } from "../types/crispr";
 import type { DesignPrimersOutput } from "../types/primers";
 import { isDesignPrimersOutput } from "../types/primers";
+import type { FindBestStructureOutput } from "../types/find_best_structure";
+import { isFindBestStructureOutput } from "../types/find_best_structure";
 import type { FetchPdbOutput } from "../types/pdb_structure";
 import { isPdbStructureOutput } from "../types/pdb_structure";
 import type { FetchAlphaFoldOutput } from "../types/structure";
 import { isAlphaFoldOutput } from "../types/structure";
 import { CrisprReportCard } from "./CrisprReportCard";
+import { FindBestStructureCard } from "./FindBestStructureCard";
 import { PdbStructureCard } from "./PdbStructureCard";
 import { PrimerPairsCard } from "./PrimerPairsCard";
 import { StructureCard } from "./StructureCard";
@@ -159,6 +162,10 @@ function ToolCallBody({ step }: { step: AgentStep }) {
     step.tool_name === "fetch_pdb_structure" &&
     step.tool_output &&
     isPdbStructureOutput(step.tool_output);
+  const isFindBest =
+    step.tool_name === "find_best_structure" &&
+    step.tool_output &&
+    isFindBestStructureOutput(step.tool_output);
 
   return (
     <div className="space-y-2">
@@ -187,7 +194,15 @@ function ToolCallBody({ step }: { step: AgentStep }) {
       {isPdbStructure && step.tool_output && (
         <PdbStructureCard structure={step.tool_output as unknown as FetchPdbOutput} />
       )}
-      {step.tool_output && !isCrispr && !isPrimers && !isStructure && !isPdbStructure && (
+      {isFindBest && step.tool_output && (
+        <FindBestStructureCard result={step.tool_output as unknown as FindBestStructureOutput} />
+      )}
+      {step.tool_output &&
+        !isCrispr &&
+        !isPrimers &&
+        !isStructure &&
+        !isPdbStructure &&
+        !isFindBest && (
         <details className="text-xs">
           <summary className="cursor-pointer text-slate-500 hover:text-slate-700">
             output

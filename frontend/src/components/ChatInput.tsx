@@ -55,6 +55,13 @@ const QUICK_ACTIONS: { label: string; goal: string }[] = [
       "its chains, cofactors, and resolution. What can the B-factors tell us " +
       "about flexibility?",
   },
+  {
+    label: "Best p53 structure",
+    goal:
+      "Find the best available 3D structure of TP53 (UniProt P04637) — choose " +
+      "automatically between an experimental structure and an AlphaFold prediction, " +
+      "and explain the trade-off in your answer.",
+  },
 ];
 
 export function ChatInput({ onSubmit, disabled }: ChatInputProps) {
