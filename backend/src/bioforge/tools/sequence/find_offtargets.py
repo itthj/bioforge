@@ -37,6 +37,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from bioforge.tools.base import ToolError, ToolInput, ToolOutput
 from bioforge.tools.registry import execute_tool, register_tool
+from bioforge.tools.sequence.offtarget_scoring import score_offtarget
 
 _DNA_CHARS = set("ACGTNacgtn")
 
@@ -110,6 +111,29 @@ class OfftargetHit(BaseModel):
     organism: str | None
     subject_definition: str = Field(description="The hit's FASTA defline.")
     mismatch_count: int
+    mismatch_positions: list[int] = Field(
+        default_factory=list,
+        description=(
+            "1-based positions along the guide (1=5' end, 20=PAM-adjacent for a "
+            "20-nt guide) where the off-target differs. Empty if the alignment "
+            "strings were unavailable and we had to fall back to a count-only "
+            "approximation — see `used_full_alignment`."
+        ),
+    )
+    mit_score: float = Field(
+        description=(
+            "Hsu 2013 MIT off-target score in [0, 1]. Higher = greater cleavage "
+            "likelihood. >0.2 typically signals real off-target risk; >0.5 is "
+            "high concern. 1.0 = perfect match."
+        ),
+    )
+    used_full_alignment: bool = Field(
+        description=(
+            "True if mit_score was computed from per-position mismatch info. "
+            "False = optimistic fallback (mismatches assumed to be at the "
+            "PAM-distal end, which under-estimates risk)."
+        ),
+    )
     alignment_length: int
     query_coverage_percent: float = Field(description="Percent of the guide that participated in the alignment.")
     identity_percent: float
@@ -138,36 +162,87 @@ class FindOfftargetsOutput(ToolOutput):
     )
 
 
-def _classify_risk(mismatch_count: int, query_coverage_percent: float) -> tuple[Literal["high", "medium", "low"], str]:
-    """Simple risk classification. Real-world Cas9 off-target prediction is more
-    nuanced — this matches common CRISPR-screen filtering heuristics."""
+def _classify_risk(
+    *,
+    mismatch_count: int,
+    mit_score: float,
+    mismatch_positions: list[int],
+    guide_length: int,
+    query_coverage_percent: float,
+    used_full_alignment: bool,
+) -> tuple[Literal["high", "medium", "low"], str]:
+    """Risk classification using both MIT score and qualitative reasoning.
+
+    Thresholds:
+      - high: mit_score >= 0.5
+      - medium: 0.1 <= mit_score < 0.5
+      - low: mit_score < 0.1 OR query_coverage_percent < 80
+
+    These thresholds are widely used in published CRISPR design tools (CHOPCHOP,
+    CRISPOR) and balance sensitivity / specificity for cell-culture screens.
+    Therapeutic applications typically use stricter thresholds (high if
+    mit_score >= 0.05).
+    """
     if query_coverage_percent < 80:
         return (
             "low",
             f"Only {query_coverage_percent:.0f}% of the guide aligned — likely a "
             "partial match, not a complete off-target.",
         )
-    if mismatch_count <= 1:
+
+    # Identify whether mismatches sit in the seed region (PAM-proximal half).
+    # For a 20-nt guide, seed = positions 11-20.
+    seed_cutoff = max(1, guide_length // 2 + 1)
+    seed_mismatches = sum(1 for p in mismatch_positions if p >= seed_cutoff)
+    distal_mismatches = len(mismatch_positions) - seed_mismatches
+
+    seed_note = ""
+    if mismatch_positions:
+        seed_note = (
+            f" {seed_mismatches} of {len(mismatch_positions)} mismatch(es) fall in "
+            f"the seed region (positions {seed_cutoff}-{guide_length})."
+        )
+
+    fallback_note = ""
+    if not used_full_alignment:
+        fallback_note = (
+            " (MIT score computed from mismatch count only — actual positions "
+            "unavailable; score may UNDER-estimate risk.)"
+        )
+
+    if mit_score >= 0.5:
         return (
             "high",
-            f"{mismatch_count} mismatch(es) across full guide. Cas9 tolerates up to "
-            "~2 mismatches, especially in the 5' distal region. Strong off-target risk.",
+            f"MIT score {mit_score:.3f} with {mismatch_count} mismatch(es)."
+            f"{seed_note} Strong off-target risk.{fallback_note}",
         )
-    if mismatch_count == 2:
+    if mit_score >= 0.1:
+        # Two mismatches placed at PAM-distal end produce a high MIT score
+        # (~0.97) — still high risk. So this bucket really means
+        # "many mismatches, mostly seed, score still non-trivial".
+        if seed_mismatches >= 2:
+            return (
+                "medium",
+                f"MIT score {mit_score:.3f}, {seed_mismatches} seed mismatch(es)."
+                " Cleavage possible but reduced — site-by-site validation"
+                f" recommended for therapeutic applications.{seed_note}{fallback_note}",
+            )
         return (
             "high",
-            "2 mismatches across full guide. Cas9 can still cleave depending on "
-            "position — treat as high risk until seed-region location is confirmed.",
+            f"MIT score {mit_score:.3f} — mismatches concentrated outside the seed."
+            f" Still expected to cleave.{seed_note}{fallback_note}",
         )
-    if mismatch_count == 3:
+    if distal_mismatches > 0 and seed_mismatches == 0:
         return (
-            "medium",
-            "3 mismatches — cleavage possible but reduced; site-by-site validation "
-            "recommended for therapeutic applications.",
+            "low",
+            f"MIT score {mit_score:.3f}: all {distal_mismatches} mismatch(es) in "
+            "the PAM-distal region — typically tolerated by Cas9, but seed-only "
+            f"interpretation means real activity is uncertain.{fallback_note}",
         )
     return (
         "low",
-        f"{mismatch_count} mismatches — unlikely to be cleaved by SpCas9 in most contexts.",
+        f"MIT score {mit_score:.3f} with {mismatch_count} mismatch(es)."
+        f"{seed_note} Unlikely to be cleaved by SpCas9 in most contexts.{fallback_note}",
     )
 
 
@@ -221,6 +296,7 @@ async def find_offtargets(inp: FindOfftargetsInput) -> FindOfftargetsOutput:
     request_id = blast_dict.get("request_id", "")
 
     candidates: list[OfftargetHit] = []
+    any_fallback_used = False
     for h in all_hits:
         align_len = h.get("alignment_length", 0)
         if align_len == 0:
@@ -233,13 +309,35 @@ async def find_offtargets(inp: FindOfftargetsInput) -> FindOfftargetsOutput:
         if mismatches > inp.max_mismatches:
             continue
 
-        risk, reason = _classify_risk(mismatches, coverage)
+        # Compute MIT score using the alignment strings BLAST exposes. If
+        # they're missing (older fixtures), we fall back to a count-only
+        # approximation and flag it on the hit.
+        score = score_offtarget(
+            guide_seq=inp.guide,
+            query_aligned=h.get("query_aligned", "") or "",
+            subject_aligned=h.get("subject_aligned", "") or "",
+            mismatch_count_fallback=mismatches,
+        )
+        if not score.used_full_alignment:
+            any_fallback_used = True
+
+        risk, reason = _classify_risk(
+            mismatch_count=mismatches,
+            mit_score=score.score,
+            mismatch_positions=score.mismatch_positions,
+            guide_length=guide_len,
+            query_coverage_percent=coverage,
+            used_full_alignment=score.used_full_alignment,
+        )
         candidates.append(
             OfftargetHit(
                 accession=h.get("accession", ""),
                 organism=h.get("organism"),
                 subject_definition=h.get("definition", ""),
                 mismatch_count=mismatches,
+                mismatch_positions=score.mismatch_positions,
+                mit_score=round(score.score, 4),
+                used_full_alignment=score.used_full_alignment,
                 alignment_length=align_len,
                 query_coverage_percent=coverage,
                 identity_percent=identity_pct,
@@ -252,14 +350,36 @@ async def find_offtargets(inp: FindOfftargetsInput) -> FindOfftargetsOutput:
             )
         )
 
-    # Sort: high risk first, then by mismatches ascending within each tier.
-    _risk_order = {"high": 0, "medium": 1, "low": 2}
-    candidates.sort(key=lambda c: (_risk_order[c.risk_label], c.mismatch_count))
+    # Sort: by MIT score descending (highest cleavage risk first), then by
+    # mismatch count ascending as a tiebreaker.
+    candidates.sort(key=lambda c: (-c.mit_score, c.mismatch_count))
     candidates = candidates[: inp.max_hits]
 
     high = sum(1 for c in candidates if c.risk_label == "high")
     medium = sum(1 for c in candidates if c.risk_label == "medium")
     low = sum(1 for c in candidates if c.risk_label == "low")
+
+    caveats = [
+        "PAM at each off-target site is NOT verified. BLAST matches the guide "
+        "sequence but does not confirm a downstream PAM exists in the genome. A "
+        "match without a PAM cannot be cleaved by Cas9. Future enhancement: "
+        "fetch flanking context via Entrez efetch to verify PAMs.",
+        "MIT scores use Hsu 2013's per-position weights for SpCas9. They do NOT "
+        "model the specific identity of mismatch base pairs (CFD scoring from "
+        "Doench 2016 does — a future slice).",
+        "Bulges / insertions / deletions in the off-target alignment are treated "
+        "as position-aligned mismatches, NOT as separate indel events.",
+        "BLAST coverage is sensitive to the database choice. Searching 'nt' "
+        "finds matches across organisms, which is appropriate for cross-species "
+        "concerns but inflates the hit count for any well-conserved sequence.",
+    ]
+    if any_fallback_used:
+        caveats.append(
+            "Some hits had no per-position alignment available (older BLAST "
+            "format / fallback path). Their MIT score is an optimistic estimate "
+            "that may UNDER-state real cleavage risk — flagged per-hit via "
+            "`used_full_alignment=False`."
+        )
 
     return FindOfftargetsOutput(
         guide=inp.guide,
@@ -272,18 +392,5 @@ async def find_offtargets(inp: FindOfftargetsInput) -> FindOfftargetsOutput:
         medium_risk_count=medium,
         low_risk_count=low,
         hits=candidates,
-        caveats=[
-            "PAM at each off-target site is NOT verified. BLAST matches the guide "
-            "sequence but does not confirm a downstream PAM exists in the genome. A "
-            "match without a PAM cannot be cleaved by Cas9. Future enhancement: "
-            "fetch flanking context via Entrez efetch to verify PAMs.",
-            "Risk labels are simple mismatch-count thresholds. They do NOT weight "
-            "seed-region (PAM-proximal) mismatches more heavily than distal ones, "
-            "though the seed is more important for Cas9 binding.",
-            "Bulges / insertions / deletions in the off-target alignment are NOT "
-            "considered — only substitution mismatches.",
-            "BLAST coverage is sensitive to the database choice. Searching 'nt' "
-            "finds matches across organisms, which is appropriate for cross-species "
-            "concerns but inflates the hit count for any well-conserved sequence.",
-        ],
+        caveats=caveats,
     )

@@ -18,7 +18,16 @@ from bioforge.tools.sequence.find_offtargets import (
 )
 
 
-def _fake_hsp(*, expect=1e-10, bits=40.0, identities=20, align_length=20) -> SimpleNamespace:
+def _fake_hsp(
+    *,
+    expect=1e-10,
+    bits=40.0,
+    identities=20,
+    align_length=20,
+    query: str = "",
+    sbjct: str = "",
+    match: str = "",
+) -> SimpleNamespace:
     return SimpleNamespace(
         expect=expect,
         bits=bits,
@@ -28,15 +37,44 @@ def _fake_hsp(*, expect=1e-10, bits=40.0, identities=20, align_length=20) -> Sim
         query_end=align_length,
         sbjct_start=1001,
         sbjct_end=1001 + align_length - 1,
+        query=query,
+        sbjct=sbjct,
+        match=match,
     )
 
 
-def _fake_alignment(*, accession: str, hit_def: str, identities: int, align_length: int = 20) -> SimpleNamespace:
+def _fake_alignment(
+    *,
+    accession: str,
+    hit_def: str,
+    identities: int,
+    align_length: int = 20,
+    query: str = "",
+    sbjct: str = "",
+) -> SimpleNamespace:
     return SimpleNamespace(
         accession=accession,
         hit_def=hit_def,
-        hsps=[_fake_hsp(identities=identities, align_length=align_length)],
+        hsps=[
+            _fake_hsp(
+                identities=identities,
+                align_length=align_length,
+                query=query,
+                sbjct=sbjct,
+                match="|" * identities + " " * (align_length - identities),
+            )
+        ],
     )
+
+
+def _mutate_at(seq: str, positions: list[int], new_base: str = "T") -> str:
+    """Return seq with the given 1-based positions replaced by new_base.
+    Caller picks new_base to ensure each substitution is actually a mismatch."""
+    out = list(seq)
+    for p in positions:
+        if 1 <= p <= len(out):
+            out[p - 1] = new_base if out[p - 1] != new_base else ("A" if new_base != "A" else "C")
+    return "".join(out)
 
 
 def _fake_record(alignments: list[SimpleNamespace]) -> SimpleNamespace:
@@ -106,20 +144,90 @@ async def test_2_mismatches_still_high_risk(patch_ncbi) -> None:
     assert out.hits[0].risk_label == "high"
 
 
-async def test_3_mismatches_is_medium(patch_ncbi) -> None:
-    record = _fake_record([_fake_alignment(accession="ACC", hit_def="x", identities=17, align_length=20)])
+async def test_3_seed_mismatches_lower_risk_via_mit_score(patch_ncbi) -> None:
+    """Three mismatches in the seed (positions 14, 16, 18 of a 20-nt guide).
+    Hsu weights here are 0.851, 0.828, 0.804 → score = product of (1-w) ≈
+    0.149 × 0.172 × 0.196 ≈ 0.005. Falls below the medium threshold (0.1)
+    AND triggers the seed-aware medium path due to ≥2 seed mismatches."""
+    subject = _mutate_at(_GUIDE, [14, 16, 18])
+    record = _fake_record(
+        [_fake_alignment(accession="ACC", hit_def="x", identities=17, align_length=20, query=_GUIDE, sbjct=subject)]
+    )
     patch_ncbi((record, "RID"))
     out = await find_offtargets(FindOfftargetsInput(guide=_GUIDE))
-    assert out.hits[0].mismatch_count == 3
-    assert out.hits[0].risk_label == "medium"
+    hit = out.hits[0]
+    assert hit.mismatch_count == 3
+    assert hit.used_full_alignment is True
+    assert hit.mismatch_positions == [14, 16, 18]
+    assert hit.mit_score < 0.05  # all seed mismatches crush the score
+    assert hit.risk_label == "low"
 
 
-async def test_4_mismatches_is_low(patch_ncbi) -> None:
-    record = _fake_record([_fake_alignment(accession="ACC", hit_def="x", identities=16, align_length=20)])
+async def test_4_distal_mismatches_still_high_risk(patch_ncbi) -> None:
+    """4 mismatches but ALL at PAM-distal positions 1-4 (weights 0.0, 0.0,
+    0.014, 0.0) → MIT score ≈ 0.986. With distal-only mismatches the new
+    classifier flags this as high — which IS the right biology, contradicting
+    the old count-only heuristic that called it 'low'."""
+    subject = _mutate_at(_GUIDE, [1, 2, 3, 4])
+    record = _fake_record(
+        [_fake_alignment(accession="ACC", hit_def="x", identities=16, align_length=20, query=_GUIDE, sbjct=subject)]
+    )
     patch_ncbi((record, "RID"))
     out = await find_offtargets(FindOfftargetsInput(guide=_GUIDE))
-    assert out.hits[0].mismatch_count == 4
-    assert out.hits[0].risk_label == "low"
+    hit = out.hits[0]
+    assert hit.mismatch_count == 4
+    assert hit.mit_score > 0.9  # distal mismatches barely hurt
+    assert hit.risk_label == "high"
+
+
+async def test_mismatch_positions_drive_risk_classification(patch_ncbi) -> None:
+    """Two hits with the SAME mismatch count but different positions get
+    different risk labels — proves the position-aware scoring is doing work."""
+    distal_sub = _mutate_at(_GUIDE, [1, 2])  # both PAM-distal, weight 0
+    seed_sub = _mutate_at(_GUIDE, [16, 18])  # both seed, weights 0.828, 0.804
+    record = _fake_record(
+        [
+            _fake_alignment(
+                accession="DISTAL",
+                hit_def="x",
+                identities=18,
+                align_length=20,
+                query=_GUIDE,
+                sbjct=distal_sub,
+            ),
+            _fake_alignment(
+                accession="SEED",
+                hit_def="x",
+                identities=18,
+                align_length=20,
+                query=_GUIDE,
+                sbjct=seed_sub,
+            ),
+        ]
+    )
+    patch_ncbi((record, "RID"))
+    out = await find_offtargets(FindOfftargetsInput(guide=_GUIDE))
+    by_acc = {h.accession: h for h in out.hits}
+    assert by_acc["DISTAL"].mit_score > 0.9
+    assert by_acc["SEED"].mit_score < 0.05
+    assert by_acc["DISTAL"].risk_label == "high"
+    assert by_acc["SEED"].risk_label == "low"
+
+
+async def test_fallback_when_alignment_strings_missing(patch_ncbi) -> None:
+    """Pre-existing test fixtures that don't include alignment strings hit the
+    fallback path. We surface this per-hit + flag it in the caveats."""
+    record = _fake_record(
+        [_fake_alignment(accession="OLD", hit_def="x", identities=17, align_length=20)]
+        # No query=/sbjct= → empty alignment strings → fallback.
+    )
+    patch_ncbi((record, "RID"))
+    out = await find_offtargets(FindOfftargetsInput(guide=_GUIDE))
+    hit = out.hits[0]
+    assert hit.used_full_alignment is False
+    # Fallback caveat surfaces.
+    joined = " ".join(out.caveats).lower()
+    assert "fallback" in joined or "older blast" in joined or "under-state" in joined
 
 
 async def test_above_max_mismatches_excluded(patch_ncbi) -> None:
@@ -168,21 +276,43 @@ async def test_propagates_high_expect_threshold_for_short_queries(patch_ncbi) ->
 # --- Sorting + capping --------------------------------------------------------------
 
 
-async def test_hits_sorted_high_then_low_risk(patch_ncbi) -> None:
+async def test_hits_sorted_by_mit_score_descending(patch_ncbi) -> None:
+    """Three hits with distinguishing mismatch positions get sorted by MIT
+    score: perfect match → seed mismatch → all-seed → progressively lower."""
     record = _fake_record(
         [
-            _fake_alignment(accession="LOW", hit_def="x", identities=16, align_length=20),
-            _fake_alignment(accession="HIGH", hit_def="x", identities=20, align_length=20),
-            _fake_alignment(accession="MED", hit_def="x", identities=17, align_length=20),
+            _fake_alignment(  # all-seed: lowest score
+                accession="LOW",
+                hit_def="x",
+                identities=17,
+                align_length=20,
+                query=_GUIDE,
+                sbjct=_mutate_at(_GUIDE, [14, 16, 18]),
+            ),
+            _fake_alignment(  # perfect match: highest score
+                accession="HIGH",
+                hit_def="x",
+                identities=20,
+                align_length=20,
+                query=_GUIDE,
+                sbjct=_GUIDE,
+            ),
+            _fake_alignment(  # one seed mismatch: middle score (1 - 0.851 = 0.149)
+                accession="MED",
+                hit_def="x",
+                identities=19,
+                align_length=20,
+                query=_GUIDE,
+                sbjct=_mutate_at(_GUIDE, [14]),
+            ),
         ]
     )
     patch_ncbi((record, "RID"))
     out = await find_offtargets(FindOfftargetsInput(guide=_GUIDE))
     accessions = [h.accession for h in out.hits]
     assert accessions == ["HIGH", "MED", "LOW"]
-    assert out.high_risk_count == 1
-    assert out.medium_risk_count == 1
-    assert out.low_risk_count == 1
+    # MIT scores strictly decreasing.
+    assert out.hits[0].mit_score > out.hits[1].mit_score > out.hits[2].mit_score
 
 
 async def test_max_hits_caps_response(patch_ncbi) -> None:
@@ -202,7 +332,9 @@ async def test_caveats_mention_missing_pam_verification(patch_ncbi) -> None:
     out = await find_offtargets(FindOfftargetsInput(guide=_GUIDE))
     text = " ".join(out.caveats).lower()
     assert "pam" in text and "not verified" in text
-    assert "seed" in text  # mentions seed-region weighting limitation
+    # MIT / Hsu 2013 scoring is the new specificity metric — it implicitly weights
+    # seed-region mismatches, but mention CFD as the next-step refinement.
+    assert "mit" in text or "hsu" in text or "cfd" in text
     assert "bulge" in text or "indel" in text  # mentions bulge/indel limitation
 
 

@@ -161,6 +161,23 @@ class BlastHit(BaseModel):
     subject_start: int
     subject_end: int
     organism: str | None = None
+    query_aligned: str = Field(
+        default="",
+        description=(
+            "Query strand of the top HSP alignment (gapped). Empty for older BLAST "
+            "records that don't expose the alignment strings; downstream tools that "
+            "need mismatch positions (e.g. find_offtargets MIT scoring) should fall "
+            "back to mismatch-count if this is empty."
+        ),
+    )
+    subject_aligned: str = Field(
+        default="",
+        description="Subject strand of the top HSP alignment (gapped). Empty if BLAST didn't expose it.",
+    )
+    midline: str = Field(
+        default="",
+        description="Alignment midline (vertical bars for matches, spaces for mismatches/gaps).",
+    )
 
 
 class BlastOutput(ToolOutput):
@@ -340,6 +357,12 @@ def _parse_blast_record(record: Any, max_hits: int) -> list[BlastHit]:
                 subject_start=int(hsp.sbjct_start or 0),
                 subject_end=int(hsp.sbjct_end or 0),
                 organism=organism,
+                # Surface the alignment strings so downstream tools (find_offtargets)
+                # can compute per-position mismatch maps. Biopython exposes these
+                # as `query`, `sbjct`, and `match` attributes on the HSP object.
+                query_aligned=str(getattr(hsp, "query", "") or ""),
+                subject_aligned=str(getattr(hsp, "sbjct", "") or ""),
+                midline=str(getattr(hsp, "match", "") or ""),
             )
         )
     return hits
