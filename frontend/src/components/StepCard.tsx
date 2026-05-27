@@ -3,6 +3,8 @@ import type { CrisprEditReportOutput } from "../types/crispr";
 import { isCrisprEditReport } from "../types/crispr";
 import type { DesignPrimersOutput } from "../types/primers";
 import { isDesignPrimersOutput } from "../types/primers";
+import type { CompareStructuresOutput } from "../types/compare_structures";
+import { isCompareStructuresOutput } from "../types/compare_structures";
 import type { FindBestStructureOutput } from "../types/find_best_structure";
 import { isFindBestStructureOutput } from "../types/find_best_structure";
 import type { FetchInterproOutput } from "../types/interpro";
@@ -11,6 +13,7 @@ import type { FetchPdbOutput } from "../types/pdb_structure";
 import { isPdbStructureOutput } from "../types/pdb_structure";
 import type { FetchAlphaFoldOutput } from "../types/structure";
 import { isAlphaFoldOutput } from "../types/structure";
+import { CompareStructuresCard } from "./CompareStructuresCard";
 import { CrisprReportCard } from "./CrisprReportCard";
 import { FindBestStructureCard } from "./FindBestStructureCard";
 import { InterproCard } from "./InterproCard";
@@ -173,6 +176,10 @@ function ToolCallBody({ step }: { step: AgentStep }) {
     step.tool_name === "fetch_interpro_domains" &&
     step.tool_output &&
     isInterproOutput(step.tool_output);
+  const isCompare =
+    step.tool_name === "compare_structures" &&
+    step.tool_output &&
+    isCompareStructuresOutput(step.tool_output);
 
   return (
     <div className="space-y-2">
@@ -207,13 +214,17 @@ function ToolCallBody({ step }: { step: AgentStep }) {
       {isInterpro && step.tool_output && (
         <InterproCard output={step.tool_output as unknown as FetchInterproOutput} />
       )}
+      {isCompare && step.tool_output && (
+        <CompareStructuresCard result={step.tool_output as unknown as CompareStructuresOutput} />
+      )}
       {step.tool_output &&
         !isCrispr &&
         !isPrimers &&
         !isStructure &&
         !isPdbStructure &&
         !isFindBest &&
-        !isInterpro && (
+        !isInterpro &&
+        !isCompare && (
         <details className="text-xs">
           <summary className="cursor-pointer text-slate-500 hover:text-slate-700">
             output

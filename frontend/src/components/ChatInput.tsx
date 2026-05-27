@@ -68,6 +68,13 @@ const QUICK_ACTIONS: { label: string; goal: string }[] = [
       "Fetch the InterPro domain annotations for BRCA1 (UniProt P38398) and " +
       "describe the major functional regions of the protein.",
   },
+  {
+    label: "Compare BRCA1 structures",
+    goal:
+      "Compare the experimental and predicted 3D structures of BRCA1 (UniProt " +
+      "P38398). Tell me where the prediction is experimentally validated and " +
+      "where it's the only available model.",
+  },
 ];
 
 export function ChatInput({ onSubmit, disabled }: ChatInputProps) {
