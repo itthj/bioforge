@@ -46,6 +46,11 @@ from pydantic import BaseModel, Field, field_validator
 
 from bioforge.tools.base import ToolError, ToolInput, ToolOutput
 from bioforge.tools.registry import register_tool
+from bioforge.tools.sequence.microhomology import (
+    apply_mmej_deletion,
+    find_microhomologies,
+    normalize_to_probabilities,
+)
 
 _DNA_CHARS = set("ACGTNacgtn")
 _IUPAC_REGEX = {
@@ -99,7 +104,14 @@ OutcomeType = Literal[
     "deletion_-2",
     "deletion_-3",
     "deletion_larger",
+    "mmej_deletion",
 ]
+
+
+# MMEJ accounts for ~20-50% of Cas9 repair events in published Cas9 datasets;
+# 35% is a defensible middle value (van Overbeek 2016 / Shen 2018 averages).
+# When MMEJ outcomes are generated, NHEJ probabilities are scaled by (1 - this).
+_DEFAULT_MMEJ_FRACTION = 0.35
 
 
 class EditOutcomeInput(ToolInput):
@@ -147,6 +159,36 @@ class EditOutcomeInput(ToolInput):
             "Restrict the enumeration to specific outcome types. Default (None) emits all 9 standard outcomes."
         ),
     )
+    enable_mmej: bool = Field(
+        default=True,
+        description=(
+            "Scan for microhomologies flanking the cut and emit mmej_deletion "
+            "outcomes scored by the Bae 2014 algorithm. When True (default), "
+            "NHEJ rule-of-thumb probabilities are scaled by (1 - mmej_total_fraction). "
+            "Disable to revert to the pure-NHEJ first-cut behavior."
+        ),
+    )
+    mmej_total_fraction: float = Field(
+        default=_DEFAULT_MMEJ_FRACTION,
+        ge=0.0,
+        le=0.9,
+        description=(
+            "Fraction of total Cas9 repair events attributed to MMEJ. Published "
+            "datasets put this at 20-50%; default 0.35 is a reasonable middle. "
+            "Set to 0 to behave as if enable_mmej=False; set higher for cut sites "
+            "in MH-rich contexts (CTG / CGG repeats, GC-rich promoters)."
+        ),
+    )
+    min_microhomology_length: int = Field(
+        default=2,
+        ge=2,
+        le=6,
+        description=(
+            "Minimum length of microhomology to consider. 2 is the published "
+            "threshold and captures most MMEJ outcomes; raise to 3-4 to focus "
+            "on the strongest patterns only."
+        ),
+    )
 
     @field_validator("target", "guide")
     @classmethod
@@ -171,6 +213,18 @@ class EditOutcomeInput(ToolInput):
         return cleaned
 
 
+class MicrohomologyAnnotation(BaseModel):
+    """For mmej_deletion outcomes, the MH pair that templated the deletion."""
+
+    sequence: str
+    length: int
+    left_position: int = Field(description="0-based start of the LEFT MH copy on the forward strand.")
+    right_position: int = Field(description="0-based start of the RIGHT MH copy on the forward strand.")
+    pattern_score: float = Field(
+        description=("Bae 2014 pattern score (raw, unnormalized). Higher = more likely this MH templates the deletion.")
+    )
+
+
 class EditOutcome(BaseModel):
     outcome_type: OutcomeType
     edited_sequence: str = Field(
@@ -188,8 +242,10 @@ class EditOutcome(BaseModel):
     )
     probability: float = Field(
         description=(
-            "Rule-of-thumb probability from published NHEJ-frequency averages. NOT a "
-            "guide-specific prediction. Phase 2 placeholder for ML-model output."
+            "Estimated probability. For mmej_deletion: derived from Bae 2014 "
+            "pattern scoring + a 35% MMEJ-of-total budget. For NHEJ outcomes: "
+            "published rule-of-thumb averages, scaled down by (1 - MMEJ total) "
+            "when MMEJ outcomes are present. NOT a per-guide ML prediction."
         )
     )
     frameshift: bool = Field(
@@ -200,6 +256,13 @@ class EditOutcome(BaseModel):
         )
     )
     notes: str = Field(default="")
+    microhomology: MicrohomologyAnnotation | None = Field(
+        default=None,
+        description=(
+            "Populated for mmej_deletion outcomes; None for NHEJ outcomes. "
+            "Identifies which MH pair flanking the cut produced this deletion."
+        ),
+    )
 
 
 class EditOutcomeOutput(ToolOutput):
@@ -255,6 +318,53 @@ def _locate_guide(target: str, guide: str, pam_regex: str) -> tuple[Literal["+",
 
 
 # --- Outcome generation -------------------------------------------------------------
+
+
+def _generate_mmej_outcomes(
+    *,
+    target_fwd: str,
+    cut_fwd: int,
+    mmej_total_fraction: float,
+    min_length: int,
+) -> list[EditOutcome]:
+    """Run the Bae 2014 microhomology scan and emit mmej_deletion outcomes.
+
+    Probabilities sum to mmej_total_fraction (or 0 if no MH found). Each
+    outcome carries the microhomology annotation so the agent/UI can show
+    which MH pair templated the deletion.
+    """
+    mhs = find_microhomologies(target=target_fwd, cut_position=cut_fwd, min_length=min_length)
+    if not mhs:
+        return []
+    shares = normalize_to_probabilities(microhomologies=mhs, mmej_fraction_of_total=mmej_total_fraction)
+    outcomes: list[EditOutcome] = []
+    for mh, prob in shares.items():
+        edited = apply_mmej_deletion(target_fwd, mh)
+        indel_size = -mh.deletion_size
+        outcomes.append(
+            EditOutcome(
+                outcome_type="mmej_deletion",
+                edited_sequence=edited,
+                indel_size=indel_size,
+                probability=round(prob, 4),
+                frameshift=(indel_size % 3 != 0),
+                notes=(
+                    f"MMEJ deletion of {mh.deletion_size} nt templated by the "
+                    f"{mh.length}-bp microhomology '{mh.sequence}' (Bae 2014 "
+                    f"pattern score {mh.pattern_score:.2f}). The repair retains "
+                    "a single copy of the MH; the right copy and intervening "
+                    "bases are deleted."
+                ),
+                microhomology=MicrohomologyAnnotation(
+                    sequence=mh.sequence,
+                    length=mh.length,
+                    left_position=mh.left_start,
+                    right_position=mh.right_start,
+                    pattern_score=round(mh.pattern_score, 4),
+                ),
+            )
+        )
+    return outcomes
 
 
 def _generate_outcomes(
@@ -352,24 +462,28 @@ def _generate_outcomes(
 @register_tool(
     name="edit_outcome",
     description=(
-        "Predict the likely outcomes of a Cas9 edit at a given guide site. Locates the "
-        "guide on either strand of the target, computes the Cas9 cut position (3 nt "
-        "upstream of the PAM on the protospacer strand), and enumerates the standard "
-        "NHEJ repair products: perfect repair, +1 insertions (each of A/C/G/T), and "
-        "-1 / -2 / -3 / larger deletions. Each outcome carries an edited sequence, an "
-        "indel size, a frameshift flag, and a published-average probability. Use when "
-        "the user asks 'what does the edit look like?' or 'will this disrupt the gene?'. "
-        "IMPORTANT: probabilities are literature averages, NOT predictions for this "
-        "specific guide. Per-guide models (inDelphi, FORECasT) are a future slice."
+        "Predict the likely outcomes of a Cas9 edit at a given guide site. "
+        "Locates the guide on either strand, computes the cut position, and "
+        "enumerates two repair pathways: (1) NHEJ — perfect repair, +1 "
+        "insertions, -1/-2/-3/larger deletions with published-average "
+        "probabilities; (2) MMEJ — microhomology-templated deletions scored "
+        "by the Bae 2014 algorithm using actual sequence context around the "
+        "cut. The MMEJ branch makes probabilities GUIDE-AWARE — a cut in an "
+        "MH-rich region produces sharper, more confident deletion predictions "
+        "than a cut in low-complexity sequence. Each outcome carries an "
+        "edited_sequence, indel_size, frameshift flag, probability, and (for "
+        "MMEJ) the microhomology that templated it. Use whenever the user "
+        "asks 'what does the edit look like?' or 'will this disrupt the gene?'."
     ),
     input_model=EditOutcomeInput,
     output_model=EditOutcomeOutput,
-    version="1.0.0",
+    version="2.0.0",
     citations=[
-        "Shen MW et al. (2018) Predictable and precise template-free CRISPR editing of pathogenic variants. Nature 563:646-651 (inDelphi)",
+        "Bae S et al. (2014) Microhomology-based choice of Cas9 nuclease target sites. Nat Methods 11:705-706 (microhomology pattern score)",
+        "Shen MW et al. (2018) Predictable and precise template-free CRISPR editing of pathogenic variants. Nature 563:646-651 (inDelphi MH component)",
         "Allen F et al. (2018) Predicting the mutations generated by repair of Cas9-induced double-strand breaks. Nat Biotechnol 37:64-72 (FORECasT)",
         "Chen W et al. (2019) Massively parallel profiling and predictive modeling of the outcomes of CRISPR/Cas9-mediated double-strand break repair. Nucleic Acids Res 47:7989-8003 (Lindel)",
-        "van Overbeek M et al. (2016) DNA repair profiling reveals nonrandom outcomes at Cas9-mediated breaks. Mol Cell 63:633-646 (NHEJ frequency averages)",
+        "van Overbeek M et al. (2016) DNA repair profiling reveals nonrandom outcomes at Cas9-mediated breaks. Mol Cell 63:633-646 (NHEJ + MMEJ frequency averages)",
     ],
     cost_hint="cheap",
     destructive=False,
@@ -395,9 +509,28 @@ async def edit_outcome(inp: EditOutcomeInput) -> EditOutcomeOutput:
         )
 
     include_types: set[OutcomeType] = (
-        set(inp.include_outcome_types) if inp.include_outcome_types else set(_RULE_OF_THUMB_PROBS)
+        set(inp.include_outcome_types) if inp.include_outcome_types else set(_RULE_OF_THUMB_PROBS) | {"mmej_deletion"}
     )
-    outcomes = _generate_outcomes(inp.target, cut_fwd, include_types)
+
+    nhej_outcomes = _generate_outcomes(inp.target, cut_fwd, include_types)
+    mmej_outcomes: list[EditOutcome] = []
+    if inp.enable_mmej and "mmej_deletion" in include_types and inp.mmej_total_fraction > 0:
+        mmej_outcomes = _generate_mmej_outcomes(
+            target_fwd=inp.target,
+            cut_fwd=cut_fwd,
+            mmej_total_fraction=inp.mmej_total_fraction,
+            min_length=inp.min_microhomology_length,
+        )
+
+    # Re-scale NHEJ probabilities by (1 - actual_mmej_total) so the full
+    # distribution sums to ~1.0. If we found NO MH (mmej_outcomes is empty),
+    # NHEJ stays at its rule-of-thumb shape.
+    actual_mmej_total = sum(o.probability for o in mmej_outcomes)
+    if actual_mmej_total > 0 and nhej_outcomes:
+        scale = 1.0 - actual_mmej_total
+        nhej_outcomes = [o.model_copy(update={"probability": round(o.probability * scale, 4)}) for o in nhej_outcomes]
+
+    outcomes = nhej_outcomes + mmej_outcomes
 
     if not outcomes:
         raise ToolError("No outcomes generated — `include_outcome_types` may have been too restrictive.")
@@ -405,21 +538,35 @@ async def edit_outcome(inp: EditOutcomeInput) -> EditOutcomeOutput:
     # Sort by probability descending so the user sees the most-likely outcomes first.
     outcomes.sort(key=lambda o: o.probability, reverse=True)
 
+    caveats = [
+        "NHEJ probabilities are published averages, NOT predictions for this "
+        "specific guide. Per-guide ML models (inDelphi, FORECasT, Lindel) are "
+        "a future slice and would replace the rule-of-thumb shares with "
+        "sequence-context-aware values.",
+        "Frameshift flagging only checks indel size modulo 3. Whether the edit "
+        "actually disrupts a reading frame depends on whether the cut falls inside "
+        "a CDS — the tool does not infer that.",
+    ]
+    if mmej_outcomes:
+        caveats.append(
+            f"MMEJ pathway: {len(mmej_outcomes)} microhomology-templated deletion(s) "
+            f"detected; total MMEJ fraction set to {inp.mmej_total_fraction:.0%}. "
+            "Probabilities within MMEJ are normalized from Bae 2014 pattern scores; "
+            "NHEJ outcomes were rescaled by (1 - MMEJ total). Real cell-type-specific "
+            "ratios vary."
+        )
+    else:
+        caveats.append(
+            "No microhomologies of length ≥"
+            f"{inp.min_microhomology_length} found flanking the cut — MMEJ "
+            "outcomes are not enumerated. NHEJ probabilities are NOT rescaled."
+        )
+
     return EditOutcomeOutput(
         guide=inp.guide,
         guide_strand=strand,
         cut_position_fwd=cut_fwd,
         target_length=len(inp.target),
         outcomes=outcomes,
-        summary_caveats=[
-            "Probabilities are published NHEJ-frequency AVERAGES across many guides, "
-            "NOT predictions for this specific guide. A real outcome distribution "
-            "depends on local sequence context and would require inDelphi / FORECasT / "
-            "Lindel — those are a future slice.",
-            "Frameshift flagging only checks indel size modulo 3. Whether the edit "
-            "actually disrupts a reading frame depends on whether the cut falls inside "
-            "a CDS — the tool does not infer that.",
-            "Microhomology-mediated end joining (MMEJ) deletions are NOT modeled here. "
-            "Real Cas9 repair shows MMEJ bias when ≥2-nt microhomologies flank the cut.",
-        ],
+        summary_caveats=caveats,
     )
