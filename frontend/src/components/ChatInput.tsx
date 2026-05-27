@@ -48,6 +48,13 @@ const QUICK_ACTIONS: { label: string; goal: string }[] = [
       "Fetch the AlphaFold structure for BRCA1 (UniProt P38398) and summarize " +
       "where the prediction is confident vs uncertain.",
   },
+  {
+    label: "Hemoglobin (4HHB)",
+    goal:
+      "Fetch the experimental hemoglobin structure (PDB 4HHB) and describe " +
+      "its chains, cofactors, and resolution. What can the B-factors tell us " +
+      "about flexibility?",
+  },
 ];
 
 export function ChatInput({ onSubmit, disabled }: ChatInputProps) {

@@ -3,9 +3,12 @@ import type { CrisprEditReportOutput } from "../types/crispr";
 import { isCrisprEditReport } from "../types/crispr";
 import type { DesignPrimersOutput } from "../types/primers";
 import { isDesignPrimersOutput } from "../types/primers";
+import type { FetchPdbOutput } from "../types/pdb_structure";
+import { isPdbStructureOutput } from "../types/pdb_structure";
 import type { FetchAlphaFoldOutput } from "../types/structure";
 import { isAlphaFoldOutput } from "../types/structure";
 import { CrisprReportCard } from "./CrisprReportCard";
+import { PdbStructureCard } from "./PdbStructureCard";
 import { PrimerPairsCard } from "./PrimerPairsCard";
 import { StructureCard } from "./StructureCard";
 
@@ -152,6 +155,10 @@ function ToolCallBody({ step }: { step: AgentStep }) {
     step.tool_name === "fetch_alphafold_structure" &&
     step.tool_output &&
     isAlphaFoldOutput(step.tool_output);
+  const isPdbStructure =
+    step.tool_name === "fetch_pdb_structure" &&
+    step.tool_output &&
+    isPdbStructureOutput(step.tool_output);
 
   return (
     <div className="space-y-2">
@@ -177,7 +184,10 @@ function ToolCallBody({ step }: { step: AgentStep }) {
       {isStructure && step.tool_output && (
         <StructureCard structure={step.tool_output as unknown as FetchAlphaFoldOutput} />
       )}
-      {step.tool_output && !isCrispr && !isPrimers && !isStructure && (
+      {isPdbStructure && step.tool_output && (
+        <PdbStructureCard structure={step.tool_output as unknown as FetchPdbOutput} />
+      )}
+      {step.tool_output && !isCrispr && !isPrimers && !isStructure && !isPdbStructure && (
         <details className="text-xs">
           <summary className="cursor-pointer text-slate-500 hover:text-slate-700">
             output
