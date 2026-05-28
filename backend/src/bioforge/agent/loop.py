@@ -37,10 +37,21 @@ from pydantic import ValidationError
 
 from bioforge.agent.approval import requires_approval
 from bioforge.agent.context import get_current_db_session
-from bioforge.agent.critic import CriticVerdict, evaluate
+from bioforge.agent.critic import CriticVerdict
 from bioforge.agent.llm import LLM, UsageSummary, summarize_usage
+from bioforge.agent.local_critic import LocalCritic
+from bioforge.agent.local_executor import LocalExecutor
+from bioforge.agent.local_planner import LocalPlanner
 from bioforge.agent.memory import load_relevant_memory
-from bioforge.agent.planner import Plan, make_plan
+from bioforge.agent.planner import Plan
+from bioforge.agent.roles import (
+    Critic,
+    CriticContext,
+    Executor,
+    ExecutorContext,
+    PlanContext,
+    Planner,
+)
 from bioforge.config import settings
 from bioforge.observability.tracing import (
     record_exception,
@@ -366,7 +377,7 @@ async def _execute(
 async def _try_plan(
     goal: str,
     *,
-    llm: LLM,
+    planner: Planner,
     model: str,
     available_tools_for_planner: list,
     step_idx: int,
@@ -375,22 +386,25 @@ async def _try_plan(
     on_step: OnStep = None,
     memory_context: str = "",
 ) -> tuple[Plan | None, AgentStep, UsageSummary]:
+    """Dispatch a plan request through a Planner role and wrap the result in an AgentStep.
+
+    Phase 5.1: the planner is now an injectable Protocol implementation instead
+    of a direct call to `make_plan()`. The complaints-formatting logic moved
+    into LocalPlanner.make_plan (and any future Planner impl) — this function
+    is now purely the loop-level concerns: timing, error wrapping, step emission,
+    usage extraction. Existing callers get LocalPlanner by default via
+    `run_agent`, so behavior is unchanged.
+    """
     t0 = time.monotonic()
-    planner_goal = goal
-    if previous_complaints:
-        planner_goal = (
-            f"{goal}\n\nThe previous attempt failed because:\n"
-            + "\n".join(f"  - {c}" for c in previous_complaints)
-            + "\n\nProduce a revised plan that addresses each issue."
-        )
+    ctx = PlanContext(
+        goal=goal,
+        model=model,
+        available_tools=available_tools_for_planner,
+        memory_context=memory_context,
+        previous_complaints=list(previous_complaints or []),
+    )
     try:
-        result = await make_plan(
-            planner_goal,
-            llm=llm,
-            model=model,
-            available_tools=available_tools_for_planner,
-            memory_context=memory_context,
-        )
+        plan = await planner.make_plan(ctx)
     except Exception as e:
         step = AgentStep(
             idx=step_idx,
@@ -401,41 +415,53 @@ async def _try_plan(
         await _emit(on_step, step)
         return (None, step, UsageSummary.zero(model))
 
+    # Usage is exposed by the planner role via the `last_usage` side-channel
+    # (see LocalPlanner). Protocols can omit the attribute; in that case we
+    # report zero rather than crash — the run still completes.
+    usage = getattr(planner, "last_usage", None) or UsageSummary.zero(model)
     step = AgentStep(
         idx=step_idx,
         type="replan" if is_replan else "plan",
         duration_ms=int((time.monotonic() - t0) * 1000),
-        plan=result.plan.model_dump(),
-        input_tokens=result.usage.input_tokens,
-        output_tokens=result.usage.output_tokens,
-        cache_creation_tokens=result.usage.cache_creation_tokens,
-        cache_read_tokens=result.usage.cache_read_tokens,
+        plan=plan.model_dump(),
+        input_tokens=usage.input_tokens,
+        output_tokens=usage.output_tokens,
+        cache_creation_tokens=usage.cache_creation_tokens,
+        cache_read_tokens=usage.cache_read_tokens,
     )
     await _emit(on_step, step)
-    return (result.plan, step, result.usage)
+    return (plan, step, usage)
 
 
 async def _try_critique(
     *,
+    critic: Critic,
     goal: str,
     plan: Plan | None,
     exec_steps: list[AgentStep],
     draft_response: str,
-    llm: LLM,
     model: str,
     step_idx: int,
     on_step: OnStep = None,
 ) -> tuple[CriticVerdict | None, AgentStep, UsageSummary]:
+    """Dispatch a critique through a Critic role and wrap the result in an AgentStep.
+
+    Phase 5.3: the LLM call moved into LocalCritic; this function is now purely
+    the loop-level concerns (timing, error wrapping, step emission, usage
+    extraction). Existing callers get LocalCritic by default via run_agent.
+    """
     t0 = time.monotonic()
+    ctx = CriticContext(
+        goal=goal,
+        plan=plan,
+        response_text=draft_response,
+        exec_steps=exec_steps,
+        model=model,
+        step_idx=step_idx,
+        on_step=on_step,
+    )
     try:
-        result = await evaluate(
-            goal=goal,
-            plan=plan,
-            steps=exec_steps,
-            draft_response=draft_response,
-            llm=llm,
-            model=model,
-        )
+        verdict = await critic.critique(ctx)
     except Exception as e:
         step = AgentStep(
             idx=step_idx,
@@ -446,18 +472,61 @@ async def _try_critique(
         await _emit(on_step, step)
         return (None, step, UsageSummary.zero(model))
 
+    usage = getattr(critic, "last_usage", None) or UsageSummary.zero(model)
     step = AgentStep(
         idx=step_idx,
         type="critique",
         duration_ms=int((time.monotonic() - t0) * 1000),
-        verdict=result.verdict.model_dump(),
-        input_tokens=result.usage.input_tokens,
-        output_tokens=result.usage.output_tokens,
-        cache_creation_tokens=result.usage.cache_creation_tokens,
-        cache_read_tokens=result.usage.cache_read_tokens,
+        verdict=verdict.model_dump(),
+        input_tokens=usage.input_tokens,
+        output_tokens=usage.output_tokens,
+        cache_creation_tokens=usage.cache_creation_tokens,
+        cache_read_tokens=usage.cache_read_tokens,
     )
     await _emit(on_step, step)
-    return (result.verdict, step, result.usage)
+    return (verdict, step, usage)
+
+
+async def _execute_via_role(
+    *,
+    executor: Executor,
+    goal: str,
+    plan: Plan | None,
+    complaints: list[str] | None,
+    model: str,
+    tool_tags: list[str] | None,
+    max_iterations: int,
+    step_idx_start: int,
+    on_step: OnStep = None,
+) -> tuple[str, list[AgentStep], UsageSummary, str]:
+    """Dispatch an execute request through an Executor role and unpack the
+    (draft, steps, usage, status) tuple the loop expects.
+
+    The Executor Protocol returns ExecutionResult (Protocol-friendly flat
+    shape). The in-process role attaches the raw AgentStep list and the
+    terminal status string as side-channel attributes — we read them here
+    so the rest of the loop's control flow stays unchanged. Phase 5.2."""
+    ctx = ExecutorContext(
+        plan=plan,
+        goal=goal,
+        model=model,
+        complaints=list(complaints or []),
+        tool_tags=tool_tags,
+        max_iterations=max_iterations,
+        step_idx_start=step_idx_start,
+        on_step=on_step,
+    )
+    result = await executor.execute(ctx)
+    steps = list(getattr(executor, "last_steps", []) or [])
+    usage = getattr(executor, "last_usage", None) or UsageSummary.zero(model)
+    status = getattr(executor, "last_status", "") or (
+        "completed"
+        if not result.refused and not result.finished_with_tool_use
+        else "refused"
+        if result.refused
+        else "iteration_cap"
+    )
+    return (result.response_text, steps, usage, status)
 
 
 async def _execute_critique_replan(
@@ -473,6 +542,9 @@ async def _execute_critique_replan(
     step_idx_start: int,
     on_step: OnStep = None,
     memory_context: str = "",
+    planner: Planner | None = None,
+    executor: Executor | None = None,
+    critic: Critic | None = None,
 ) -> AgentResult:
     """The portion of the loop after the plan is approved. Shared by `run_agent` (post
     approval-gate when no approval is needed) and `resume_agent` (when approval was given).
@@ -483,12 +555,19 @@ async def _execute_critique_replan(
 
     available_tools = list_tools(tags=tool_tags)
 
+    # Default role instances (Phase 5.1-5.3). Each role is per-run state-bearing
+    # (last_usage etc.) so we construct fresh instances when the caller didn't
+    # inject custom ones.
+    planner = planner if planner is not None else LocalPlanner(llm)
+    executor = executor if executor is not None else LocalExecutor(llm)
+    critic = critic if critic is not None else LocalCritic(llm)
+
     # --- EXECUTE (attempt 1) ---
-    draft, exec_steps, exec_usage, exec_status = await _execute(
+    draft, exec_steps, exec_usage, exec_status = await _execute_via_role(
+        executor=executor,
         goal=goal,
         plan=plan,
         complaints=None,
-        llm=llm,
         model=model,
         tool_tags=tool_tags,
         max_iterations=max_iterations,
@@ -523,11 +602,11 @@ async def _execute_critique_replan(
         )
 
     verdict, critique_step, critique_usage = await _try_critique(
+        critic=critic,
         goal=goal,
         plan=plan,
         exec_steps=exec_steps,
         draft_response=draft,
-        llm=llm,
         model=model,
         step_idx=step_idx,
         on_step=on_step,
@@ -550,7 +629,7 @@ async def _execute_critique_replan(
     # --- REPLAN (one attempt) ---
     replan, replan_step, replan_usage = await _try_plan(
         goal,
-        llm=llm,
+        planner=planner,
         model=model,
         available_tools_for_planner=available_tools,
         step_idx=step_idx,
@@ -563,11 +642,11 @@ async def _execute_critique_replan(
     step_idx += 1
     total_usage = total_usage.merge(replan_usage)
 
-    draft2, exec_steps2, exec_usage2, exec_status2 = await _execute(
+    draft2, exec_steps2, exec_usage2, exec_status2 = await _execute_via_role(
+        executor=executor,
         goal=goal,
         plan=replan,
         complaints=verdict.concrete_complaints or [verdict.reason],
-        llm=llm,
         model=model,
         tool_tags=tool_tags,
         max_iterations=max_iterations,
@@ -590,11 +669,11 @@ async def _execute_critique_replan(
         )
 
     verdict2, critique_step2, critique_usage2 = await _try_critique(
+        critic=critic,
         goal=goal,
         plan=replan,
         exec_steps=exec_steps2,
         draft_response=draft2,
-        llm=llm,
         model=model,
         step_idx=step_idx,
         on_step=on_step,
@@ -639,6 +718,9 @@ async def run_agent(
     enable_critic: bool = True,
     skip_approval_gate: bool = False,
     on_step: OnStep = None,
+    planner: Planner | None = None,
+    executor: Executor | None = None,
+    critic: Critic | None = None,
 ) -> AgentResult:
     """Run the full plan → (approval) → execute → critique → (replan once) loop.
 
@@ -648,10 +730,22 @@ async def run_agent(
     `on_step` is an async callback fired once per `AgentStep` as it lands. Use it for
     SSE streaming. Default `None` is the non-streaming path used by the JSON endpoint
     and the unit-test paths that examine `result.steps` after completion.
+
+    Phase 5.1-5.3 role injection: `planner`, `executor`, `critic` are Protocol
+    implementations the loop dispatches through. Each defaults to its `Local*`
+    in-process implementation, which matches Phase 0-4 behavior byte-for-byte.
+    Passing custom roles lets tests + future remote sub-agents plug in without
+    touching the loop.
     """
     model = model or settings.default_model
     max_iterations = max_iterations or settings.max_agent_iterations
     llm = llm or LLM()
+    if planner is None:
+        planner = LocalPlanner(llm)
+    if executor is None:
+        executor = LocalExecutor(llm)
+    if critic is None:
+        critic = LocalCritic(llm)
 
     # Import the tracer LAZILY here so tests that install a TracerProvider after this
     # module's import time see real spans. A module-level `tracer = ...` would freeze
@@ -685,7 +779,7 @@ async def run_agent(
         with _tracer.start_as_current_span("agent.plan") as plan_span:
             plan, plan_step, plan_usage = await _try_plan(
                 goal,
-                llm=llm,
+                planner=planner,
                 model=model,
                 available_tools_for_planner=available_tools,
                 step_idx=step_idx,
@@ -762,6 +856,9 @@ async def run_agent(
             step_idx_start=step_idx,
             on_step=on_step,
             memory_context=memory_context,
+            planner=planner,
+            executor=executor,
+            critic=critic,
         )
         all_steps.extend(tail.steps)
         total_usage = total_usage.merge(tail.usage or UsageSummary.zero(model))
@@ -793,6 +890,9 @@ async def resume_agent(
     max_iterations: int | None = None,
     enable_critic: bool = True,
     on_step: OnStep = None,
+    planner: Planner | None = None,
+    executor: Executor | None = None,
+    critic: Critic | None = None,
 ) -> AgentResult:
     """Resume an agent run after approval was granted. The caller has fetched the
     pending trace, validated the persisted plan, and now wants the executor + critic
@@ -826,6 +926,9 @@ async def resume_agent(
         step_idx_start=step_idx_start,
         on_step=on_step,
         memory_context=memory_context,
+        planner=planner,
+        executor=executor,
+        critic=critic,
     )
     return result
 

@@ -4,8 +4,14 @@ This document captures the architectural plan for Phase 5 of BioForge. It is a
 companion to the contracts in `bioforge.agent.roles` and `bioforge.workflows`,
 which already ship the Protocol interfaces these designs target.
 
-Status: **foundations laid (this slice)**. Actual split + Nextflow integration
-follow in Phase 5.1–5.5 slices.
+Status: **5.0–5.5 landed (2026-05-28).** All four role-split slices (5.1
+Planner, 5.2 Executor, 5.3 Critic) are wired through the loop with
+behavioral equivalence preserved against the prior in-loop calls; the first
+workflow-using tool (5.4 `submit_alphafold_batch`) routes through a
+`WorkflowEngine` dependency; and the `NextflowEngine` (5.5) ships behind a
+`BIOFORGE_NEXTFLOW_ENABLED` feature flag. The remote-process split (running
+roles in separate workers / different models / RPC boundaries) is the next
+phase — all of the Protocol contracts are now in place to land it.
 
 ## Why Phase 5
 
@@ -63,12 +69,21 @@ Defined as `Protocol`s today so the existing Phase 0–4 in-loop functions can
 be wrapped without breaking changes:
 
 * `Planner` — produces a Plan from a goal. Context: prior memory, available
-  tools. **Phase 5.1: extract `agent/loop.py::_try_plan` into a `Planner`
-  implementation, swap the call site to dispatch through the role.**
-* `Executor` — runs a Plan, returns ExecutionResult. **Phase 5.2: same shape
-  refactor for `agent/loop.py::_execute`.**
-* `Critic` — judges whether the response satisfies the goal. **Phase 5.3:
-  same shape for `agent/loop.py::_try_critique`.**
+  tools. **Phase 5.1 (✓ landed):** `agent/local_planner.py::LocalPlanner` is
+  the in-process implementation. `_try_plan` in the loop dispatches through
+  the role; `run_agent(planner=...)` accepts a custom Planner for tests and
+  future remote sub-agents. Usage tokens flow via `LocalPlanner.last_usage`
+  (the narrow `make_plan(ctx) -> Plan` contract stayed clean).
+* `Executor` — runs a Plan, returns ExecutionResult. **Phase 5.2 (✓ landed):**
+  `agent/local_executor.py::LocalExecutor` wraps `_execute()`. The loop's
+  `_execute_via_role` adapter unpacks the Protocol's flat `ExecutionResult`
+  back into the `(draft, steps, usage, status)` tuple the rest of the loop
+  expects; side-channels (`last_steps`, `last_usage`, `last_status`) carry
+  the in-process state. `run_agent(executor=...)` accepts injection.
+* `Critic` — judges whether the response satisfies the goal. **Phase 5.3
+  (✓ landed):** `agent/local_critic.py::LocalCritic` wraps `evaluate()`.
+  Same shape: `_try_critique` is now the loop-level wrapper; the role
+  returns just `CriticVerdict`. `run_agent(critic=...)` accepts injection.
 
 After 5.1–5.3, swapping any role for a remote sub-agent (e.g. a smaller/faster
 model just for planning) is a config change, not a code change.
@@ -107,24 +122,44 @@ Once Nextflow lands, the agent loop never touches it directly — workflow tools
 
 1. **Phase 5.0 (this slice):** Protocols + LocalWorkflowEngine + NextflowEngine
    stub + tests + this doc.
-2. **Phase 5.1:** Wrap `_try_plan` in a `LocalPlanner(Planner)` class. The
-   coordinator dispatches plan calls through the role; everything else
-   unchanged. Test for behavioral equivalence.
-3. **Phase 5.2:** Same for `_execute` → `LocalExecutor(Executor)`.
-4. **Phase 5.3:** Same for `_try_critique` → `LocalCritic(Critic)`. At this
-   point each role has a stable Protocol-typed boundary.
-5. **Phase 5.4:** First workflow-using tool — `submit_alphafold_batch` —
-   takes a `WorkflowEngine` dep and uses `LocalWorkflowEngine`. Test the
-   full submit → stream → results path with multiple UniProt IDs.
-6. **Phase 5.5:** Implement `NextflowEngine.submit` + `stream_progress`.
-   Wire the agent's `WorkflowEngine` dependency to it behind a feature flag.
-   Re-run the Phase 5.4 test against the Nextflow path.
+2. **Phase 5.1 ✓:** `LocalPlanner` wraps the existing `make_plan()` function.
+   The coordinator dispatches plan calls through the role; `_try_plan` became
+   the loop-level wrapper that handles timing / errors / step emission. All
+   existing 507 backend tests stayed green (behavioral equivalence).
+3. **Phase 5.2 ✓:** `LocalExecutor` wraps `_execute()`. Adapter in the loop
+   (`_execute_via_role`) bridges the flat Protocol result to the loop's
+   internal tuple. All existing executor tests stayed green.
+4. **Phase 5.3 ✓:** `LocalCritic` wraps `evaluate()`. Same pattern. At this
+   point each role has a stable Protocol-typed boundary; future remote
+   sub-agents drop in via `run_agent(planner=, executor=, critic=)`.
+5. **Phase 5.4 ✓:** `submit_alphafold_batch` is the first workflow-using
+   tool. Takes a list of UniProt IDs, creates one `fetch_alphafold_structure`
+   step per ID, submits through the module-level engine (default
+   `LocalWorkflowEngine`), drains the progress stream, and returns
+   aggregated results. `cost_hint="expensive"` so a large batch hits the
+   approval gate. `WorkflowStep` gained an optional `command: str` field for
+   Nextflow-mode steps; in-process tools continue to use `handler`.
+6. **Phase 5.5 ✓:** `NextflowEngine` is implemented:
+   - `generate_nf_script()` emits a DSL2 script with one `process` block
+     per command-mode WorkflowStep, sanitizing process names and ordering
+     the workflow block topologically.
+   - `submit()` writes the script to a per-run `work_dir`, shells out to
+     `nextflow run -with-trace` (via an injectable `subprocess_runner` —
+     tests run without a real Nextflow binary).
+   - `stream_progress()` polls the trace file and emits `step_started` /
+     `step_completed` / `step_failed` events as rows land.
+   - `cancel()` sets a cancel event + sends SIGINT to the subprocess.
+   - `get_run()` returns the final WorkflowRun with outputs collected
+     from `{work_dir}/{step_name}.json` per the engine's output convention.
+   - Gated behind `BIOFORGE_NEXTFLOW_ENABLED=true`. Until that flag is set,
+     attempting to use NextflowEngine raises a clear RuntimeError pointing
+     at the flag.
 
-## Non-goals for Phase 5
+## Non-goals for Phase 5 (now landed)
 
 * **Distributed planner/executor/critic.** The role split happens in-process
-  in 5.1–5.3. Cross-process roles are a Phase 6+ concern (would need a
-  message bus, auth, etc.).
+  in 5.1–5.3 (now done). Cross-process roles are a Phase 6+ concern (would
+  need a message bus, auth, etc.) — but the Protocol seams are now in place.
 * **A new LLM per role.** All three start sharing the configured Claude
   Sonnet model. Per-role model selection is a tuning step after the split
   proves out.

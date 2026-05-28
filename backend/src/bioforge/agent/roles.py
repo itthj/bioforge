@@ -35,13 +35,21 @@ class PlanContext:
     Kept as an explicit dataclass — not **kwargs — so adding a new field
     (e.g. tool budget, prior-run memory) is a type-checked breaking change
     and every implementation is forced to acknowledge it.
+
+    `available_tools` is typed `list[dict]` aspirationally — that's the shape
+    a remote sub-agent would receive (Anthropic-API-ready tool definitions).
+    In Phase 5.1 the in-process LocalPlanner accepts the registry's ToolSpec
+    objects too, since make_plan() consumes them directly. Either form works.
     """
 
     goal: str
     model: str
-    available_tools: list[dict]
+    available_tools: list  # ToolSpec list (in-process) or Anthropic-dict list (future remote)
     memory_context: str = ""
     project_id: str | None = None
+    # Concrete complaints from a previous critique that the planner should
+    # incorporate when producing a revised plan. Empty list = initial plan.
+    previous_complaints: list[str] = field(default_factory=list)
     # Optional callback for streaming intermediate planner thoughts. Phase 5
     # may run the planner remotely, so progress goes through this hook
     # rather than direct stdout / SSE writes.
@@ -55,15 +63,34 @@ class ExecutorContext:
     The plan + the memory of previous tool results form the conversation
     history the executor LLM gets — keeping these explicit avoids accidental
     sharing of state between sub-agents.
+
+    `plan` is Plan | None because trivial goals can skip planning entirely;
+    the executor proceeds from goal + complaints alone in that case.
+    `tool_tags` is the registry-side filter the in-process executor uses to
+    resolve `available_tools`; a remote executor would receive
+    `available_tools` pre-rendered. Both are honored — exactly one needs to
+    be set.
     """
 
-    plan: Plan
+    plan: Plan | None
     goal: str
     model: str
-    available_tools: list[dict]
+    available_tools: list = field(default_factory=list)  # ToolSpec[] (in-process) or Anthropic dicts (remote)
     memory_context: str = ""
     project_id: str | None = None
     max_iterations: int = 10
+    # Complaints from a previous critique that the executor should explicitly
+    # address. Empty list = first attempt.
+    complaints: list[str] = field(default_factory=list)
+    # Registry tag filter for the in-process executor; None = all tools.
+    tool_tags: list[str] | None = None
+    # Where this executor run's AgentStep numbering starts within the larger
+    # trace. The loop sets this so cross-stage step idx stays monotonic.
+    step_idx_start: int = 0
+    # Per-step streaming callback (loop concern). Forward-typed `Any` so the
+    # Protocol stays import-light; concrete callers pass an AgentStep-shaped
+    # callback into the in-process LocalExecutor.
+    on_step: Callable[[Any], Awaitable[None]] | None = None
     on_progress: Callable[[dict[str, Any]], Awaitable[None]] | None = None
 
 
@@ -72,10 +99,16 @@ class CriticContext:
     """Everything the critic needs to judge whether a result satisfies the goal."""
 
     goal: str
-    plan: Plan
+    plan: Plan | None
     response_text: str
     tool_calls_made: list[dict[str, Any]] = field(default_factory=list)
+    # Raw executor steps the in-process critic reads (the existing `evaluate()`
+    # takes the full AgentStep list, not the flattened tool_calls_made view).
+    # Typed `list[Any]` to keep this module import-light.
+    exec_steps: list[Any] = field(default_factory=list)
     model: str = ""
+    step_idx: int = 0
+    on_step: Callable[[Any], Awaitable[None]] | None = None
     on_progress: Callable[[str], Awaitable[None]] | None = None
 
 

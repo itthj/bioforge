@@ -195,18 +195,19 @@ def test_local_engine_satisfies_protocol() -> None:
     assert isinstance(engine, WorkflowEngine)
 
 
-def test_nextflow_stub_satisfies_protocol() -> None:
-    """The NextflowEngine stub raises NotImplementedError on every call but
-    still satisfies the Protocol shape for type-checking purposes."""
+def test_nextflow_engine_satisfies_protocol() -> None:
+    """NextflowEngine still satisfies the WorkflowEngine Protocol after the
+    Phase 5.5 implementation. Detailed behavior tests live in
+    test_nextflow_engine.py — this is the minimal Protocol-conformance probe."""
     engine = NextflowEngine()
     assert isinstance(engine, WorkflowEngine)
 
 
-async def test_nextflow_stub_methods_raise() -> None:
+async def test_nextflow_engine_refuses_without_feature_flag(monkeypatch) -> None:
+    """Feature-flagged behind BIOFORGE_NEXTFLOW_ENABLED so an accidental swap
+    from LocalWorkflowEngine surfaces as a clear error rather than blowing up
+    on a missing `nextflow` binary."""
+    monkeypatch.delenv("BIOFORGE_NEXTFLOW_ENABLED", raising=False)
     engine = NextflowEngine()
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(RuntimeError, match="BIOFORGE_NEXTFLOW_ENABLED"):
         await engine.submit([_step("a")])
-    with pytest.raises(NotImplementedError):
-        await engine.cancel("x")
-    with pytest.raises(NotImplementedError):
-        await engine.get_run("x")

@@ -8,6 +8,7 @@ Imports here run for their registration side effects — the module-level
 """
 
 from bioforge.tools.structure import (  # noqa: F401
+    alphafold_batch,
     compare_structures,
     fetch_alphafold,
     fetch_interpro,

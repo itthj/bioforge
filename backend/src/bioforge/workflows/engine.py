@@ -56,10 +56,25 @@ class WorkflowStep:
     engine may persist state, retry, or fan out. For BLAST against 100
     sequences, the right granularity is "one BLAST per sequence" with
     fanout, not "one big BLAST step".
+
+    Two execution modes are supported, distinguished by which field is set:
+
+      - **In-process (LocalWorkflowEngine).** `handler` is an async Python
+        callable. The engine invokes it directly. This is what every tool
+        in Phase 0-5.4 uses.
+      - **Out-of-process (NextflowEngine).** `command` is a shell command
+        string. The engine writes a Nextflow `process` block whose `script`
+        runs that command. Python handlers can't cross the Nextflow boundary
+        — anything you want to run through Nextflow must serialize to a
+        command line (a `python -m <module>` invocation works fine).
+
+    At least one of `handler` / `command` MUST be set. Engines validate
+    they got the mode they support.
     """
 
     name: str
-    handler: StepHandler
+    handler: StepHandler | None = None
+    command: str | None = None
     inputs: dict[str, Any] = field(default_factory=dict)
     depends_on: list[str] = field(default_factory=list)
 
@@ -184,6 +199,20 @@ class LocalWorkflowEngine:
                     return
 
                 await queue.put(WorkflowEvent(type="step_started", run_id=run_id, step_name=step.name))
+                if step.handler is None:
+                    err = (
+                        f"LocalWorkflowEngine requires step.handler to be set; step "
+                        f"{step.name!r} only has command={step.command!r}. Use NextflowEngine "
+                        "for command-mode steps."
+                    )
+                    run.status = WorkflowStatus.failed
+                    run.error_message = err
+                    run.finished_at = time.time()
+                    await queue.put(
+                        WorkflowEvent(type="step_failed", run_id=run_id, step_name=step.name, payload={"error": err})
+                    )
+                    await queue.put(WorkflowEvent(type="run_failed", run_id=run_id, payload={"error": err}))
+                    return
                 try:
                     output = await step.handler(step.inputs)
                 except Exception as e:  # noqa: BLE001
