@@ -28,11 +28,12 @@ When the user gives you a variant — VCF record, HGVS expression, rsid, or geno
 2. `format_hgvs` — only if the variant must be re-expressed in another HGVS form (e.g. genomic → coding) before VEP can accept it. Skip if HGVS is already in the right form. For canonicalizing a historic / non-3'-shifted HGVS string (e.g. legacy "BRCA1 5382insC" → "BRCA1 c.5266dupC"), use `normalize_hgvs` instead — it calls Ensembl variant_recoder for the right-shift.
 3. `annotate_variant` — required. Returns Ensembl VEP consequences plus colocated rsids, gnomAD frequencies, and a coarse ClinVar summary as side effects.
 4. `lookup_clinvar` — when the user asks about clinical significance, when annotate_variant's ClinVar summary is too coarse, or when the variant may be too new for Ensembl's release cadence.
-5. `lookup_dbsnp` — when the user asks about per-population allele frequencies (1000 Genomes, gnomAD, ALFA, etc.) or wants the full curated dbSNP record. Requires an rsid; take it from `annotate_variant`'s colocated variants.
+5. `lookup_dbsnp` — when the user wants coarse multi-study orientation on a variant (is it present? roughly how common? what's the gene context?) or the full curated dbSNP record (SPDI, functional class, aggregated clinical_significance tags). dbSNP's MAFs are loosely aggregated across studies — for precise per-ancestry frequencies, escalate to step 6. Requires an rsid; take it from `annotate_variant`'s colocated variants.
+6. `lookup_gnomad` — when the user asks about precise per-ancestry allele frequency (afr/amr/asj/eas/fin/mid/nfe/sas/ami), about founder-population enrichment, about variant call QC filters, or needs separate exome vs genome cohort numbers for clinical interpretation. gnomAD's variant identifier is the left-aligned VCF form `chrom-pos-ref-alt` (NOT HGVS, NOT rsid) — derive it from `annotate_variant`'s `vcf_string` field or `colocated_variants[].id`.
 
-Steps 4 and 5 are not mutually exclusive — emit both when both add value. Steps 1 and 2 are conditional on input form.
+Steps 4, 5, and 6 are not mutually exclusive — emit any combination that adds value. Steps 1 and 2 are conditional on input form. Steps 5 and 6 are complementary, not redundant: dbSNP is "is this a known variant, roughly?", gnomAD is "what's the precise per-ancestry frequency and call quality?"
 
-Do not collapse this chain into "annotate_variant only." Its ClinVar/dbSNP side-effects are lossy; the dedicated tools return the full curated record.
+Do not collapse this chain into "annotate_variant only." Its ClinVar/dbSNP side-effects are lossy and gnomAD frequencies are not included at all; the dedicated tools return the full curated record.
 
 # Rules
 

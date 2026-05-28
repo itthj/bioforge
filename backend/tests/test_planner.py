@@ -82,7 +82,8 @@ def test_planner_prompt_documents_variant_interpretation_recipe() -> None:
     assert "Common composite workflows" in prompt
     assert "Variant interpretation" in prompt
     # All tools the recipe names must appear. normalize_hgvs is mentioned as a sibling to
-    # format_hgvs for canonicalizing historic HGVS strings before downstream lookups.
+    # format_hgvs for HGVS canonicalization; lookup_dbsnp and lookup_gnomad are
+    # complementary frequency tools (coarse vs precise) in steps 5 and 6.
     for tool in (
         "parse_vcf",
         "format_hgvs",
@@ -90,6 +91,7 @@ def test_planner_prompt_documents_variant_interpretation_recipe() -> None:
         "annotate_variant",
         "lookup_clinvar",
         "lookup_dbsnp",
+        "lookup_gnomad",
     ):
         assert tool in prompt, f"variant-interpretation recipe must reference {tool}"
 
