@@ -38,7 +38,7 @@ from pydantic import ValidationError
 from bioforge.agent.approval import requires_approval
 from bioforge.agent.context import get_current_db_session
 from bioforge.agent.critic import CriticVerdict
-from bioforge.agent.grounding import ground_response
+from bioforge.agent.grounding import ValidationReport, ground_response
 from bioforge.agent.llm import LLM, UsageSummary, summarize_usage
 from bioforge.agent.local_critic import LocalCritic
 from bioforge.agent.local_executor import LocalExecutor
@@ -173,30 +173,65 @@ def _tool_outputs_from_steps(steps: list[AgentStep]) -> list[dict]:
     return [s.tool_output for s in steps if s.type == "tool_call" and s.tool_output is not None]
 
 
-def _maybe_grounding_step(
+# Inline marker left where an unsupported numeric claim used to be. Deliberately digit-free
+# so it carries no new number and survives re-validation cleanly.
+_REDACTION_MARKER = "[unverifiable]"
+
+
+def _redact_unsupported(text: str, report: ValidationReport) -> str:
+    """Redact each unsupported numeric claim in place and append an audit note (v4 §4 L5).
+
+    Splices from the rightmost claim to the leftmost so character offsets stay valid. The
+    removed values are quoted in a clearly-marked footer — the user sees both that
+    something was removed and what it was. This is visible redaction (policy a): never a
+    silent rewrite, and never a vague qualitative substitution for a stripped number.
+    """
+    if report.ok:
+        return text
+    redacted = text
+    for claim in sorted(report.unsupported, key=lambda c: c.start, reverse=True):
+        redacted = redacted[: claim.start] + _REDACTION_MARKER + redacted[claim.end :]
+    notes = [
+        f'  - "{c.text}" was removed because it could not be traced to a tool result in this run.'
+        for c in sorted(report.unsupported, key=lambda c: c.start)
+    ]
+    footer = (
+        "\n\n---\n"
+        f"[BioForge grounding] {len(notes)} claim(s) could not be traced to a tool result "
+        "this run and were removed:\n" + "\n".join(notes)
+    )
+    return redacted + footer
+
+
+def _apply_grounding(
     *, response_text: str, steps: list[AgentStep], status: str, step_idx: int
-) -> AgentStep | None:
-    """Shadow-mode numeric grounding.
+) -> tuple[str, AgentStep | None]:
+    """Run the grounding validator over a final response (BioForge v4 §4 Layer 3).
 
-    When `settings.grounding_enabled` is set and the run produced a real response, compute
-    a Layer-3 numeric-grounding report over the final text and return it as a `validation`
-    step. The report rides in the existing `verdict` field so the `AgentStep` dataclass is
-    not mutated (which would change every step's serialization).
+    Returns `(final_text, validation_step)`. The report rides in the existing `verdict`
+    field so the `AgentStep` dataclass is not mutated (which would change every step's
+    serialization).
 
-    SHADOW ONLY: this never alters `response_text`. Enforcement (visible redaction of
-    unsupported claims) is a later slice. Default-off → returns None → the loop is
-    behaviorally identical to before.
+    - disabled or no real response → `(response_text, None)`, a true no-op;
+    - `grounding_mode="shadow"` → record the report, text unchanged;
+    - `grounding_mode="enforce"` → additionally redact unsupported numeric claims in place
+      with an audit note.
+
+    Default-off keeps the loop behaviorally identical until the flag is flipped.
     """
     if not settings.grounding_enabled or status not in _GROUNDABLE_STATUSES:
-        return None
+        return response_text, None
     t0 = time.monotonic()
     report = ground_response(response_text, _tool_outputs_from_steps(steps))
-    return AgentStep(
+    enforced = settings.grounding_mode == "enforce" and not report.ok
+    final_text = _redact_unsupported(response_text, report) if enforced else response_text
+    step = AgentStep(
         idx=step_idx,
         type="validation",
         duration_ms=int((time.monotonic() - t0) * 1000),
-        verdict=report.model_dump(),
+        verdict={**report.model_dump(), "enforced": enforced},
     )
+    return final_text, step
 
 
 def _build_system_prompt() -> list[dict]:
@@ -902,7 +937,7 @@ async def run_agent(
         )
         all_steps.extend(tail.steps)
         total_usage = total_usage.merge(tail.usage or UsageSummary.zero(model))
-        grounding_step = _maybe_grounding_step(
+        final_text, grounding_step = _apply_grounding(
             response_text=tail.response_text,
             steps=all_steps,
             status=tail.status,
@@ -919,7 +954,7 @@ async def run_agent(
         return AgentResult(
             goal=goal,
             project_id=project_id,
-            response_text=tail.response_text,
+            response_text=final_text,
             steps=all_steps,
             usage=total_usage,
             status=tail.status,
@@ -979,7 +1014,7 @@ async def resume_agent(
         executor=executor,
         critic=critic,
     )
-    grounding_step = _maybe_grounding_step(
+    final_text, grounding_step = _apply_grounding(
         response_text=result.response_text,
         steps=result.steps,
         status=result.status,
@@ -988,6 +1023,7 @@ async def resume_agent(
     if grounding_step is not None:
         result.steps.append(grounding_step)
         await _emit(on_step, grounding_step)
+    result.response_text = final_text
     return result
 
 

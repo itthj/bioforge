@@ -108,3 +108,96 @@ async def test_validation_step_is_last_when_enabled(
     )
     result = await run_agent("GC of ATGCATGC", project_id=DEFAULT_PROJECT_ID, llm=llm)
     assert result.steps[-1].type == "validation"
+
+
+# --- Enforce mode (visible redaction + audit note) -----------------------------------
+
+
+@pytest.fixture
+def grounding_enforce(monkeypatch):
+    """Enable grounding in enforce mode for one test (auto-reverted)."""
+    monkeypatch.setattr(settings, "grounding_enabled", True)
+    monkeypatch.setattr(settings, "grounding_mode", "enforce")
+
+
+async def test_enforce_redacts_fabricated_number(
+    grounding_enforce,
+    fake_llm_factory,
+    make_submit_plan_response,
+    make_tool_use_response,
+    make_text_response,
+    trivial_plan,
+) -> None:
+    # 50.0% is grounded (gc_content); 0.92 is fabricated -> only 0.92 is redacted.
+    final_text = "GC content is 50.0%, with an off-target CFD score of 0.92."
+    llm = _script(
+        fake_llm_factory,
+        make_submit_plan_response,
+        make_tool_use_response,
+        make_text_response,
+        trivial_plan,
+        final_text,
+    )
+    result = await run_agent("GC of ATGCATGC", project_id=DEFAULT_PROJECT_ID, llm=llm)
+
+    validation = next(s for s in result.steps if s.type == "validation")
+    assert validation.verdict["ok"] is False
+    assert validation.verdict["enforced"] is True
+
+    body = result.response_text
+    assert "score of [unverifiable]" in body  # fabricated value redacted in place
+    assert "50.0%" in body  # grounded value preserved
+    assert "[BioForge grounding]" in body  # audit footer present
+    assert body != final_text
+
+
+async def test_enforce_leaves_fully_grounded_response_untouched(
+    grounding_enforce,
+    fake_llm_factory,
+    make_submit_plan_response,
+    make_tool_use_response,
+    make_text_response,
+    trivial_plan,
+) -> None:
+    final_text = "GC content of ATGCATGC is 50.0%."
+    llm = _script(
+        fake_llm_factory,
+        make_submit_plan_response,
+        make_tool_use_response,
+        make_text_response,
+        trivial_plan,
+        final_text,
+    )
+    result = await run_agent("GC of ATGCATGC", project_id=DEFAULT_PROJECT_ID, llm=llm)
+
+    validation = next(s for s in result.steps if s.type == "validation")
+    assert validation.verdict["ok"] is True
+    assert validation.verdict["enforced"] is False
+    assert result.response_text == final_text
+    assert "[unverifiable]" not in result.response_text
+
+
+async def test_shadow_records_but_does_not_enforce(
+    grounding_on,
+    fake_llm_factory,
+    make_submit_plan_response,
+    make_tool_use_response,
+    make_text_response,
+    trivial_plan,
+) -> None:
+    # Enabled but mode defaults to shadow: a fabrication is recorded, never redacted.
+    final_text = "GC content is 50.0%, with a CFD of 0.92."
+    llm = _script(
+        fake_llm_factory,
+        make_submit_plan_response,
+        make_tool_use_response,
+        make_text_response,
+        trivial_plan,
+        final_text,
+    )
+    result = await run_agent("GC of ATGCATGC", project_id=DEFAULT_PROJECT_ID, llm=llm)
+
+    validation = next(s for s in result.steps if s.type == "validation")
+    assert validation.verdict["ok"] is False
+    assert validation.verdict["enforced"] is False
+    assert result.response_text == final_text

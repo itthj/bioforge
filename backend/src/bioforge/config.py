@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     # unsupported claims) is a later slice. Default-off keeps the loop behaviorally
     # identical until the flag is flipped.
     grounding_enabled: bool = Field(default=False, alias="BIOFORGE_GROUNDING_ENABLED")
+    # "shadow" (observe + record only) or "enforce" (also redact unsupported numeric claims
+    # in place, with an audit note). Only consulted when grounding_enabled=True. Default
+    # "shadow" so enabling the validator never silently changes a response until you opt in
+    # to enforcement. Enforcement currently covers the numeric layer (L3) only.
+    grounding_mode: str = Field(default="shadow", alias="BIOFORGE_GROUNDING_MODE")
 
     # OpenTelemetry — disabled by default so the test suite stays quiet. Enable via
     # BIOFORGE_OTEL_ENABLED=true. The exporter defaults to console; set
