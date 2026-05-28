@@ -30,6 +30,11 @@ from bioforge.agent.grounding.report import (
     NumericClaimVerdict,
     ValidationReport,
 )
+from bioforge.agent.grounding.soundness import (
+    SoundnessReport,
+    SoundnessViolation,
+    check_soundness,
+)
 
 __all__ = [
     "ClaimKind",
@@ -40,8 +45,11 @@ __all__ = [
     "JudgedClaim",
     "NumericClaimVerdict",
     "ParsedNumber",
+    "SoundnessReport",
+    "SoundnessViolation",
     "ValidationReport",
     "build_inventory",
+    "check_soundness",
     "evaluate_numeric_corpus",
     "extract_numeric_claims",
     "ground_response",

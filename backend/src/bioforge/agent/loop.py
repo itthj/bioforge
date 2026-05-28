@@ -38,7 +38,7 @@ from pydantic import ValidationError
 from bioforge.agent.approval import requires_approval
 from bioforge.agent.context import get_current_db_session
 from bioforge.agent.critic import CriticVerdict
-from bioforge.agent.grounding import ValidationReport, ground_response, judge_claims
+from bioforge.agent.grounding import ValidationReport, check_soundness, ground_response, judge_claims
 from bioforge.agent.llm import LLM, UsageSummary, summarize_usage
 from bioforge.agent.local_critic import LocalCritic
 from bioforge.agent.local_executor import LocalExecutor
@@ -233,6 +233,7 @@ async def _apply_grounding(
     t0 = time.monotonic()
     tool_outputs = _tool_outputs_from_steps(steps)
     report = ground_response(response_text, tool_outputs)
+    soundness = check_soundness(tool_outputs)
     judge_usage = zero
     if settings.grounding_judge_enabled:
         try:
@@ -254,7 +255,7 @@ async def _apply_grounding(
         idx=step_idx,
         type="validation",
         duration_ms=int((time.monotonic() - t0) * 1000),
-        verdict={**report.model_dump(), "enforced": enforced},
+        verdict={**report.model_dump(), "enforced": enforced, "soundness": soundness.model_dump()},
     )
     return final_text, step, judge_usage
 
