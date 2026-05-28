@@ -1,0 +1,110 @@
+"""Shadow-mode wiring of the Layer-3 grounding validator into the agent loop.
+
+Contract:
+  - Default OFF: the loop is behaviorally unchanged — no `validation` step appears.
+  - When BIOFORGE_GROUNDING_ENABLED is set, every real response gets a `validation`
+    trace step carrying the numeric-grounding report, but the response text is NEVER
+    altered (shadow mode — enforcement is a later slice).
+"""
+
+from __future__ import annotations
+
+import pytest
+from bioforge.agent import run_agent
+from bioforge.config import settings
+from bioforge.constants import DEFAULT_PROJECT_ID
+
+
+@pytest.fixture
+def grounding_on(monkeypatch):
+    """Enable shadow grounding for the duration of one test (auto-reverted)."""
+    monkeypatch.setattr(settings, "grounding_enabled", True)
+
+
+def _script(
+    fake_llm_factory, make_submit_plan_response, make_tool_use_response, make_text_response, trivial_plan, final_text
+):
+    return fake_llm_factory(
+        [
+            make_submit_plan_response(trivial_plan(tool_name="gc_content")),
+            make_tool_use_response("gc_content", {"sequence": "ATGCATGC"}),
+            make_text_response(final_text),
+        ]
+    )
+
+
+async def test_no_validation_step_when_disabled(
+    fake_llm_factory, make_submit_plan_response, make_tool_use_response, make_text_response, trivial_plan
+) -> None:
+    # gc_content of ATGCATGC is 50.0% — a grounded statement, but the flag is OFF.
+    llm = _script(
+        fake_llm_factory,
+        make_submit_plan_response,
+        make_tool_use_response,
+        make_text_response,
+        trivial_plan,
+        "GC content of ATGCATGC is 50.0%.",
+    )
+    result = await run_agent("GC of ATGCATGC", project_id=DEFAULT_PROJECT_ID, llm=llm)
+    assert result.status == "completed"
+    assert all(s.type != "validation" for s in result.steps)
+
+
+async def test_shadow_grounding_records_grounded_response(
+    grounding_on, fake_llm_factory, make_submit_plan_response, make_tool_use_response, make_text_response, trivial_plan
+) -> None:
+    final_text = "GC content of ATGCATGC is 50.0%."
+    llm = _script(
+        fake_llm_factory,
+        make_submit_plan_response,
+        make_tool_use_response,
+        make_text_response,
+        trivial_plan,
+        final_text,
+    )
+    result = await run_agent("GC of ATGCATGC", project_id=DEFAULT_PROJECT_ID, llm=llm)
+
+    validation = next(s for s in result.steps if s.type == "validation")
+    assert validation.verdict["ok"] is True
+    assert validation.verdict["layer"] == "L3_numeric"
+    # Shadow mode: the response text is untouched.
+    assert result.response_text == final_text
+
+
+async def test_shadow_grounding_flags_fabricated_number(
+    grounding_on, fake_llm_factory, make_submit_plan_response, make_tool_use_response, make_text_response, trivial_plan
+) -> None:
+    # 50.0% is grounded (gc_content); the 0.92 CFD score is fabricated — no such tool ran.
+    final_text = "GC content is 50.0%, with an off-target CFD score of 0.92."
+    llm = _script(
+        fake_llm_factory,
+        make_submit_plan_response,
+        make_tool_use_response,
+        make_text_response,
+        trivial_plan,
+        final_text,
+    )
+    result = await run_agent("GC of ATGCATGC", project_id=DEFAULT_PROJECT_ID, llm=llm)
+
+    validation = next(s for s in result.steps if s.type == "validation")
+    assert validation.verdict["ok"] is False
+    unsupported = [c for c in validation.verdict["numeric_claims"] if c["status"] == "unsupported"]
+    assert any(c["value"] == 0.92 for c in unsupported)
+    # Shadow mode does NOT redact — the fabricated value still reaches the user this slice.
+    assert "0.92" in result.response_text
+    assert result.response_text == final_text
+
+
+async def test_validation_step_is_last_when_enabled(
+    grounding_on, fake_llm_factory, make_submit_plan_response, make_tool_use_response, make_text_response, trivial_plan
+) -> None:
+    llm = _script(
+        fake_llm_factory,
+        make_submit_plan_response,
+        make_tool_use_response,
+        make_text_response,
+        trivial_plan,
+        "GC content of ATGCATGC is 50.0%.",
+    )
+    result = await run_agent("GC of ATGCATGC", project_id=DEFAULT_PROJECT_ID, llm=llm)
+    assert result.steps[-1].type == "validation"

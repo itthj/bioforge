@@ -17,6 +17,14 @@ class Settings(BaseSettings):
     entrez_email: str = Field(default="", alias="BIOFORGE_ENTREZ_EMAIL")
     max_agent_iterations: int = Field(default=4, alias="BIOFORGE_MAX_AGENT_ITERATIONS")
 
+    # Grounding validator (BioForge v4 §4). Default OFF. When enabled, the agent loop
+    # computes a Layer-3 numeric-grounding report over each final response and records it
+    # as a `validation` trace step. SHADOW mode only for now: the report is observed and
+    # recorded but NEVER alters the response. Enforcement (visible redaction of
+    # unsupported claims) is a later slice. Default-off keeps the loop behaviorally
+    # identical until the flag is flipped.
+    grounding_enabled: bool = Field(default=False, alias="BIOFORGE_GROUNDING_ENABLED")
+
     # OpenTelemetry — disabled by default so the test suite stays quiet. Enable via
     # BIOFORGE_OTEL_ENABLED=true. The exporter defaults to console; set
     # BIOFORGE_OTEL_EXPORTER=otlp + BIOFORGE_OTEL_ENDPOINT for real ingest.

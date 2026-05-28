@@ -38,6 +38,7 @@ from pydantic import ValidationError
 from bioforge.agent.approval import requires_approval
 from bioforge.agent.context import get_current_db_session
 from bioforge.agent.critic import CriticVerdict
+from bioforge.agent.grounding import ground_response
 from bioforge.agent.llm import LLM, UsageSummary, summarize_usage
 from bioforge.agent.local_critic import LocalCritic
 from bioforge.agent.local_executor import LocalExecutor
@@ -78,6 +79,7 @@ StepType = Literal[
     "tool_error",
     "refusal",
     "critique",
+    "validation",
     "final",
 ]
 
@@ -157,6 +159,44 @@ async def _emit(on_step: OnStep, step: AgentStep) -> None:
         await on_step(step)
     except Exception:  # noqa: BLE001 — intentional, see docstring
         pass
+
+
+# --- Grounding validator (BioForge v4 §4 Layer 3) — shadow-mode wiring ----------------
+#
+# Statuses where the run produced a real, user-facing response worth grounding. Error /
+# refused / iteration_cap / pending_approval / cancelled carry no findings to check.
+_GROUNDABLE_STATUSES: frozenset[str] = frozenset({"completed", "completed_after_replan", "critique_failed"})
+
+
+def _tool_outputs_from_steps(steps: list[AgentStep]) -> list[dict]:
+    """Pull the structured tool-result dicts out of a step list — the Layer-3 inventory source."""
+    return [s.tool_output for s in steps if s.type == "tool_call" and s.tool_output is not None]
+
+
+def _maybe_grounding_step(
+    *, response_text: str, steps: list[AgentStep], status: str, step_idx: int
+) -> AgentStep | None:
+    """Shadow-mode numeric grounding.
+
+    When `settings.grounding_enabled` is set and the run produced a real response, compute
+    a Layer-3 numeric-grounding report over the final text and return it as a `validation`
+    step. The report rides in the existing `verdict` field so the `AgentStep` dataclass is
+    not mutated (which would change every step's serialization).
+
+    SHADOW ONLY: this never alters `response_text`. Enforcement (visible redaction of
+    unsupported claims) is a later slice. Default-off → returns None → the loop is
+    behaviorally identical to before.
+    """
+    if not settings.grounding_enabled or status not in _GROUNDABLE_STATUSES:
+        return None
+    t0 = time.monotonic()
+    report = ground_response(response_text, _tool_outputs_from_steps(steps))
+    return AgentStep(
+        idx=step_idx,
+        type="validation",
+        duration_ms=int((time.monotonic() - t0) * 1000),
+        verdict=report.model_dump(),
+    )
 
 
 def _build_system_prompt() -> list[dict]:
@@ -862,6 +902,15 @@ async def run_agent(
         )
         all_steps.extend(tail.steps)
         total_usage = total_usage.merge(tail.usage or UsageSummary.zero(model))
+        grounding_step = _maybe_grounding_step(
+            response_text=tail.response_text,
+            steps=all_steps,
+            status=tail.status,
+            step_idx=len(all_steps),
+        )
+        if grounding_step is not None:
+            all_steps.append(grounding_step)
+            await _emit(on_step, grounding_step)
         root_span.set_attribute("bioforge.status", tail.status)
         root_span.set_attribute("bioforge.steps_total", len(all_steps))
         if total_usage.cost_usd:
@@ -930,6 +979,15 @@ async def resume_agent(
         executor=executor,
         critic=critic,
     )
+    grounding_step = _maybe_grounding_step(
+        response_text=result.response_text,
+        steps=result.steps,
+        status=result.status,
+        step_idx=len(result.steps),
+    )
+    if grounding_step is not None:
+        result.steps.append(grounding_step)
+        await _emit(on_step, grounding_step)
     return result
 
 
