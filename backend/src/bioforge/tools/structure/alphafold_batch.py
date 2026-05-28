@@ -1,4 +1,4 @@
-"""Phase 5.4: the first workflow-using tool.
+"""Phase 5.4 + 5.5: the first workflow-using tool, runnable through either engine.
 
 Given a list of UniProt IDs, submit one `fetch_alphafold_structure` per ID
 through a `WorkflowEngine`, stream progress events, wait for completion,
@@ -8,9 +8,9 @@ Why route AlphaFold batching through the workflow engine instead of just
 calling `fetch_alphafold_structure` N times in a `gather`:
 
   1. **Migration path.** The engine boundary is the seam where Nextflow
-     (Phase 5.5) plugs in. With AlphaFold-Multimer or large proteomes,
-     running ~hundreds of predictions on a GPU node is the real use case.
-     A workflow-using tool today is a Nextflow-ready tool tomorrow.
+     plugs in. With AlphaFold-Multimer or large proteomes, running
+     ~hundreds of predictions on a GPU node is the real use case — a
+     workflow-using tool today is a Nextflow-ready tool tomorrow.
   2. **Provenance.** Every step gets its own start/finish timestamps,
      a per-step error trail, and a run_id the user can reference later.
      A bare `gather` loses that structure.
@@ -18,9 +18,27 @@ calling `fetch_alphafold_structure` N times in a `gather`:
      started a 50-protein batch and changed their mind has a clean abort
      path. Bare `gather` would need bespoke cancellation plumbing.
 
-LocalWorkflowEngine ships in-process: steps run sequentially (no real
-parallelism yet — that's a Nextflow concern). For a 10-protein batch
-the total wall-clock is roughly 10 × per-call AlphaFold latency.
+# Engine selection (Phase 5.5 wiring)
+
+The default engine is chosen at process start from `BIOFORGE_NEXTFLOW_ENABLED`:
+
+  - Unset / false → `LocalWorkflowEngine` (in-process, sequential steps,
+    sub-second per step).
+  - True → `NextflowEngine` (shells out to the `nextflow` binary; runs
+    each step as a Nextflow process; supports parallelism and remote
+    execution at the cost of subprocess overhead).
+
+Tests override the choice via `set_engine()`. The agent never needs to
+know which engine is active — both implementations satisfy the same
+`WorkflowEngine` Protocol.
+
+To make a single step body runnable through EITHER engine we attach BOTH
+a Python `handler` (used by LocalWorkflowEngine) AND a shell `command`
+(used by NextflowEngine) to every step. The command shells out to
+`python -m bioforge.cli.fetch_alphafold`, which executes the same
+`fetch_alphafold_structure` tool in a subprocess. The Python used is
+`sys.executable` so the Nextflow process inherits the parent's
+interpreter and `bioforge` is importable without PATH gymnastics.
 
 # Approval
 
@@ -31,7 +49,10 @@ network egress. Triggers the agent loop's approval gate.
 
 from __future__ import annotations
 
+import os
 import re
+import shlex
+import sys
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
@@ -44,11 +65,27 @@ from bioforge.workflows.engine import (
     WorkflowStatus,
     WorkflowStep,
 )
+from bioforge.workflows.nextflow_engine import NextflowEngine
 
-# Module-level default engine. Tests substitute via `set_engine()`. Production
-# uses the LocalWorkflowEngine baseline (single process); a Nextflow-backed
-# engine takes over once Phase 5.5 lands behind its feature flag.
-_default_engine: WorkflowEngine = LocalWorkflowEngine()
+_NEXTFLOW_ENABLED_ENV = "BIOFORGE_NEXTFLOW_ENABLED"
+
+
+def _make_default_engine() -> WorkflowEngine:
+    """Pick the default engine from the BIOFORGE_NEXTFLOW_ENABLED env var.
+
+    Called once at module import. Tests bypass this entirely via `set_engine()`.
+    """
+    val = os.environ.get(_NEXTFLOW_ENABLED_ENV, "").lower()
+    if val in ("1", "true", "yes"):
+        return NextflowEngine()
+    return LocalWorkflowEngine()
+
+
+# Module-level default engine, chosen once at import. Tests substitute via
+# `set_engine()`. The factory is invoked lazily-on-import (NOT per-call) so
+# the env var is read exactly once; flipping it at runtime requires a
+# process restart, matching how Nextflow itself behaves.
+_default_engine: WorkflowEngine = _make_default_engine()
 
 
 def set_engine(engine: WorkflowEngine) -> None:
@@ -146,7 +183,7 @@ class AlphaFoldBatchOutput(ToolOutput):
 
 
 def _make_step_handler(uniprot_id: str, include_pdb_text: bool, max_pdb_kb: int):
-    """Build a step handler that calls fetch_alphafold_structure for one ID.
+    """Build a step handler (LocalWorkflowEngine path) for one UniProt ID.
 
     Closing over the ID + flags rather than reading from `inputs` keeps each
     step self-describing in the trace. The engine still passes `inputs` to
@@ -165,6 +202,39 @@ def _make_step_handler(uniprot_id: str, include_pdb_text: bool, max_pdb_kb: int)
         return result.model_dump()
 
     return handler
+
+
+def _make_step_command(step_name: str, uniprot_id: str, include_pdb_text: bool, max_pdb_kb: int) -> str:
+    """Build the shell command body (NextflowEngine path) for one UniProt ID.
+
+    The command shells out to the `bioforge.cli.fetch_alphafold` module via
+    `sys.executable` so the Nextflow process reuses the parent's Python
+    interpreter — that's where `bioforge` is importable. The output is
+    written to `{step_name}.json` in the Nextflow task work dir, which
+    `publishDir "."` then copies up to the engine's launch dir, matching
+    NextflowEngine's `{work_dir}/{step_name}.json` collection convention.
+
+    All identifier-substitutions are run through `shlex.quote` so a hostile
+    UniProt ID (already validated by AlphaFoldBatchInput, but defense in
+    depth) can't break out of the command.
+    """
+    python_bin = shlex.quote(sys.executable)
+    out_file = shlex.quote(f"{step_name}.json")
+    uniprot_safe = shlex.quote(uniprot_id)
+    parts = [
+        python_bin,
+        "-m",
+        "bioforge.cli.fetch_alphafold",
+        "--uniprot",
+        uniprot_safe,
+        "--out",
+        out_file,
+        "--max-pdb-kb",
+        str(int(max_pdb_kb)),
+    ]
+    if include_pdb_text:
+        parts.append("--include-pdb-text")
+    return " ".join(parts)
 
 
 # --- Tool ----------------------------------------------------------------------------
@@ -198,10 +268,12 @@ async def submit_alphafold_batch(inp: AlphaFoldBatchInput) -> AlphaFoldBatchOutp
 
     steps: list[WorkflowStep] = []
     for uid in inp.uniprot_ids:
+        step_name = f"alphafold_{uid}"
         steps.append(
             WorkflowStep(
-                name=f"alphafold_{uid}",
+                name=step_name,
                 handler=_make_step_handler(uid, inp.include_pdb_text, inp.max_pdb_kb),
+                command=_make_step_command(step_name, uid, inp.include_pdb_text, inp.max_pdb_kb),
                 inputs={"uniprot_id": uid},
             )
         )
@@ -242,10 +314,21 @@ async def submit_alphafold_batch(inp: AlphaFoldBatchInput) -> AlphaFoldBatchOutp
             results.append(ProteinResult(uniprot_id=uid, success=False, error=err))
             failures += 1
 
+    engine_name = type(engine).__name__
     caveats: list[str] = [
         "AlphaFold predictions are computational, not experimental. Per-residue pLDDT scores indicate per-region confidence — see each ProteinResult.structure for the full caveat list.",
-        "LocalWorkflowEngine runs steps sequentially in-process. A 50-protein batch takes ~50× the single-call latency. For larger panels, use the (Phase 5.5) Nextflow engine which parallelizes across nodes.",
     ]
+    if engine_name == "LocalWorkflowEngine":
+        caveats.append(
+            "LocalWorkflowEngine ran the batch sequentially in-process. A 50-protein batch takes ~50× the single-call latency. "
+            "For larger panels set BIOFORGE_NEXTFLOW_ENABLED=true to route through NextflowEngine, which parallelizes across nodes."
+        )
+    elif engine_name == "NextflowEngine":
+        caveats.append(
+            "NextflowEngine ran the batch via the `nextflow` binary. Each step ran as a Nextflow process invoking "
+            "`python -m bioforge.cli.fetch_alphafold` — per-step subprocess overhead is real (sub-second) but parallelism "
+            "and remote execution become available. Inspect the run's work_dir for per-task logs."
+        )
     if final.status == WorkflowStatus.failed:
         caveats.append(
             "Workflow failed mid-run — protein results after the failing step are marked as failures. "

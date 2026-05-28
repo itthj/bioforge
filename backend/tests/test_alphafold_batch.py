@@ -218,3 +218,225 @@ def test_set_engine_and_get_engine_roundtrip() -> None:
     custom = LocalWorkflowEngine()
     af_batch_module.set_engine(custom)
     assert af_batch_module.get_engine() is custom
+
+
+# --- Dual-mode steps (NextflowEngine wiring) -------------------------------------
+#
+# submit_alphafold_batch attaches BOTH a Python handler AND a shell command to
+# every WorkflowStep so the same tool runs through either engine. The handler is
+# used by LocalWorkflowEngine; the command is used by NextflowEngine. These tests
+# verify the dual-mode contract without going near a real `nextflow` binary —
+# the engine-level subprocess machinery is exercised separately by
+# test_nextflow_engine.py.
+
+
+def test_each_step_carries_both_handler_and_command() -> None:
+    """Every step submit_alphafold_batch creates must have BOTH handler (Local
+    path) and command (Nextflow path) set; that's what makes the engine swap a
+    config change rather than a refactor."""
+    from bioforge.tools.structure.alphafold_batch import _make_step_command, _make_step_handler
+
+    handler = _make_step_handler("P38398", include_pdb_text=False, max_pdb_kb=500)
+    command = _make_step_command("alphafold_P38398", "P38398", include_pdb_text=False, max_pdb_kb=500)
+
+    assert callable(handler), "handler must be an async callable for LocalWorkflowEngine"
+    assert isinstance(command, str) and command, "command must be a non-empty shell string for NextflowEngine"
+
+
+def test_step_command_invokes_cli_module_with_args() -> None:
+    """The generated command shells out to `python -m bioforge.cli.fetch_alphafold`
+    with the expected flags. Pinning the shape locks the bridge to the CLI module."""
+    from bioforge.tools.structure.alphafold_batch import _make_step_command
+
+    cmd = _make_step_command("alphafold_P38398", "P38398", include_pdb_text=False, max_pdb_kb=500)
+    assert "bioforge.cli.fetch_alphafold" in cmd
+    assert "--uniprot" in cmd
+    assert "P38398" in cmd
+    assert "--out" in cmd
+    assert "alphafold_P38398.json" in cmd
+    assert "--max-pdb-kb 500" in cmd
+    # Default include_pdb_text=False → no flag.
+    assert "--include-pdb-text" not in cmd
+
+
+def test_step_command_propagates_include_pdb_flag() -> None:
+    from bioforge.tools.structure.alphafold_batch import _make_step_command
+
+    cmd = _make_step_command("alphafold_P38398", "P38398", include_pdb_text=True, max_pdb_kb=1000)
+    assert "--include-pdb-text" in cmd
+    assert "--max-pdb-kb 1000" in cmd
+
+
+def test_step_command_uses_current_python_interpreter() -> None:
+    """The command must use sys.executable so the Nextflow process reuses the
+    parent's Python — that's where `bioforge` is importable."""
+    import sys
+
+    from bioforge.tools.structure.alphafold_batch import _make_step_command
+
+    cmd = _make_step_command("alphafold_P38398", "P38398", include_pdb_text=False, max_pdb_kb=500)
+    # sys.executable may contain backslashes (Windows) or spaces; shlex.quote handles both.
+    # We don't pin the full path string but require it appears as a prefix of the command.
+    expected_prefix = sys.executable
+    # shlex.quote wraps Windows paths in single quotes when they contain backslashes.
+    # Accept either the raw path or the quoted form.
+    assert expected_prefix in cmd or expected_prefix.replace("\\", "\\\\") in cmd or f"'{expected_prefix}'" in cmd
+
+
+def test_make_default_engine_local_when_env_unset(monkeypatch) -> None:
+    """Default factory returns LocalWorkflowEngine when BIOFORGE_NEXTFLOW_ENABLED is unset."""
+    from bioforge.tools.structure.alphafold_batch import _make_default_engine
+
+    monkeypatch.delenv("BIOFORGE_NEXTFLOW_ENABLED", raising=False)
+    engine = _make_default_engine()
+    assert type(engine).__name__ == "LocalWorkflowEngine"
+
+
+def test_make_default_engine_nextflow_when_env_set(monkeypatch) -> None:
+    """Setting the env var to a truthy value flips the factory to NextflowEngine.
+    The engine refuses to actually run anything without the binary, but
+    construction works."""
+    from bioforge.tools.structure.alphafold_batch import _make_default_engine
+
+    monkeypatch.setenv("BIOFORGE_NEXTFLOW_ENABLED", "true")
+    engine = _make_default_engine()
+    assert type(engine).__name__ == "NextflowEngine"
+
+
+def test_make_default_engine_treats_false_string_as_disabled(monkeypatch) -> None:
+    """Env vars are strings; explicitly setting to 'false' / '0' must NOT enable Nextflow."""
+    from bioforge.tools.structure.alphafold_batch import _make_default_engine
+
+    monkeypatch.setenv("BIOFORGE_NEXTFLOW_ENABLED", "false")
+    assert type(_make_default_engine()).__name__ == "LocalWorkflowEngine"
+    monkeypatch.setenv("BIOFORGE_NEXTFLOW_ENABLED", "0")
+    assert type(_make_default_engine()).__name__ == "LocalWorkflowEngine"
+
+
+async def test_end_to_end_through_nextflow_engine(monkeypatch, tmp_path) -> None:
+    """Run submit_alphafold_batch through a real NextflowEngine instance with an
+    INJECTED subprocess runner — no `nextflow` binary required. The fake runner
+    simulates Nextflow's behavior: writes the trace file + the per-step JSON
+    output files, returns exit 0.
+
+    This is the most important test in the file: it proves the dual-mode wiring
+    is correct end-to-end (engine selection → command generation → trace parsing
+    → output collection → ProteinResult aggregation)."""
+    from bioforge.workflows.nextflow_engine import NextflowEngine, _SubprocessResult
+
+    requested_ids = ["P38398", "P04637"]
+    expected_step_names = [f"alphafold_{uid}" for uid in requested_ids]
+
+    async def fake_runner(argv, work_dir) -> _SubprocessResult:
+        from pathlib import Path
+
+        wd = Path(work_dir)
+        # Simulate the publishDir copy: write {step_name}.json for each step into work_dir.
+        for step_name, uid in zip(expected_step_names, requested_ids, strict=True):
+            output_payload = {
+                "uniprot_id": uid,
+                "entry_id": f"AF-{uid}-F1",
+                "average_plddt": 75.0,
+                "caveats": ["fixture from fake nextflow runner"],
+            }
+            (wd / f"{step_name}.json").write_text(__import__("json").dumps(output_payload), encoding="utf-8")
+        # Simulate the trace file: one COMPLETED row per task.
+        trace_lines = ["task_id\tname\tstatus\texit"]
+        for i, step_name in enumerate(expected_step_names, start=1):
+            trace_lines.append(f"{i}\t{step_name}\tCOMPLETED\t0")
+        (wd / "trace.txt").write_text("\n".join(trace_lines) + "\n", encoding="utf-8")
+        return _SubprocessResult(returncode=0, stdout=b"", stderr=b"")
+
+    monkeypatch.setenv("BIOFORGE_NEXTFLOW_ENABLED", "true")
+    engine = NextflowEngine(
+        work_dir=tmp_path / "nf_work",
+        subprocess_runner=fake_runner,
+    )
+    af_batch_module.set_engine(engine)
+
+    try:
+        out = await submit_alphafold_batch(AlphaFoldBatchInput(uniprot_ids=requested_ids))
+    finally:
+        # Restore the default engine for subsequent tests.
+        af_batch_module.set_engine(LocalWorkflowEngine())
+
+    assert isinstance(out, AlphaFoldBatchOutput)
+    assert out.status == "completed"
+    assert out.successes == 2
+    assert out.failures == 0
+    assert [r.uniprot_id for r in out.results] == requested_ids
+    for r in out.results:
+        assert r.success is True
+        assert r.structure is not None
+        assert r.structure["entry_id"] == f"AF-{r.uniprot_id}-F1"
+    # The NextflowEngine caveat replaces the LocalWorkflowEngine one.
+    assert any("NextflowEngine" in c for c in out.caveats)
+    assert not any("LocalWorkflowEngine ran" in c for c in out.caveats)
+
+
+async def test_nextflow_path_caveat_mentions_cli_module(monkeypatch, tmp_path) -> None:
+    """The NextflowEngine caveat explicitly names the CLI module so users
+    debugging a stuck Nextflow run know where to look."""
+    from bioforge.workflows.nextflow_engine import NextflowEngine, _SubprocessResult
+
+    async def fake_runner(argv, work_dir) -> _SubprocessResult:
+        from pathlib import Path
+
+        wd = Path(work_dir)
+        (wd / "alphafold_P38398.json").write_text(
+            __import__("json").dumps({"uniprot_id": "P38398", "entry_id": "AF-P38398-F1"}),
+            encoding="utf-8",
+        )
+        (wd / "trace.txt").write_text(
+            "task_id\tname\tstatus\texit\n1\talphafold_P38398\tCOMPLETED\t0\n", encoding="utf-8"
+        )
+        return _SubprocessResult(returncode=0)
+
+    monkeypatch.setenv("BIOFORGE_NEXTFLOW_ENABLED", "true")
+    engine = NextflowEngine(work_dir=tmp_path / "nf_work", subprocess_runner=fake_runner)
+    af_batch_module.set_engine(engine)
+    try:
+        out = await submit_alphafold_batch(AlphaFoldBatchInput(uniprot_ids=["P38398"]))
+    finally:
+        af_batch_module.set_engine(LocalWorkflowEngine())
+
+    assert any("bioforge.cli.fetch_alphafold" in c for c in out.caveats)
+
+
+# --- Live Nextflow integration (opt-in) ------------------------------------------
+
+
+@pytest.mark.nextflow
+async def test_live_nextflow_run_brca1() -> None:
+    """End-to-end through a REAL `nextflow` binary on PATH. Hits live EBI AlphaFold.
+
+    Deselected by default — only runs when -m nextflow is explicitly passed.
+    Skipped if the binary isn't available (e.g. on Windows-native; this test
+    is meant for WSL2 / Linux dev loops + CI with nf-core/setup-nextflow).
+
+    Smallest possible exercise: one well-known UniProt (P38398 = BRCA1).
+    Asserts the result shape; biology assertions are covered by the
+    fetch_alphafold_structure tool's own tests."""
+    import os
+    import shutil
+
+    from bioforge.workflows.nextflow_engine import NextflowEngine
+
+    if shutil.which("nextflow") is None:
+        pytest.skip("`nextflow` not on PATH; install Nextflow or run from WSL2.")
+
+    os.environ["BIOFORGE_NEXTFLOW_ENABLED"] = "true"
+    engine = NextflowEngine()
+    af_batch_module.set_engine(engine)
+    try:
+        out = await submit_alphafold_batch(AlphaFoldBatchInput(uniprot_ids=["P38398"]))
+    finally:
+        af_batch_module.set_engine(LocalWorkflowEngine())
+        os.environ.pop("BIOFORGE_NEXTFLOW_ENABLED", None)
+
+    assert out.status == "completed"
+    assert out.successes == 1
+    rec = out.results[0]
+    assert rec.success is True
+    assert rec.structure is not None
+    assert rec.structure["uniprot_id"] == "P38398"
