@@ -25,5 +25,19 @@ class Settings(BaseSettings):
     otel_endpoint: str = Field(default="http://localhost:4318/v1/traces", alias="BIOFORGE_OTEL_ENDPOINT")
     otel_headers: str = Field(default="", alias="BIOFORGE_OTEL_HEADERS")
 
+    # inDelphi (Shen 2018) — opt-in CRISPR edit-outcome predictor. The upstream
+    # model carries a non-commercial-research-only license so we never bundle
+    # its weights. The fetcher downloads them into `indelphi_data_dir` on first
+    # use, but ONLY if `indelphi_consent_noncommercial=True` — the user has to
+    # acknowledge the license terms before the fetcher will touch the network.
+    # `indelphi_upstream_commit` pins the exact source commit so behavior is
+    # reproducible and weight provenance is auditable.
+    indelphi_data_dir: str = Field(default="", alias="BIOFORGE_INDELPHI_DATA_DIR")
+    indelphi_consent_noncommercial: bool = Field(default=False, alias="BIOFORGE_INDELPHI_CONSENT_NONCOMMERCIAL")
+    indelphi_upstream_commit: str = Field(
+        default="9ab67ca53ebb91e49aeb4530ec1e999ee9827ca1",
+        alias="BIOFORGE_INDELPHI_UPSTREAM_COMMIT",
+    )
+
 
 settings = Settings()

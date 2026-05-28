@@ -51,6 +51,17 @@ from bioforge.tools.sequence.microhomology import (
     find_microhomologies,
     normalize_to_probabilities,
 )
+from bioforge.tools.sequence.models.indelphi import (
+    InDelphiConsentRequired,
+    InDelphiDistribution,
+    InDelphiFetchError,
+    InDelphiInferenceError,
+    InDelphiUnavailable,
+)
+from bioforge.tools.sequence.models.indelphi import (
+    predict as indelphi_predict,
+)
+from bioforge.tools.sequence.models.indelphi.manifest import SUPPORTED_CELLTYPES, CellType
 
 _DNA_CHARS = set("ACGTNacgtn")
 _IUPAC_REGEX = {
@@ -105,7 +116,12 @@ OutcomeType = Literal[
     "deletion_-3",
     "deletion_larger",
     "mmej_deletion",
+    "indelphi_deletion",
+    "indelphi_insertion",
 ]
+
+
+EditOutcomeModel = Literal["rule_of_thumb", "indelphi"]
 
 
 # MMEJ accounts for ~20-50% of Cas9 repair events in published Cas9 datasets;
@@ -189,6 +205,25 @@ class EditOutcomeInput(ToolInput):
             "on the strongest patterns only."
         ),
     )
+    model: EditOutcomeModel = Field(
+        default="rule_of_thumb",
+        description=(
+            "Which outcome model to use. 'rule_of_thumb' (default) emits the "
+            "deterministic enumeration with published-average NHEJ probabilities "
+            "plus the Bae 2014 MMEJ branch — works without any extra setup. "
+            "'indelphi' calls the Shen 2018 ML model for per-guide indel "
+            "distributions; requires the `[indelphi]` optional dependencies AND "
+            "the user to have set BIOFORGE_INDELPHI_CONSENT_NONCOMMERCIAL=true "
+            "after reading the inDelphi license notice (non-commercial use only)."
+        ),
+    )
+    cell_type: CellType = Field(
+        default="mESC",
+        description=(
+            "Cell type for inDelphi inference. Only meaningful when model='indelphi'. "
+            f"Supported: {list(SUPPORTED_CELLTYPES)}. Ignored when model='rule_of_thumb'."
+        ),
+    )
 
     @field_validator("target", "guide")
     @classmethod
@@ -270,7 +305,21 @@ class EditOutcomeOutput(ToolOutput):
     guide_strand: Literal["+", "-"]
     cut_position_fwd: int = Field(description="0-based position on the forward strand where Cas9 cuts.")
     target_length: int
+    model_used: EditOutcomeModel = Field(
+        default="rule_of_thumb",
+        description="Which outcome model produced these results — passes through the input choice for trace clarity.",
+    )
     outcomes: list[EditOutcome]
+    indelphi_distribution: InDelphiDistribution | None = Field(
+        default=None,
+        description=(
+            "Full structured inDelphi result (per-position outcomes + summary stats). "
+            "Populated only when model='indelphi'; None for rule_of_thumb. The `outcomes` "
+            "list already contains a flattened view of the same data — this field gives "
+            "the agent / UI access to the original per-position predictions and aggregate "
+            "metrics (frameshift_frequency, MH del frequency, expected_indel_length, etc.)."
+        ),
+    )
     summary_caveats: list[str] = Field(
         default_factory=list,
         description=(
@@ -365,6 +414,98 @@ def _generate_mmej_outcomes(
             )
         )
     return outcomes
+
+
+def _generate_indelphi_outcomes(
+    target_fwd: str,
+    cut_fwd: int,
+    cell_type: CellType,
+) -> tuple[list[EditOutcome], InDelphiDistribution]:
+    """Run inDelphi and convert each predicted outcome into one EditOutcome row.
+
+    The returned `InDelphiDistribution` carries the authoritative per-position
+    predictions and aggregate stats; the `EditOutcome` list is a flattened view
+    suited to the existing UI / agent-response pipeline.
+
+    Deletion edited_sequence uses a CENTERED SPLIT around the cut (same
+    convention rule_of_thumb uses for its bucketed deletions). The actual
+    position info inDelphi provides lives on
+    `InDelphiDistribution.outcomes[i].genotype_position` — surfaced in
+    EditOutcome.notes so the agent can cite it. We deliberately don't try to
+    construct a position-faithful edited_sequence from genotype_position
+    because the upstream's exact deletion-boundary convention isn't
+    documented in their public API; the structured field is the source of
+    truth.
+
+    inDelphi-side exceptions are re-raised as ToolError so the agent receives
+    actionable instructions (opt in, install deps, etc.) rather than a stack
+    trace.
+    """
+    try:
+        dist = indelphi_predict(target_fwd, cut_fwd, cell_type=cell_type)
+    except InDelphiConsentRequired as e:
+        raise ToolError(str(e)) from e
+    except InDelphiUnavailable as e:
+        raise ToolError(str(e)) from e
+    except InDelphiFetchError as e:
+        raise ToolError(f"inDelphi fetch failed: {e}") from e
+    except InDelphiInferenceError as e:
+        raise ToolError(f"inDelphi inference failed: {e}") from e
+
+    outcomes: list[EditOutcome] = []
+    for o in dist.outcomes:
+        prob = o.predicted_frequency / 100.0  # upstream returns percentages
+        if o.category == "insertion":
+            inserted = o.inserted_bases or ""
+            edited = target_fwd[:cut_fwd] + inserted + target_fwd[cut_fwd:]
+            outcomes.append(
+                EditOutcome(
+                    outcome_type="indelphi_insertion",
+                    edited_sequence=edited,
+                    indel_size=o.length,
+                    probability=round(prob, 4),
+                    frameshift=(o.length % 3 != 0),
+                    notes=(
+                        f"inDelphi prediction: +{o.length} insertion of '{inserted}' at cut site. "
+                        "Per-guide sequence-context-aware ML, not a published average."
+                    ),
+                )
+            )
+            continue
+
+        # Deletion: centered-split visualization; faithful position in indelphi_distribution.
+        size = o.length
+        left_delete = (size + 1) // 2
+        right_delete = size - left_delete
+        if cut_fwd - left_delete >= 0 and cut_fwd + right_delete <= len(target_fwd):
+            edited = target_fwd[: cut_fwd - left_delete] + target_fwd[cut_fwd + right_delete :]
+        else:
+            # Deletion would run off the end of the target. Keep original sequence
+            # and let notes signal this — agent should ask for a longer target.
+            edited = target_fwd
+        pos_note = (
+            f"at genotype_position {o.genotype_position}"
+            if o.genotype_position is not None
+            else "in inDelphi's 'elsewhere' aggregate bucket"
+        )
+        outcomes.append(
+            EditOutcome(
+                outcome_type="indelphi_deletion",
+                edited_sequence=edited,
+                indel_size=-o.length,
+                probability=round(prob, 4),
+                frameshift=(o.length % 3 != 0),
+                notes=(
+                    f"inDelphi prediction: -{o.length} deletion {pos_note}. "
+                    "Visualization uses a centered split around the cut for compatibility "
+                    "with the EditOutcome schema; the per-position structured prediction "
+                    "lives on indelphi_distribution.outcomes."
+                ),
+            )
+        )
+
+    outcomes.sort(key=lambda x: x.probability, reverse=True)
+    return outcomes, dist
 
 
 def _generate_outcomes(
@@ -463,21 +604,24 @@ def _generate_outcomes(
     name="edit_outcome",
     description=(
         "Predict the likely outcomes of a Cas9 edit at a given guide site. "
-        "Locates the guide on either strand, computes the cut position, and "
-        "enumerates two repair pathways: (1) NHEJ — perfect repair, +1 "
-        "insertions, -1/-2/-3/larger deletions with published-average "
-        "probabilities; (2) MMEJ — microhomology-templated deletions scored "
-        "by the Bae 2014 algorithm using actual sequence context around the "
-        "cut. The MMEJ branch makes probabilities GUIDE-AWARE — a cut in an "
-        "MH-rich region produces sharper, more confident deletion predictions "
-        "than a cut in low-complexity sequence. Each outcome carries an "
-        "edited_sequence, indel_size, frameshift flag, probability, and (for "
-        "MMEJ) the microhomology that templated it. Use whenever the user "
-        "asks 'what does the edit look like?' or 'will this disrupt the gene?'."
+        "Two models are available via the `model` parameter: "
+        "(a) `rule_of_thumb` (default, no setup): enumerates NHEJ perfect "
+        "repair, +1 insertions, and -1/-2/-3/larger deletions with "
+        "published-average probabilities, plus a Bae 2014 MMEJ branch that "
+        "makes deletion probabilities guide-aware in MH-rich regions; "
+        "(b) `indelphi` (opt-in, non-commercial): runs the Shen 2018 ML model "
+        "for true per-guide sequence-context-aware indel distributions — "
+        "REQUIRES the user to have set BIOFORGE_INDELPHI_CONSENT_NONCOMMERCIAL "
+        "and installed the `[indelphi]` extras. inDelphi predicts ONLY "
+        "edit-conditional outcomes (no no_edit / perfect repair). Each result "
+        "carries an edited_sequence, indel_size, frameshift flag, probability, "
+        "and the structured inDelphi distribution when applicable. Use whenever "
+        "the user asks 'what does the edit look like?' or 'will this disrupt "
+        "the gene?'."
     ),
     input_model=EditOutcomeInput,
     output_model=EditOutcomeOutput,
-    version="2.0.0",
+    version="2.1.0",
     citations=[
         "Bae S et al. (2014) Microhomology-based choice of Cas9 nuclease target sites. Nat Methods 11:705-706 (microhomology pattern score)",
         "Shen MW et al. (2018) Predictable and precise template-free CRISPR editing of pathogenic variants. Nature 563:646-651 (inDelphi MH component)",
@@ -507,6 +651,50 @@ async def edit_outcome(inp: EditOutcomeInput) -> EditOutcomeOutput:
             f"Computed cut position ({cut_fwd}) falls outside the target (length "
             f"{len(inp.target)}). The guide+PAM may be too close to a sequence boundary."
         )
+
+    if inp.model == "indelphi":
+        # inDelphi only accepts ACGT — reject Ns up front with an actionable message
+        # rather than letting upstream's generic "Bad character N" surface.
+        if "N" in inp.target:
+            raise ToolError(
+                "inDelphi requires the target to be ACGT only — found 'N' in the input. "
+                "Either resolve the ambiguity, slice the N's out, or use model='rule_of_thumb' "
+                "which tolerates N."
+            )
+        outcomes, dist = _generate_indelphi_outcomes(inp.target, cut_fwd, inp.cell_type)
+        if not outcomes:
+            raise ToolError(
+                "inDelphi returned zero outcomes — this is unexpected for a valid cut site. "
+                "Verify the target length is reasonable (≥30 nt) and the cut is not at a boundary."
+            )
+        caveats = [
+            "inDelphi per-guide ML predictions (Shen 2018) — sequence-context-aware and "
+            "account for microhomology internally. The rule_of_thumb NHEJ table and the "
+            "Bae 2014 MMEJ branch are NOT applied in this mode.",
+            "inDelphi predicts the distribution of indels CONDITIONAL on editing occurring. "
+            "It does NOT model the no_edit / perfect-repair fraction — those outcomes are "
+            "absent from this result. Use model='rule_of_thumb' or combine with a separate "
+            "rate model for a no_edit estimate.",
+            f"Cell type: {inp.cell_type}. Repair biases differ between cell types; using a "
+            "non-matching cell type can shift predictions meaningfully.",
+            "Frameshift flagging only checks indel size modulo 3. Whether the edit actually "
+            "disrupts a reading frame depends on whether the cut falls inside a CDS.",
+            "Deletion edited_sequence values use a centered split around the cut for schema "
+            "compatibility. The authoritative per-position predictions live on "
+            "indelphi_distribution.outcomes.",
+        ]
+        return EditOutcomeOutput(
+            guide=inp.guide,
+            guide_strand=strand,
+            cut_position_fwd=cut_fwd,
+            target_length=len(inp.target),
+            model_used="indelphi",
+            outcomes=outcomes,
+            indelphi_distribution=dist,
+            summary_caveats=caveats,
+        )
+
+    # --- rule_of_thumb path (existing behavior, unchanged) ---
 
     include_types: set[OutcomeType] = (
         set(inp.include_outcome_types) if inp.include_outcome_types else set(_RULE_OF_THUMB_PROBS) | {"mmej_deletion"}
@@ -540,9 +728,8 @@ async def edit_outcome(inp: EditOutcomeInput) -> EditOutcomeOutput:
 
     caveats = [
         "NHEJ probabilities are published averages, NOT predictions for this "
-        "specific guide. Per-guide ML models (inDelphi, FORECasT, Lindel) are "
-        "a future slice and would replace the rule-of-thumb shares with "
-        "sequence-context-aware values.",
+        "specific guide. For per-guide ML predictions, call with model='indelphi' "
+        "(requires opt-in to the inDelphi non-commercial license — see LICENSE_NOTICE.md).",
         "Frameshift flagging only checks indel size modulo 3. Whether the edit "
         "actually disrupts a reading frame depends on whether the cut falls inside "
         "a CDS — the tool does not infer that.",
@@ -567,6 +754,7 @@ async def edit_outcome(inp: EditOutcomeInput) -> EditOutcomeOutput:
         guide_strand=strand,
         cut_position_fwd=cut_fwd,
         target_length=len(inp.target),
+        model_used="rule_of_thumb",
         outcomes=outcomes,
         summary_caveats=caveats,
     )

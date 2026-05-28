@@ -290,10 +290,196 @@ async def test_min_microhomology_length_filters_short_mhs() -> None:
     assert len(long_mhs) <= len(short_mhs)
 
 
-async def test_tool_version_bumped_to_2() -> None:
-    """The MMEJ extension is a breaking-feature change — version bumped to 2.0.0."""
+async def test_tool_version_and_citations() -> None:
+    """Version bumped to 2.1.0 for the indelphi model addition (backwards-compatible
+    feature). Bae 2014 + Shen 2018 must both be cited because both algorithms ship."""
     from bioforge.tools.registry import get_tool
 
     spec = get_tool("edit_outcome")
-    assert spec.version == "2.0.0"
+    assert spec.version == "2.1.0"
     assert any("Bae" in c for c in spec.citations)
+    assert any("Shen" in c for c in spec.citations)
+
+
+# --- model='indelphi' branch -----------------------------------------------------------
+#
+# These tests monkeypatch `indelphi_predict` to return a fixed InDelphiDistribution so
+# the integration is exercised without the optional [indelphi] deps installed and
+# without any consent or network. A separate fidelity test (gated on the consent flag
+# and the actual fetched weights) lives in test_indelphi_fidelity.py.
+
+
+def _stub_distribution():
+    from bioforge.tools.sequence.models.indelphi import (
+        InDelphiDistribution,
+        InDelphiOutcome,
+        InDelphiStats,
+    )
+
+    return InDelphiDistribution(
+        cell_type="mESC",
+        cutsite=37,
+        sequence_length=60,
+        outcomes=[
+            InDelphiOutcome(category="deletion", length=1, genotype_position=0, predicted_frequency=22.5),
+            InDelphiOutcome(category="deletion", length=3, genotype_position=-1, predicted_frequency=14.0),
+            InDelphiOutcome(category="deletion", length=5, genotype_position=None, predicted_frequency=8.0),
+            InDelphiOutcome(
+                category="insertion", length=1, genotype_position=0, inserted_bases="A", predicted_frequency=18.0
+            ),
+            InDelphiOutcome(
+                category="insertion", length=1, genotype_position=0, inserted_bases="T", predicted_frequency=12.0
+            ),
+        ],
+        stats=InDelphiStats(
+            phi=0.42,
+            frameshift_frequency=70.0,
+            one_bp_ins_frequency=30.0,
+            mh_del_frequency=14.0,
+        ),
+    )
+
+
+async def test_indelphi_model_routes_through_indelphi_predict(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When model='indelphi', edit_outcome should call indelphi_predict with the
+    target + cut_fwd we computed, and return its distribution alongside the
+    flattened EditOutcome list."""
+    calls: list[tuple[str, int, str]] = []
+    stub = _stub_distribution()
+
+    def fake_predict(sequence: str, cutsite: int, *, cell_type: str = "mESC", **_: object):
+        calls.append((sequence, cutsite, cell_type))
+        return stub
+
+    monkeypatch.setattr(
+        "bioforge.tools.sequence.edit_outcome.indelphi_predict",
+        fake_predict,
+    )
+
+    out = await edit_outcome(EditOutcomeInput(target=_TARGET_FWD, guide=_GUIDE, model="indelphi"))
+
+    assert calls == [(_TARGET_FWD, 37, "mESC")]
+    assert out.model_used == "indelphi"
+    assert out.indelphi_distribution is not None
+    assert out.indelphi_distribution.cell_type == "mESC"
+    # All five inDelphi outcomes flatten into EditOutcome rows.
+    assert len(out.outcomes) == 5
+    # Probabilities are normalized from percentages to fractions.
+    assert out.outcomes[0].probability == pytest.approx(0.225)
+    # Sorted by probability descending.
+    probs = [o.probability for o in out.outcomes]
+    assert probs == sorted(probs, reverse=True)
+
+
+async def test_indelphi_outcome_types_partition_deletions_and_insertions(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every inDelphi-sourced EditOutcome must be either indelphi_deletion or
+    indelphi_insertion — no leakage into the rule_of_thumb buckets."""
+    stub = _stub_distribution()
+    monkeypatch.setattr(
+        "bioforge.tools.sequence.edit_outcome.indelphi_predict",
+        lambda sequence, cutsite, **_: stub,
+    )
+
+    out = await edit_outcome(EditOutcomeInput(target=_TARGET_FWD, guide=_GUIDE, model="indelphi"))
+
+    types_seen = {o.outcome_type for o in out.outcomes}
+    assert types_seen == {"indelphi_deletion", "indelphi_insertion"}
+
+    # Frameshift flagging respects modulo 3 on the absolute indel size.
+    for o in out.outcomes:
+        assert o.frameshift == (abs(o.indel_size) % 3 != 0)
+
+
+async def test_indelphi_insertion_edited_sequence_matches_cut_position(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Insertions at the cut site must construct edited_sequence as
+    target[:cut] + inserted + target[cut:]."""
+    stub = _stub_distribution()
+    monkeypatch.setattr(
+        "bioforge.tools.sequence.edit_outcome.indelphi_predict",
+        lambda sequence, cutsite, **_: stub,
+    )
+
+    out = await edit_outcome(EditOutcomeInput(target=_TARGET_FWD, guide=_GUIDE, model="indelphi"))
+
+    cut = out.cut_position_fwd
+    for o in out.outcomes:
+        if o.outcome_type != "indelphi_insertion":
+            continue
+        # Find the inserted base by length-diff vs target.
+        assert len(o.edited_sequence) == len(_TARGET_FWD) + o.indel_size
+        # First `cut` bases unchanged; last (len - cut) bases unchanged.
+        assert o.edited_sequence[:cut] == _TARGET_FWD[:cut]
+        assert o.edited_sequence[cut + o.indel_size :] == _TARGET_FWD[cut:]
+
+
+async def test_indelphi_caveats_reflect_model_choice(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When model='indelphi', the no_edit-absent caveat and the MMEJ-not-applied
+    caveat must be present, because they're material differences from rule_of_thumb."""
+    stub = _stub_distribution()
+    monkeypatch.setattr(
+        "bioforge.tools.sequence.edit_outcome.indelphi_predict",
+        lambda sequence, cutsite, **_: stub,
+    )
+
+    out = await edit_outcome(EditOutcomeInput(target=_TARGET_FWD, guide=_GUIDE, model="indelphi"))
+
+    full_caveats = " ".join(out.summary_caveats).lower()
+    assert "no_edit" in full_caveats
+    assert "indelphi" in full_caveats
+    assert "mmej" in full_caveats  # explicitly mentioning that MMEJ is NOT applied
+
+
+async def test_indelphi_rejects_target_with_n(monkeypatch: pytest.MonkeyPatch) -> None:
+    """inDelphi only accepts ACGT. We must reject N up front rather than
+    surfacing upstream's generic 'Bad character' error."""
+    monkeypatch.setattr(
+        "bioforge.tools.sequence.edit_outcome.indelphi_predict",
+        lambda *a, **kw: pytest.fail("indelphi_predict should not be called when target has N"),
+    )
+    # Put the N in the 5' filler (well outside the guide region at [20..40]) so the
+    # guide localizes successfully and we reach the N-rejection check.
+    target_with_n = _TARGET_FWD[:5] + "N" + _TARGET_FWD[6:]
+    with pytest.raises(ToolError) as exc:
+        await edit_outcome(EditOutcomeInput(target=target_with_n, guide=_GUIDE, model="indelphi"))
+    assert "N" in str(exc.value)
+    assert "rule_of_thumb" in str(exc.value)
+
+
+async def test_indelphi_consent_required_surfaces_as_tool_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When the user calls model='indelphi' without setting the consent flag,
+    the InDelphiConsentRequired exception must surface as a ToolError carrying
+    the actionable instructions (env var name + license notice path)."""
+    from bioforge.tools.sequence.models.indelphi import InDelphiConsentRequired
+
+    def raise_consent(*a, **kw):
+        raise InDelphiConsentRequired(
+            "inDelphi is licensed for NON-COMMERCIAL RESEARCH USE ONLY. Read "
+            "LICENSE_NOTICE.md, then set BIOFORGE_INDELPHI_CONSENT_NONCOMMERCIAL=true."
+        )
+
+    monkeypatch.setattr(
+        "bioforge.tools.sequence.edit_outcome.indelphi_predict",
+        raise_consent,
+    )
+
+    with pytest.raises(ToolError) as exc:
+        await edit_outcome(EditOutcomeInput(target=_TARGET_FWD, guide=_GUIDE, model="indelphi"))
+    assert "BIOFORGE_INDELPHI_CONSENT_NONCOMMERCIAL" in str(exc.value)
+
+
+async def test_rule_of_thumb_path_unchanged_when_model_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The default model is rule_of_thumb. With no model parameter, the existing
+    behavior — NHEJ buckets + MMEJ — must produce the same outcome_types as before."""
+    monkeypatch.setattr(
+        "bioforge.tools.sequence.edit_outcome.indelphi_predict",
+        lambda *a, **kw: pytest.fail("indelphi_predict must not be called when model=rule_of_thumb"),
+    )
+
+    out = await edit_outcome(EditOutcomeInput(target=_TARGET_FWD, guide=_GUIDE))
+    assert out.model_used == "rule_of_thumb"
+    assert out.indelphi_distribution is None
+    seen_types = {o.outcome_type for o in out.outcomes}
+    # No indelphi_* types in the default path.
+    assert not any(t.startswith("indelphi_") for t in seen_types)
+    # All seen types come from the rule_of_thumb / MMEJ enumeration.
+    assert seen_types <= set(_RULE_OF_THUMB_PROBS) | {"mmej_deletion"}
