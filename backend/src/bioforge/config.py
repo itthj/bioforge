@@ -29,6 +29,13 @@ class Settings(BaseSettings):
     # "shadow" so enabling the validator never silently changes a response until you opt in
     # to enforcement. Enforcement currently covers the numeric layer (L3) only.
     grounding_mode: str = Field(default="shadow", alias="BIOFORGE_GROUNDING_MODE")
+    # Layer 4 entity/mechanistic LLM judge. Default OFF and independent of the (free,
+    # deterministic) numeric layer, because it makes an extra model call per response.
+    # Only consulted when grounding_enabled=True as well. The blueprint recommends Opus
+    # for the judge; set BIOFORGE_GROUNDING_JUDGE_MODEL to that model id. Empty string =
+    # reuse the run's model (so it works out of the box without asserting a model name).
+    grounding_judge_enabled: bool = Field(default=False, alias="BIOFORGE_GROUNDING_JUDGE_ENABLED")
+    grounding_judge_model: str = Field(default="", alias="BIOFORGE_GROUNDING_JUDGE_MODEL")
 
     # OpenTelemetry — disabled by default so the test suite stays quiet. Enable via
     # BIOFORGE_OTEL_ENABLED=true. The exporter defaults to console; set

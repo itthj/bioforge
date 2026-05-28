@@ -225,6 +225,38 @@ def make_submit_verdict_response():
     return _build_submit_verdict_response
 
 
+def _build_submit_grounding_response(
+    claims: list[dict[str, Any]],
+    *,
+    tool_use_id: str = "toolu_grounding",
+    model: str = "claude-sonnet-4-6",
+    input_tokens: int = 120,
+    output_tokens: int = 40,
+) -> Message:
+    return Message(
+        id="msg_grounding_test",
+        type="message",
+        role="assistant",
+        model=model,
+        content=[ToolUseBlock(type="tool_use", id=tool_use_id, name="submit_grounding", input={"claims": claims})],
+        stop_reason="tool_use",
+        stop_sequence=None,
+        usage=Usage(
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cache_creation_input_tokens=0,
+            cache_read_input_tokens=0,
+            service_tier=None,
+        ),
+    )
+
+
+@pytest.fixture
+def make_submit_grounding_response():
+    """Factory fixture: build an L4 judge response — a tool_use call to `submit_grounding`."""
+    return _build_submit_grounding_response
+
+
 def _trivial_plan(summary: str = "Single tool call.", tool_name: str | None = None) -> dict:
     return {
         "is_trivial": True,

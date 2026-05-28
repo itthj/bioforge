@@ -24,6 +24,27 @@ ClaimKind = Literal["numeric", "entity", "mechanistic", "background"]
 # A claim is either traceable to a structured tool result this run, or it is not.
 GroundingStatus = Literal["grounded", "unsupported"]
 
+# The judge's verdict on a non-numeric claim. "background" = general domain knowledge not
+# asserted as a finding (permitted, but flagged so it reads as background, not a result).
+JudgedStatus = Literal["supported", "unsupported", "background"]
+
+
+class JudgedClaim(BaseModel):
+    """An entity or mechanistic claim judged by the L4 LLM judge (BioForge v4 §4 Layer 4).
+
+    The judge may ONLY support a claim by naming a `cited_field` that actually appears in
+    the run's structured tool outputs — it is forbidden from supporting a claim with its
+    own knowledge. This layer is treated as lossy and measured, never trusted blindly.
+    """
+
+    text: str = Field(description="The claim as it appears in the draft response.")
+    kind: Literal["entity", "mechanistic", "background"]
+    status: JudgedStatus
+    cited_field: str | None = Field(
+        default=None,
+        description="The tool-output field path that supports this claim. Required for 'supported'.",
+    )
+
 
 class NumericClaimVerdict(BaseModel):
     """One numeric token found in the draft response, with its grounding outcome.
@@ -61,9 +82,18 @@ class ValidationReport(BaseModel):
     ok: bool = Field(description="True iff no claim of the covered kinds was left unsupported.")
     inventory_size: int = Field(description="Number of distinct numeric values extracted from tool outputs.")
     numeric_claims: list[NumericClaimVerdict] = Field(default_factory=list)
+    judged_claims: list[JudgedClaim] = Field(
+        default_factory=list,
+        description="Entity/mechanistic claims judged by the L4 LLM judge (empty if the judge did not run).",
+    )
     summary: str = Field(default="", description="One-line human-readable summary of the outcome.")
 
     @property
     def unsupported(self) -> list[NumericClaimVerdict]:
         """The numeric claims that could not be traced to a tool result this run."""
         return [c for c in self.numeric_claims if c.status == "unsupported"]
+
+    @property
+    def unsupported_judged(self) -> list[JudgedClaim]:
+        """The entity/mechanistic claims the judge found unsupported by any tool result."""
+        return [c for c in self.judged_claims if c.status == "unsupported"]
