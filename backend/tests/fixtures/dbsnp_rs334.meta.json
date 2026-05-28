@@ -1,0 +1,8 @@
+{
+  "source": "NCBI E-utilities esummary",
+  "query": "id=334 (dbSNP rsid for HBB c.20A>T, p.Glu7Val — the sickle-cell variant)",
+  "description": "HBB sickle-cell variant rs334 (Glu→Val at codon 7 of beta-globin). One of the canonical real-biology test variants. Carries 11 population frequency studies (1000Genomes / ExAC / GnomAD / HapMap / KOREAN / ALFA / etc.), multi-allelic SPDI representations, and aggregated dbSNP clinical_significance spanning 'pathogenic' through 'protective' (sickle-trait conferring malaria resistance).",
+  "fetched_via": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=snp&id=334&retmode=json&tool=BioForge&email=",
+  "fetched_at": "2026-05-28",
+  "trimming_note": "Captured verbatim, no trimming. The `ss` field (subsnp IDs) is long but kept intact since it's an opaque comma-string we never parse."
+}

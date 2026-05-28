@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pytest
-from bioforge.agent.planner import SUBMIT_PLAN_TOOL, Plan, make_plan
+from bioforge.agent.planner import SUBMIT_PLAN_TOOL, Plan, _load_planner_prompt, make_plan
 from bioforge.tools.registry import list_tools
 
 
@@ -65,3 +65,29 @@ async def test_planner_tools_block_lists_available_tools(
     user_content = llm.calls[0].messages[0]["content"]
     assert "gc_content" in user_content
     assert "reverse_complement" in user_content
+
+
+# --- Composite-workflow recipes (regression guards) ------------------------------
+
+
+def test_planner_prompt_documents_variant_interpretation_recipe() -> None:
+    """The variant interpretation chain is a documented planner pattern, not a tool.
+
+    `interpret_variant` was deliberately NOT shipped as a composite tool — instead,
+    the planner is taught to compose parse_vcf → format_hgvs → annotate_variant →
+    lookup_clinvar / lookup_dbsnp itself. These assertions lock in that the recipe
+    stays in the prompt, since deleting it silently would regress agent behavior.
+    """
+    prompt = _load_planner_prompt()
+    assert "Common composite workflows" in prompt
+    assert "Variant interpretation" in prompt
+    # All five tools in the chain must be named so the planner knows which to compose.
+    for tool in ("parse_vcf", "format_hgvs", "annotate_variant", "lookup_clinvar", "lookup_dbsnp"):
+        assert tool in prompt, f"variant-interpretation recipe must reference {tool}"
+
+
+def test_planner_prompt_explains_why_not_a_composite_tool() -> None:
+    """The 'do not collapse this chain' guidance is the load-bearing instruction —
+    without it, the agent will shortcut to annotate_variant only and lose curated detail."""
+    prompt = _load_planner_prompt()
+    assert "Do not collapse this chain" in prompt or "do not collapse this chain" in prompt.lower()

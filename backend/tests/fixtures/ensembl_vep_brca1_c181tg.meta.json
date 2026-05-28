@@ -1,0 +1,9 @@
+{
+  "source": "Ensembl REST /vep/human/hgvs/",
+  "query": "ENST00000357654.9:c.181T>G",
+  "description": "BRCA1 p.Cys61Gly — a well-characterized pathogenic missense variant in the RING domain. ClinVar records include VCV000017661 and RCV000019229.",
+  "fetched_via": "https://rest.ensembl.org/vep/human/hgvs/ENST00000357654.9%3Ac.181T%3EG?content-type=application/json",
+  "fetched_at": "2026-05-27",
+  "trimming_note": "Original Ensembl response had ~40 transcript_consequences and ~5 colocated_variants. This fixture keeps 6 representative transcripts (one canonical-coding, one alt-coding, one NMD, one retained_intron, one intron_variant, one upstream_gene_variant) and 3 colocated variants (one dbSNP-with-ClinVar-and-gnomAD, one HGMD, one somatic COSMIC). Field shapes are preserved verbatim.",
+  "regenerate_via": "python backend/tests/fixtures/regenerate.py --vep-brca1"
+}

@@ -1,0 +1,183 @@
+[
+  {
+    "input": "ENST00000357654.9:c.181T>G",
+    "id": "ENST00000357654.9:c.181T>G",
+    "assembly_name": "GRCh38",
+    "seq_region_name": "17",
+    "start": 43106487,
+    "end": 43106487,
+    "strand": -1,
+    "allele_string": "T/G",
+    "most_severe_consequence": "missense_variant",
+    "transcript_consequences": [
+      {
+        "transcript_id": "ENST00000357654",
+        "gene_id": "ENSG00000012048",
+        "gene_symbol": "BRCA1",
+        "gene_symbol_source": "HGNC",
+        "hgnc_id": "HGNC:1100",
+        "biotype": "protein_coding",
+        "impact": "MODERATE",
+        "consequence_terms": ["missense_variant"],
+        "variant_allele": "G",
+        "strand": -1,
+        "cdna_start": 294,
+        "cdna_end": 294,
+        "cds_start": 181,
+        "cds_end": 181,
+        "protein_start": 61,
+        "protein_end": 61,
+        "amino_acids": "C/G",
+        "codons": "Tgt/Ggt",
+        "sift_score": 0,
+        "sift_prediction": "deleterious",
+        "polyphen_score": 0.027,
+        "polyphen_prediction": "benign",
+        "canonical": 1
+      },
+      {
+        "transcript_id": "ENST00000471181",
+        "gene_id": "ENSG00000012048",
+        "gene_symbol": "BRCA1",
+        "gene_symbol_source": "HGNC",
+        "hgnc_id": "HGNC:1100",
+        "biotype": "protein_coding",
+        "impact": "MODERATE",
+        "consequence_terms": ["missense_variant"],
+        "variant_allele": "G",
+        "strand": -1,
+        "cdna_start": 413,
+        "cdna_end": 413,
+        "cds_start": 181,
+        "cds_end": 181,
+        "protein_start": 61,
+        "protein_end": 61,
+        "amino_acids": "C/G",
+        "codons": "Tgt/Ggt",
+        "sift_score": 0,
+        "sift_prediction": "deleterious",
+        "polyphen_score": 0.086,
+        "polyphen_prediction": "benign"
+      },
+      {
+        "transcript_id": "ENST00000461221",
+        "gene_id": "ENSG00000012048",
+        "gene_symbol": "BRCA1",
+        "gene_symbol_source": "HGNC",
+        "hgnc_id": "HGNC:1100",
+        "biotype": "nonsense_mediated_decay",
+        "impact": "MODERATE",
+        "consequence_terms": ["missense_variant", "NMD_transcript_variant"],
+        "variant_allele": "G",
+        "strand": -1,
+        "cdna_start": 307,
+        "cdna_end": 307,
+        "cds_start": 181,
+        "cds_end": 181,
+        "protein_start": 61,
+        "protein_end": 61,
+        "amino_acids": "C/G",
+        "codons": "Tgt/Ggt",
+        "sift_score": 0,
+        "sift_prediction": "deleterious_low_confidence",
+        "polyphen_score": 0.027,
+        "polyphen_prediction": "benign"
+      },
+      {
+        "transcript_id": "ENST00000354071",
+        "gene_id": "ENSG00000012048",
+        "gene_symbol": "BRCA1",
+        "gene_symbol_source": "HGNC",
+        "hgnc_id": "HGNC:1100",
+        "biotype": "retained_intron",
+        "impact": "MODIFIER",
+        "consequence_terms": ["non_coding_transcript_exon_variant"],
+        "variant_allele": "G",
+        "strand": -1,
+        "cdna_start": 245,
+        "cdna_end": 245
+      },
+      {
+        "transcript_id": "ENST00000477152",
+        "gene_id": "ENSG00000012048",
+        "gene_symbol": "BRCA1",
+        "gene_symbol_source": "HGNC",
+        "hgnc_id": "HGNC:1100",
+        "biotype": "protein_coding",
+        "impact": "MODIFIER",
+        "consequence_terms": ["intron_variant"],
+        "variant_allele": "G",
+        "strand": -1
+      },
+      {
+        "transcript_id": "ENST00000700083",
+        "gene_id": "ENSG00000012048",
+        "gene_symbol": "BRCA1",
+        "gene_symbol_source": "HGNC",
+        "hgnc_id": "HGNC:1100",
+        "biotype": "retained_intron",
+        "impact": "MODIFIER",
+        "consequence_terms": ["upstream_gene_variant"],
+        "variant_allele": "G",
+        "strand": -1,
+        "distance": 348
+      }
+    ],
+    "colocated_variants": [
+      {
+        "id": "rs28897672",
+        "seq_region_name": "17",
+        "start": 43106487,
+        "end": 43106487,
+        "strand": 1,
+        "allele_string": "A/C/G/T",
+        "clin_sig": ["likely_pathogenic", "pathogenic"],
+        "clin_sig_allele": "G:likely_pathogenic;C:pathogenic;T:pathogenic;G:pathogenic/likely_pathogenic",
+        "phenotype_or_disease": 1,
+        "frequencies": {
+          "G": {
+            "gnomade": 1.721e-05,
+            "gnomade_nfe": 2.082e-05,
+            "gnomade_afr": 0,
+            "gnomadg": 3.285e-05,
+            "gnomadg_nfe": 7.349e-05,
+            "gnomadg_afr": 0
+          }
+        },
+        "var_synonyms": {
+          "ClinVar": [
+            "RCV001328445",
+            "RCV000759499",
+            "RCV000111959",
+            "VCV000054360",
+            "RCV000019229",
+            "VCV000017661"
+          ],
+          "UniProt": ["VAR_007757"],
+          "OMIM": [113705.0002]
+        },
+        "pubmed": [25741868, 24033266, 18414213, 26467025, 18974877]
+      },
+      {
+        "id": "CM093550",
+        "seq_region_name": "17",
+        "start": 43106487,
+        "end": 43106487,
+        "strand": 1,
+        "allele_string": "HGMD_MUTATION",
+        "phenotype_or_disease": 1
+      },
+      {
+        "id": "COSV105897801",
+        "seq_region_name": "17",
+        "start": 43106487,
+        "end": 43106487,
+        "strand": 1,
+        "allele_string": "COSMIC_MUTATION",
+        "var_synonyms": {"COSMIC": ["COSM9996592"]},
+        "somatic": 1,
+        "phenotype_or_disease": 1
+      }
+    ]
+  }
+]

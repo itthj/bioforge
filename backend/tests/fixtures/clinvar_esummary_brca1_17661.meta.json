@@ -1,0 +1,8 @@
+{
+  "source": "NCBI E-utilities esummary",
+  "query": "id=17661 (ClinVar Variation ID for BRCA1 c.181T>G, p.Cys61Gly)",
+  "description": "BRCA1 p.Cys61Gly — the canonical RING-domain missense reviewed by expert panel as Pathogenic. Same variant as ensembl_vep_brca1_c181tg.json (different API, complementary view).",
+  "fetched_via": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=clinvar&id=17661&retmode=json",
+  "fetched_at": "2026-05-27",
+  "trimming_note": "Real esummary response with most fields preserved verbatim. The full record has 73 SCVs and 12 RCVs; trimmed to 5 each to keep the fixture readable. allele_freq_set similarly trimmed to 2 of 6 entries. Field shapes preserved."
+}
