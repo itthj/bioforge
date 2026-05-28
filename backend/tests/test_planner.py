@@ -81,8 +81,16 @@ def test_planner_prompt_documents_variant_interpretation_recipe() -> None:
     prompt = _load_planner_prompt()
     assert "Common composite workflows" in prompt
     assert "Variant interpretation" in prompt
-    # All five tools in the chain must be named so the planner knows which to compose.
-    for tool in ("parse_vcf", "format_hgvs", "annotate_variant", "lookup_clinvar", "lookup_dbsnp"):
+    # All tools the recipe names must appear. normalize_hgvs is mentioned as a sibling to
+    # format_hgvs for canonicalizing historic HGVS strings before downstream lookups.
+    for tool in (
+        "parse_vcf",
+        "format_hgvs",
+        "normalize_hgvs",
+        "annotate_variant",
+        "lookup_clinvar",
+        "lookup_dbsnp",
+    ):
         assert tool in prompt, f"variant-interpretation recipe must reference {tool}"
 
 

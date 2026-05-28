@@ -1,0 +1,8 @@
+{
+  "source": "Ensembl REST /variant_recoder/human/",
+  "query": "NM_007294.4:c.5266dupC (BRCA1, the canonical 3'-shift right-shifting example)",
+  "description": "BRCA1 c.5266dupC — the Ashkenazi-founder frameshift duplication classically called '5382insC' in old clinical-lab nomenclature. The duplicated C sits in a CCCC stretch, so the same biological variant has multiple syntactically-valid HGVS forms; HGVS 3'-shift rules select the canonical 3'-most position. This fixture demonstrates the right-shift in action: input c.5266dupC normalizes to genomic NC_000017.11:g.43057065dup (the rightmost C duplication on the reference) and coding NM_007294.4:c.5266dup (note the trailing 'C' is dropped in canonical form since the base is implicit for a single-base dup). Also exercises the heavy-transcript-fan-out case BRCA1 is known for (200+ annotated isoforms).",
+  "fetched_via": "https://rest.ensembl.org/variant_recoder/human/NM_007294.4%3Ac.5266dupC?content-type=application/json",
+  "fetched_at": "2026-05-28",
+  "trimming_note": "Captured verbatim, no trimming. ~25 KB; the size IS the test signal — verifies our max_transcript_forms cap works against a real heavy-fan-out response."
+}

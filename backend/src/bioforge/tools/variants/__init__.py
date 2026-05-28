@@ -15,6 +15,15 @@ from bioforge.tools.variants import (  # noqa: F401  — register on import
     format_hgvs,
     lookup_clinvar,
     lookup_dbsnp,
+    lookup_gnomad,
+    normalize_hgvs,
 )
 
-__all__ = ["annotate_variant", "format_hgvs", "lookup_clinvar", "lookup_dbsnp"]
+__all__ = [
+    "annotate_variant",
+    "format_hgvs",
+    "lookup_clinvar",
+    "lookup_dbsnp",
+    "lookup_gnomad",
+    "normalize_hgvs",
+]

@@ -1,0 +1,8 @@
+{
+  "source": "gnomAD GraphQL API (gnomad_r4)",
+  "query": "variant(variantId: \"17-43057062-T-TG\", dataset: gnomad_r4) — BRCA1 c.5266dupC in the current GRCh38 release",
+  "description": "BRCA1 c.5266dupC viewed through gnomAD r4 — the canonical Ashkenazi-founder frameshift duplication. The fixture captures the textbook population-genetics signal: global AF is ~7e-5 (rare overall), but ASJ exome AF is ~1.2e-3, a ~17x enrichment over global. This is the kind of per-population context that distinguishes gnomAD from dbSNP's aggregated MAFs and is the reason lookup_gnomad exists as a separate tool. variant_id is in gnomAD's left-aligned VCF anchor-base form (17-43057062-T-TG), one base 5' of the HGVS right-shifted position (43057063) and using T as the anchor base for the +G insertion.",
+  "fetched_via": "POST https://gnomad.broadinstitute.org/api with GraphQL query for variant{variant_id reference_genome chrom pos ref alt rsids flags exome{ac an af filters populations{id ac an}} genome{ac an af filters populations{id ac an}}}",
+  "fetched_at": "2026-05-28",
+  "trimming_note": "Captured verbatim, no trimming. ~2.3KB."
+}

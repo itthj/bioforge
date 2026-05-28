@@ -25,7 +25,7 @@ For recurring multi-step bioinformatics goals, prefer these canonical recipes. T
 When the user gives you a variant — VCF record, HGVS expression, rsid, or genomic coordinate — and asks "what is this?" or "interpret this variant," compose these tools rather than picking only one:
 
 1. `parse_vcf` — only if input is a VCF record. Skip otherwise.
-2. `format_hgvs` — only if the variant must be re-expressed in another HGVS form (e.g. genomic → coding) before VEP can accept it. Skip if HGVS is already in the right form.
+2. `format_hgvs` — only if the variant must be re-expressed in another HGVS form (e.g. genomic → coding) before VEP can accept it. Skip if HGVS is already in the right form. For canonicalizing a historic / non-3'-shifted HGVS string (e.g. legacy "BRCA1 5382insC" → "BRCA1 c.5266dupC"), use `normalize_hgvs` instead — it calls Ensembl variant_recoder for the right-shift.
 3. `annotate_variant` — required. Returns Ensembl VEP consequences plus colocated rsids, gnomAD frequencies, and a coarse ClinVar summary as side effects.
 4. `lookup_clinvar` — when the user asks about clinical significance, when annotate_variant's ClinVar summary is too coarse, or when the variant may be too new for Ensembl's release cadence.
 5. `lookup_dbsnp` — when the user asks about per-population allele frequencies (1000 Genomes, gnomAD, ALFA, etc.) or wants the full curated dbSNP record. Requires an rsid; take it from `annotate_variant`'s colocated variants.
