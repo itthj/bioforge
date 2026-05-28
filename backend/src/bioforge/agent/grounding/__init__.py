@@ -7,6 +7,11 @@ corpus (L6) land in subsequent slices and will extend the same `ValidationReport
 
 from __future__ import annotations
 
+from bioforge.agent.grounding.metrics import (
+    CorpusMetrics,
+    evaluate_numeric_corpus,
+    load_numeric_corpus,
+)
 from bioforge.agent.grounding.numeric import (
     InventoryEntry,
     ParsedNumber,
@@ -23,12 +28,15 @@ from bioforge.agent.grounding.report import (
 
 __all__ = [
     "ClaimKind",
+    "CorpusMetrics",
     "GroundingStatus",
     "InventoryEntry",
     "NumericClaimVerdict",
     "ParsedNumber",
     "ValidationReport",
     "build_inventory",
+    "evaluate_numeric_corpus",
     "extract_numeric_claims",
     "ground_response",
+    "load_numeric_corpus",
 ]

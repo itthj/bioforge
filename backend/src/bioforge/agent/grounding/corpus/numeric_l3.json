@@ -1,0 +1,77 @@
+{
+  "_about": "Hand-labeled L6 corpus for the Layer-3 numeric grounding validator (BioForge v4 §4). Authored, not fetched. Each case: a draft response, the structured tool outputs available that run, and `expected_unsupported` — the numeric VALUES the response asserts that cannot be traced to a tool result. Grounded cases have an empty list. Grow this with adversarial cases as the validator hardens; precision must stay 1.0 (never over-block a real value).",
+  "cases": [
+    {
+      "id": "grounded_exact_decimal",
+      "response": "The on-target score is 0.78.",
+      "tool_outputs": [{"on_target_score": 0.78}],
+      "expected_unsupported": []
+    },
+    {
+      "id": "grounded_percent_of_fraction_field",
+      "response": "The on-target score is 78%.",
+      "tool_outputs": [{"on_target_score": 0.78}],
+      "expected_unsupported": []
+    },
+    {
+      "id": "grounded_rounded_quote",
+      "response": "The guide scored roughly 0.78 on-target.",
+      "tool_outputs": [{"on_target_score": 0.7843}],
+      "expected_unsupported": []
+    },
+    {
+      "id": "grounded_percent_field",
+      "response": "GC content is 78% across the protospacer.",
+      "tool_outputs": [{"gc_percent": 78.0}],
+      "expected_unsupported": []
+    },
+    {
+      "id": "grounded_coordinate",
+      "response": "The variant sits at chr17:43,000,000.",
+      "tool_outputs": [{"vcf_string": "17-43000000-A-G"}],
+      "expected_unsupported": []
+    },
+    {
+      "id": "grounded_evalue",
+      "response": "The top BLAST hit has an e-value of 2e-40.",
+      "tool_outputs": [{"e_value": 2e-40}],
+      "expected_unsupported": []
+    },
+    {
+      "id": "grounded_count",
+      "response": "Found 3 candidate guides.",
+      "tool_outputs": [{"num_returned": 3}],
+      "expected_unsupported": []
+    },
+    {
+      "id": "entity_numbers_not_flagged",
+      "response": "The Cas9 guide targets BRCA1 in GRCh38; relevant to SARS-CoV-2 and COVID-19, shown 5'->3'.",
+      "tool_outputs": [{"note": "design complete"}],
+      "expected_unsupported": []
+    },
+    {
+      "id": "fabricated_score",
+      "response": "The on-target score is 0.92.",
+      "tool_outputs": [{"on_target_score": 0.78}],
+      "expected_unsupported": [0.92]
+    },
+    {
+      "id": "fabricated_among_grounded",
+      "response": "Scores were 0.78 (on-target) and 0.92 (off-target).",
+      "tool_outputs": [{"on_target_score": 0.78}],
+      "expected_unsupported": [0.92]
+    },
+    {
+      "id": "fabricated_count",
+      "response": "Found 7 off-target sites.",
+      "tool_outputs": [{"num_offtargets": 2}],
+      "expected_unsupported": [7]
+    },
+    {
+      "id": "fabricated_percent_no_false_match",
+      "response": "Model confidence is 78%.",
+      "tool_outputs": [{"plddt": 0.9}],
+      "expected_unsupported": [78]
+    }
+  ]
+}
