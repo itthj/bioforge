@@ -283,6 +283,16 @@ _COMPONENT_WEIGHTS: dict[str, float] = {
     cost_hint="cheap",
     destructive=False,
     tags=["sequence", "crispr", "scoring"],
+    model_versions={"on_target": "bioforge-rule-based-proxy-1.0.0"},
+    emits_instance_uncertainty={"on_target": False},
+    published_accuracy={
+        "on_target": (
+            "VERIFY: transparent rule-based proxy of Doench 2014/2016 features; NOT the trained "
+            "Rule Set 2 (Azimuth) model, so no standalone published held-out accuracy applies."
+        )
+    },
+    training_distribution={"guide_length_nt": 20, "note": "rule-based heuristic, not a trained model"},
+    reference_data_keys=[],
 )
 async def score_guide_on_target(
     inp: ScoreGuideOnTargetInput,

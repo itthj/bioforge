@@ -361,6 +361,16 @@ def _scan_strand(fwd_target: str, pam_pattern: str, guide_length: int, strand: L
     cost_hint="cheap",
     destructive=False,
     tags=["sequence", "crispr", "design"],
+    model_versions={"heuristic": "bioforge-design-heuristic-1.0.0"},
+    emits_instance_uncertainty={"heuristic": False},
+    published_accuracy={
+        "heuristic": (
+            "VERIFY: transparent design filter (GC / polyT / mononucleotide run / self-"
+            "complementarity); not a trained predictor — no published accuracy applies."
+        )
+    },
+    training_distribution={"guide_length_nt": [15, 25], "note": "rule-based heuristic, not a trained model"},
+    reference_data_keys=[],
 )
 async def design_guides(inp: DesignGuidesInput) -> DesignGuidesOutput:
     pam_re = _pam_to_regex(inp.pam)

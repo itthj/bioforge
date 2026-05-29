@@ -50,6 +50,16 @@ class ToolSpec:
     cost_hint: CostHint = "cheap"
     destructive: bool = False
     tags: list[str] = field(default_factory=list)
+    # --- v4 §4.2 grounding / uncertainty / OOD metadata ---
+    # Optional; defaults keep every existing tool registering unchanged. The dict-keyed
+    # fields let a tool with several scores (e.g. on_target vs off_target) declare per-score
+    # behavior. `published_accuracy` values must be sourced or carry a `VERIFY:` marker —
+    # never an unsourced number.
+    model_versions: dict[str, str] = field(default_factory=dict)
+    emits_instance_uncertainty: dict[str, bool] = field(default_factory=dict)
+    published_accuracy: dict[str, str] = field(default_factory=dict)
+    training_distribution: dict[str, object] = field(default_factory=dict)
+    reference_data_keys: list[str] = field(default_factory=list)
 
     def anthropic_definition(self) -> dict:
         """Render as an Anthropic tool definition (name, description, input_schema)."""
@@ -61,3 +71,24 @@ class ToolSpec:
             "description": self.description,
             "input_schema": schema,
         }
+
+
+def uncertainty_note(spec: ToolSpec, key: str) -> str:
+    """The §6 honesty rule, as code: report only the uncertainty a model actually provides.
+
+    - emits per-instance uncertainty → say so (the value is in the tool's own output);
+    - else if a model-level published accuracy is recorded → report that (it must be sourced);
+    - else → an explicit "point estimate, no interval" framing.
+
+    It NEVER fabricates a per-prediction interval or an accuracy figure — that is the entire
+    point. `key` selects which declared score to describe (e.g. "on_target").
+    """
+    if spec.emits_instance_uncertainty.get(key):
+        return f"{key}: instance-level uncertainty is provided in this tool's output — use it directly."
+    accuracy = spec.published_accuracy.get(key)
+    if accuracy:
+        return f"{key}: point estimate only (no per-prediction interval). Model-level published accuracy: {accuracy}"
+    return (
+        f"{key}: point estimate only — no per-prediction interval and no published accuracy "
+        "recorded; treat as qualitative."
+    )

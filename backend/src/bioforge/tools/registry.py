@@ -18,6 +18,11 @@ def register_tool(
     cost_hint: CostHint = "cheap",
     destructive: bool = False,
     tags: list[str] | None = None,
+    model_versions: dict[str, str] | None = None,
+    emits_instance_uncertainty: dict[str, bool] | None = None,
+    published_accuracy: dict[str, str] | None = None,
+    training_distribution: dict[str, object] | None = None,
+    reference_data_keys: list[str] | None = None,
 ) -> Callable[[Callable[..., Awaitable[ToolOutput]]], Callable[..., Awaitable[ToolOutput]]]:
     """Decorator: register an async handler as a bio tool.
 
@@ -42,6 +47,11 @@ def register_tool(
             cost_hint=cost_hint,
             destructive=destructive,
             tags=list(tags or []),
+            model_versions=dict(model_versions or {}),
+            emits_instance_uncertainty=dict(emits_instance_uncertainty or {}),
+            published_accuracy=dict(published_accuracy or {}),
+            training_distribution=dict(training_distribution or {}),
+            reference_data_keys=list(reference_data_keys or []),
         )
         return handler
 

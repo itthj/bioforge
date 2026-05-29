@@ -46,7 +46,8 @@ responses are left untouched.
 
 - **Execution-time replan on a soundness/L7 violation** — currently detected and recorded; failing the step and replanning (§4.1 loop) is a deeper executor change.
 - **L5 iterative rewrite re-validation** — redaction is designed to be re-validation-safe (the marker carries no number), but the rewrite is not re-run through the layers in a loop.
-- **OOD detection & calibration (§6)**, **benchmark gold-sets (GIAB/GUIDE-seq/ClinVar, §13)**, **registry uncertainty metadata (§4.2)**, **Phase-2 ML scorers (DeepSpCas9/CFD/FORECasT/Lindel)** — these are capability-expansion groups, parked by scope (we are hardening the existing platform, not extending it).
+- **Registry uncertainty metadata (§4.2)** — the schema (`model_versions`, `emits_instance_uncertainty`, `published_accuracy`, `training_distribution`, `reference_data_keys`) and the `uncertainty_note()` honesty helper (§6 rule: report only the uncertainty a model emits; never fabricate an interval or figure) are **now in place** in `tools/base.py`. Populated for the scoring tools as exemplars; remaining tools are mechanical follow-up.
+- **OOD-gate wiring & calibration (§6)**, **benchmark gold-sets (GIAB/GUIDE-seq/ClinVar, §13)**, **Phase-2 ML scorers** (primary on-target chosen: DeepCRISPR/Apache-2.0 — see `license_audit.md`) — still pending; these are capability-expansion, not hardening.
 
 ## The honest risk
 
