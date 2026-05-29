@@ -72,6 +72,32 @@
       "response": "Model confidence is 78%.",
       "tool_outputs": [{"plddt": 0.9}],
       "expected_unsupported": [78]
+    },
+    {
+      "id": "identifier_grounded",
+      "response": "The colocated variant rs80357065 was reported.",
+      "tool_outputs": [{"colocated_variants": [{"id": "rs80357065"}]}],
+      "expected_unsupported": [],
+      "expected_unsupported_ids": []
+    },
+    {
+      "id": "identifier_fabricated_rsid",
+      "response": "The variant is also linked to rs99999999.",
+      "tool_outputs": [{"colocated_variants": [{"id": "rs80357065"}]}],
+      "expected_unsupported_ids": ["rs99999999"]
+    },
+    {
+      "id": "identifier_fabricated_refseq",
+      "response": "Annotated against transcript NM_999999.9.",
+      "tool_outputs": [{"transcript_id": "NM_007294.3"}],
+      "expected_unsupported_ids": ["NM_999999.9"]
+    },
+    {
+      "id": "identifier_echoed_from_user_input",
+      "response": "rs80357065 was analyzed as requested.",
+      "tool_outputs": [{"note": "lookup returned no colocated record"}],
+      "extra_sources": ["please look up rs80357065 in BRCA1"],
+      "expected_unsupported_ids": []
     }
   ]
 }

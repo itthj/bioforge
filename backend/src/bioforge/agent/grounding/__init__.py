@@ -18,7 +18,7 @@ from bioforge.agent.grounding.judge import (
 )
 from bioforge.agent.grounding.metrics import (
     CorpusMetrics,
-    evaluate_numeric_corpus,
+    evaluate_corpus,
     load_numeric_corpus,
 )
 from bioforge.agent.grounding.numeric import (
@@ -59,7 +59,7 @@ __all__ = [
     "ValidationReport",
     "build_inventory",
     "check_soundness",
-    "evaluate_numeric_corpus",
+    "evaluate_corpus",
     "extract_entity_claims",
     "extract_numeric_claims",
     "ground_entities",

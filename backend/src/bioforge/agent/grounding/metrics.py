@@ -1,21 +1,20 @@
-"""Layer 6 — validate the validator (BioForge v4 §4).
+"""Layer 6 — validate the validator (BioForge v4 §4, §13).
 
 The grounding validator is software that can be wrong, so we measure it like any other
-accuracy-critical component: a hand-labeled corpus of (response, tool_outputs,
-expected_unsupported) cases, scored for **block precision** and **fabrication recall**.
+accuracy-critical component: a hand-labeled corpus of cases, scored for **block precision**
+and **fabrication recall**, separately for each deterministic layer:
 
-These two numbers are first-class, release-gating metrics (see test_grounding_metrics.py)
-and are what the platform's Accuracy Report surfaces for the numeric layer:
-  - block precision — of the values the validator flagged, how many were truly
-    unsupported. A false positive wrongly redacts real science and erodes trust.
-  - fabrication recall — of the truly-unsupported values, how many were caught. A false
-    negative is a fabrication that slipped through.
+  - numeric grounding (L3),
+  - structured-identifier grounding (L3+).
 
-Ground truth is the set of numeric *values* a response asserts that cannot be traced to a
-tool result. Comparing predicted-vs-expected by value means an extraction miss (a
-fabrication the tokenizer never even extracted) correctly counts as a false negative — so
-this corpus measures the whole pipeline (extraction + grounding), not just the matcher.
-That directly addresses the validator's true recall ceiling.
+block precision — of the values/ids the validator flagged, how many were truly
+unsupported (a false positive wrongly redacts real science). fabrication recall — of the
+truly-unsupported ones, how many were caught (a false negative is a fabrication that
+slipped through). Comparing predicted-vs-expected by value/id means an extraction miss
+counts as a false negative — so the whole pipeline is measured, not just the matcher.
+
+These are first-class, release-gating metrics (see test_grounding_metrics.py) and are what
+the platform's Accuracy Report surfaces for the deterministic grounding layers.
 """
 
 from __future__ import annotations
@@ -31,43 +30,69 @@ _CORPUS_DIR = Path(__file__).parent / "corpus"
 
 
 class CorpusMetrics(BaseModel):
-    """Precision/recall of the numeric grounding layer over a labeled corpus."""
+    """Precision/recall of the deterministic grounding layers over a labeled corpus."""
 
     n_cases: int
-    true_positives: int = Field(description="Truly-unsupported values the validator flagged.")
-    false_positives: int = Field(description="Grounded values the validator wrongly flagged (over-blocks).")
-    false_negatives: int = Field(description="Truly-unsupported values the validator missed.")
-    block_precision: float = Field(description="TP / (TP + FP). 1.0 = never over-blocks a real value.")
-    fabrication_recall: float = Field(description="TP / (TP + FN). 1.0 = catches every labeled fabrication.")
+    # Numeric layer (L3)
+    numeric_true_positives: int
+    numeric_false_positives: int = Field(description="Grounded values wrongly flagged (over-blocks).")
+    numeric_false_negatives: int
+    numeric_block_precision: float = Field(description="1.0 = never over-blocks a real value.")
+    numeric_fabrication_recall: float = Field(description="1.0 = catches every labeled fabricated value.")
+    # Structured-identifier layer (L3+)
+    entity_true_positives: int
+    entity_false_positives: int = Field(description="Grounded identifiers wrongly flagged (over-blocks).")
+    entity_false_negatives: int
+    entity_block_precision: float = Field(description="1.0 = never over-blocks a real identifier.")
+    entity_fabrication_recall: float = Field(description="1.0 = catches every labeled fabricated identifier.")
 
 
-def _round_key(x: float) -> float:
-    return round(float(x), 9)
+def _precision(tp: int, fp: int) -> float:
+    return tp / (tp + fp) if (tp + fp) else 1.0
 
 
-def evaluate_numeric_corpus(cases: list[dict]) -> CorpusMetrics:
-    """Score the Layer-3 numeric validator against a labeled corpus."""
-    tp = fp = fn = 0
+def _recall(tp: int, fn: int) -> float:
+    return tp / (tp + fn) if (tp + fn) else 1.0
+
+
+def evaluate_corpus(cases: list[dict]) -> CorpusMetrics:
+    """Score the deterministic numeric + identifier validators against a labeled corpus."""
+    n_tp = n_fp = n_fn = 0
+    e_tp = e_fp = e_fn = 0
     for case in cases:
-        report = ground_response(case["response"], case["tool_outputs"])
-        predicted = {_round_key(v.value) for v in report.unsupported}
-        expected = {_round_key(x) for x in case.get("expected_unsupported", [])}
-        tp += len(predicted & expected)
-        fp += len(predicted - expected)
-        fn += len(expected - predicted)
-    precision = tp / (tp + fp) if (tp + fp) else 1.0
-    recall = tp / (tp + fn) if (tp + fn) else 1.0
+        report = ground_response(
+            case["response"],
+            case["tool_outputs"],
+            extra_sources=case.get("extra_sources", []),
+        )
+        num_pred = {round(v.value, 9) for v in report.unsupported}
+        num_exp = {round(float(x), 9) for x in case.get("expected_unsupported", [])}
+        n_tp += len(num_pred & num_exp)
+        n_fp += len(num_pred - num_exp)
+        n_fn += len(num_exp - num_pred)
+
+        id_pred = {v.text.upper() for v in report.unsupported_entities}
+        id_exp = {str(x).upper() for x in case.get("expected_unsupported_ids", [])}
+        e_tp += len(id_pred & id_exp)
+        e_fp += len(id_pred - id_exp)
+        e_fn += len(id_exp - id_pred)
+
     return CorpusMetrics(
         n_cases=len(cases),
-        true_positives=tp,
-        false_positives=fp,
-        false_negatives=fn,
-        block_precision=precision,
-        fabrication_recall=recall,
+        numeric_true_positives=n_tp,
+        numeric_false_positives=n_fp,
+        numeric_false_negatives=n_fn,
+        numeric_block_precision=_precision(n_tp, n_fp),
+        numeric_fabrication_recall=_recall(n_tp, n_fn),
+        entity_true_positives=e_tp,
+        entity_false_positives=e_fp,
+        entity_false_negatives=e_fn,
+        entity_block_precision=_precision(e_tp, e_fp),
+        entity_fabrication_recall=_recall(e_tp, e_fn),
     )
 
 
 def load_numeric_corpus() -> list[dict]:
-    """Load the committed hand-labeled numeric-grounding corpus."""
+    """Load the committed hand-labeled grounding corpus."""
     data = json.loads((_CORPUS_DIR / "numeric_l3.json").read_text(encoding="utf-8"))
     return data["cases"]
