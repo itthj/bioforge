@@ -28,6 +28,14 @@ from bioforge.agent.grounding.numeric import (
     extract_numeric_claims,
     ground_response,
 )
+from bioforge.agent.grounding.ood import (
+    ModelUncertaintyNote,
+    OODFlag,
+    OODReport,
+    check_ood,
+    collect_model_uncertainty,
+    summarize_ood,
+)
 from bioforge.agent.grounding.render import summarize_grounding
 from bioforge.agent.grounding.report import (
     ClaimKind,
@@ -51,14 +59,19 @@ __all__ = [
     "InventoryEntry",
     "JudgeResult",
     "JudgedClaim",
+    "ModelUncertaintyNote",
     "NumericClaimVerdict",
+    "OODFlag",
+    "OODReport",
     "ParsedEntity",
     "ParsedNumber",
     "SoundnessReport",
     "SoundnessViolation",
     "ValidationReport",
     "build_inventory",
+    "check_ood",
     "check_soundness",
+    "collect_model_uncertainty",
     "evaluate_corpus",
     "extract_entity_claims",
     "extract_numeric_claims",
@@ -67,4 +80,5 @@ __all__ = [
     "judge_claims",
     "load_numeric_corpus",
     "summarize_grounding",
+    "summarize_ood",
 ]

@@ -40,10 +40,13 @@ from bioforge.agent.context import get_current_db_session
 from bioforge.agent.critic import CriticVerdict
 from bioforge.agent.grounding import (
     ValidationReport,
+    check_ood,
     check_soundness,
+    collect_model_uncertainty,
     ground_response,
     judge_claims,
     summarize_grounding,
+    summarize_ood,
 )
 from bioforge.agent.llm import LLM, UsageSummary, summarize_usage
 from bioforge.agent.local_critic import LocalCritic
@@ -179,6 +182,15 @@ def _tool_outputs_from_steps(steps: list[AgentStep]) -> list[dict]:
     return [s.tool_output for s in steps if s.type == "tool_call" and s.tool_output is not None]
 
 
+def _tool_calls_from_steps(steps: list[AgentStep]) -> list[tuple[str, dict]]:
+    """(tool_name, tool_input) for each executed tool call — the §6 OOD input source."""
+    return [
+        (s.tool_name, s.tool_input)
+        for s in steps
+        if s.type == "tool_call" and s.tool_name is not None and s.tool_input is not None
+    ]
+
+
 # Inline marker left where an unsupported numeric claim used to be. Deliberately digit-free
 # so it carries no new number and survives re-validation cleanly.
 _REDACTION_MARKER = "[unverifiable]"
@@ -243,8 +255,11 @@ async def _apply_grounding(
         return response_text, None, zero
     t0 = time.monotonic()
     tool_outputs = _tool_outputs_from_steps(steps)
+    tool_calls = _tool_calls_from_steps(steps)
     report = ground_response(response_text, tool_outputs, extra_sources=[goal])
     soundness = check_soundness(tool_outputs)
+    ood = check_ood(tool_calls)
+    model_uncertainty = collect_model_uncertainty([name for name, _ in tool_calls])
     judge_usage = zero
     if settings.grounding_judge_enabled:
         try:
@@ -269,11 +284,23 @@ async def _apply_grounding(
         final_text = response_text + summarize_grounding(report)
     else:  # shadow
         final_text = response_text
+    # The §6 OOD advisory rides the visible modes (annotate/enforce) regardless of whether a
+    # redaction happened; shadow records it in the verdict only. summarize_ood is "" when there
+    # are no flags, so in-envelope runs stay byte-for-byte unchanged.
+    if mode in ("annotate", "enforce"):
+        final_text += summarize_ood(ood)
     step = AgentStep(
         idx=step_idx,
         type="validation",
         duration_ms=int((time.monotonic() - t0) * 1000),
-        verdict={**report.model_dump(), "enforced": enforced, "mode": mode, "soundness": soundness.model_dump()},
+        verdict={
+            **report.model_dump(),
+            "enforced": enforced,
+            "mode": mode,
+            "soundness": soundness.model_dump(),
+            "ood": ood.model_dump(),
+            "model_uncertainty": [n.model_dump() for n in model_uncertainty],
+        },
     )
     return final_text, step, judge_usage
 
