@@ -102,6 +102,69 @@ def score_clinvar_fidelity(cases: list[dict]) -> FidelityReport:
     )
 
 
+# --- Adapters: live tool output -> fidelity cases -----------------------------------
+#
+# ClinVar review_status -> gold-star rating. Source: NCBI ClinVar "Review status"
+# documentation (https://www.ncbi.nlm.nih.gov/clinvar/docs/review_status/), germline /
+# oncogenicity aggregate-record scale. An unrecognized status maps to None — we never
+# guess a star rating (that would be its own unsourced-constant sin).
+_REVIEW_STATUS_STARS: dict[str, int] = {
+    "practice guideline": 4,
+    "reviewed by expert panel": 3,
+    "criteria provided, multiple submitters, no conflicts": 2,
+    "criteria provided, conflicting classifications": 1,
+    "criteria provided, conflicting interpretations": 1,  # legacy phrasing, same 1-star tier
+    "criteria provided, single submitter": 1,
+    "no assertion criteria provided": 0,
+    "no classification provided": 0,
+    "no classification for the individual variant": 0,
+    "no assertion provided": 0,  # legacy phrasing
+}
+
+
+def review_status_to_stars(review_status: str | None) -> int | None:
+    """Map a ClinVar review_status string to its 0-4 gold-star rating (NCBI scale).
+
+    Case- and whitespace-insensitive. Returns None for an empty or unrecognized status
+    rather than guessing — the scorer then treats a None reported-star as 'not preserved'
+    against a known gold rating, instead of inventing a value.
+    """
+    if not review_status:
+        return None
+    return _REVIEW_STATUS_STARS.get(_norm(review_status))
+
+
+def case_from_clinvar_record(
+    record: dict,
+    *,
+    gold_significance: str,
+    gold_stars: int | None = None,
+    variant: str | None = None,
+) -> dict:
+    """Build a fidelity case from a `lookup_clinvar` record (the platform's REPORTED view)
+    paired with the GOLD ClinVar truth supplied by the caller.
+
+    `record` is one `LookupClinvarOutput.records[i]` dict (or its `.model_dump()`): the
+    reported significance is `germline.description`, and the reported star rating is derived
+    from `germline.review_status` via the NCBI scale. The gold values must come from an
+    independent read of ClinVar truth (e.g. the raw esummary), NEVER from memory — this
+    keeps the benchmark a real fidelity check rather than a tautology.
+
+    Star fields are included only when the caller provides `gold_stars`, so significance-only
+    gold data still produces a valid (significance-only) case.
+    """
+    germline = record.get("germline") or {}
+    case: dict = {
+        "variant": variant or record.get("accession") or record.get("uid") or "?",
+        "gold_significance": gold_significance,
+        "reported_significance": germline.get("description") or "",
+    }
+    if gold_stars is not None:
+        case["gold_stars"] = gold_stars
+        case["reported_stars"] = review_status_to_stars(germline.get("review_status"))
+    return case
+
+
 # Hand-authored guard cases: faithful reports must pass; the relabeling / star-dropping
 # cases must be caught. (Not live ClinVar truth — see module docstring.)
 REFERENCE_CASES: list[dict] = [
