@@ -70,6 +70,25 @@ class NumericClaimVerdict(BaseModel):
     )
 
 
+class EntityClaimVerdict(BaseModel):
+    """A structured biological identifier found in the draft, with its grounding outcome.
+
+    Deterministic (no LLM): the identifier either appears verbatim in the run's tool
+    outputs / the user's request, or it does not. `kind` names the identifier class
+    (rsid, refseq, ensembl, clinvar, pdb).
+    """
+
+    text: str
+    kind: str
+    start: int
+    end: int
+    status: GroundingStatus
+    matched_path: str | None = Field(
+        default=None,
+        description="Where the identifier was found (a tool-output path or 'input[i]'), if grounded.",
+    )
+
+
 class ValidationReport(BaseModel):
     """Result of running the grounding validator over a draft response.
 
@@ -82,6 +101,10 @@ class ValidationReport(BaseModel):
     ok: bool = Field(description="True iff no claim of the covered kinds was left unsupported.")
     inventory_size: int = Field(description="Number of distinct numeric values extracted from tool outputs.")
     numeric_claims: list[NumericClaimVerdict] = Field(default_factory=list)
+    entity_claims: list[EntityClaimVerdict] = Field(
+        default_factory=list,
+        description="Structured identifiers (rsID, accession, ...) checked deterministically against tool outputs.",
+    )
     judged_claims: list[JudgedClaim] = Field(
         default_factory=list,
         description="Entity/mechanistic claims judged by the L4 LLM judge (empty if the judge did not run).",
@@ -92,6 +115,11 @@ class ValidationReport(BaseModel):
     def unsupported(self) -> list[NumericClaimVerdict]:
         """The numeric claims that could not be traced to a tool result this run."""
         return [c for c in self.numeric_claims if c.status == "unsupported"]
+
+    @property
+    def unsupported_entities(self) -> list[EntityClaimVerdict]:
+        """The structured identifiers that could not be traced to a tool result or the user's input."""
+        return [c for c in self.entity_claims if c.status == "unsupported"]
 
     @property
     def unsupported_judged(self) -> list[JudgedClaim]:

@@ -189,12 +189,17 @@ def _enforce(text: str, report: ValidationReport) -> str:
     """
     if report.ok:
         return text
+    # Span-based redactions: numeric claims and structured identifiers both carry exact
+    # offsets, so they are spliced out (rightmost-first to keep offsets valid). Judged
+    # entity/mechanistic claims have no reliable offsets, so they are flagged in the footer.
+    spans = [(c.start, c.end, "numeric", c.text) for c in report.unsupported]
+    spans += [(e.start, e.end, e.kind, e.text) for e in report.unsupported_entities]
     redacted = text
-    for claim in sorted(report.unsupported, key=lambda c: c.start, reverse=True):
-        redacted = redacted[: claim.start] + _REDACTION_MARKER + redacted[claim.end :]
+    for start, end, _kind, _ctext in sorted(spans, key=lambda s: s[0], reverse=True):
+        redacted = redacted[:start] + _REDACTION_MARKER + redacted[end:]
     notes = [
-        f'  - "{c.text}" (numeric) was removed: not traceable to a tool result in this run.'
-        for c in sorted(report.unsupported, key=lambda c: c.start)
+        f'  - "{ctext}" ({kind}) was removed: not traceable to a tool result in this run.'
+        for start, end, kind, ctext in sorted(spans, key=lambda s: s[0])
     ]
     notes += [
         f'  - "{jc.text}" ({jc.kind}) is not supported by any tool result in this run.'
@@ -211,7 +216,7 @@ def _enforce(text: str, report: ValidationReport) -> str:
 
 
 async def _apply_grounding(
-    *, response_text: str, steps: list[AgentStep], status: str, step_idx: int, llm: LLM, model: str
+    *, goal: str, response_text: str, steps: list[AgentStep], status: str, step_idx: int, llm: LLM, model: str
 ) -> tuple[str, AgentStep | None, UsageSummary]:
     """Run the grounding validator over a final response (BioForge v4 §4 Layers 3-4).
 
@@ -232,7 +237,7 @@ async def _apply_grounding(
         return response_text, None, zero
     t0 = time.monotonic()
     tool_outputs = _tool_outputs_from_steps(steps)
-    report = ground_response(response_text, tool_outputs)
+    report = ground_response(response_text, tool_outputs, extra_sources=[goal])
     soundness = check_soundness(tool_outputs)
     judge_usage = zero
     if settings.grounding_judge_enabled:
@@ -964,6 +969,7 @@ async def run_agent(
         all_steps.extend(tail.steps)
         total_usage = total_usage.merge(tail.usage or UsageSummary.zero(model))
         final_text, grounding_step, grounding_usage = await _apply_grounding(
+            goal=goal,
             response_text=tail.response_text,
             steps=all_steps,
             status=tail.status,
@@ -1044,6 +1050,7 @@ async def resume_agent(
         critic=critic,
     )
     final_text, grounding_step, grounding_usage = await _apply_grounding(
+        goal=goal,
         response_text=result.response_text,
         steps=result.steps,
         status=result.status,

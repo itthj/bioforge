@@ -7,6 +7,11 @@ corpus (L6) land in subsequent slices and will extend the same `ValidationReport
 
 from __future__ import annotations
 
+from bioforge.agent.grounding.entities import (
+    ParsedEntity,
+    extract_entity_claims,
+    ground_entities,
+)
 from bioforge.agent.grounding.judge import (
     JudgeResult,
     judge_claims,
@@ -25,6 +30,7 @@ from bioforge.agent.grounding.numeric import (
 )
 from bioforge.agent.grounding.report import (
     ClaimKind,
+    EntityClaimVerdict,
     GroundingStatus,
     JudgedClaim,
     NumericClaimVerdict,
@@ -39,11 +45,13 @@ from bioforge.agent.grounding.soundness import (
 __all__ = [
     "ClaimKind",
     "CorpusMetrics",
+    "EntityClaimVerdict",
     "GroundingStatus",
     "InventoryEntry",
     "JudgeResult",
     "JudgedClaim",
     "NumericClaimVerdict",
+    "ParsedEntity",
     "ParsedNumber",
     "SoundnessReport",
     "SoundnessViolation",
@@ -51,7 +59,9 @@ __all__ = [
     "build_inventory",
     "check_soundness",
     "evaluate_numeric_corpus",
+    "extract_entity_claims",
     "extract_numeric_claims",
+    "ground_entities",
     "ground_response",
     "judge_claims",
     "load_numeric_corpus",

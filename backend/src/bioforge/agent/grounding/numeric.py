@@ -36,6 +36,7 @@ import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 
+from bioforge.agent.grounding.entities import ground_entities
 from bioforge.agent.grounding.report import NumericClaimVerdict, ValidationReport
 
 # --- Matching tolerances -------------------------------------------------------------
@@ -195,13 +196,22 @@ def _value_matches(claim: ParsedNumber, inv_value: float) -> bool:
     return False
 
 
-def ground_response(response_text: str, tool_outputs: Iterable[dict]) -> ValidationReport:
-    """Validate every numeric claim in `response_text` against the run's tool outputs.
+def ground_response(
+    response_text: str,
+    tool_outputs: Iterable[dict],
+    *,
+    extra_sources: Iterable[str] = (),
+) -> ValidationReport:
+    """Validate the deterministic claims in `response_text` against the run's tool outputs.
 
-    `tool_outputs` is the list of structured tool-result dicts produced this run
-    (each typically `ToolOutput.model_dump()`). Returns a `ValidationReport`; `ok` is
-    True iff no numeric claim was left unsupported.
+    Covers two deterministic layers (no LLM): numeric grounding and structured-identifier
+    (entity) grounding. `tool_outputs` is the list of structured tool-result dicts produced
+    this run (each typically `ToolOutput.model_dump()`); `extra_sources` are additional
+    grounding sources for identifiers (e.g. the user's goal — an ID the user supplied is not
+    a fabrication). Returns a `ValidationReport`; `ok` is True iff no numeric or identifier
+    claim was left unsupported.
     """
+    tool_outputs = list(tool_outputs)
     inventory = build_inventory(tool_outputs)
     claims = extract_numeric_claims(response_text)
 
@@ -221,17 +231,21 @@ def ground_response(response_text: str, tool_outputs: Iterable[dict]) -> Validat
             )
         )
 
+    entity_verdicts = ground_entities(response_text, tool_outputs, extra_sources)
+
     unsupported = [v for v in verdicts if v.status == "unsupported"]
-    ok = not unsupported
+    unsupported_entities = [e for e in entity_verdicts if e.status == "unsupported"]
+    ok = not unsupported and not unsupported_entities
     grounded_n = len(verdicts) - len(unsupported)
     summary = (
-        f"{grounded_n}/{len(verdicts)} numeric claims grounded against "
-        f"{len(inventory)} tool values; {len(unsupported)} unsupported."
+        f"{grounded_n}/{len(verdicts)} numeric claims grounded against {len(inventory)} tool values; "
+        f"{len(unsupported)} numeric + {len(unsupported_entities)} identifier claims unsupported."
     )
     return ValidationReport(
         layer="L3_numeric",
         ok=ok,
         inventory_size=len(inventory),
         numeric_claims=verdicts,
+        entity_claims=entity_verdicts,
         summary=summary,
     )
