@@ -1,62 +1,135 @@
-# BioForge — Session handoff (grounding-hardening session, 2026-05-29)
+# BioForge — Session handoff (Phase-2 ML + accuracy-hardening session, 2026-05-29)
 
-Pick up cold from here. Read `docs/grounding.md` and `docs/license_audit.md` next.
+Pick up cold from here. Read `docs/grounding.md` and `docs/license_audit.md` next (both
+updated this session). This continues the odyssey from the prior grounding-hardening handoff.
 
 ## Repo state
 - **GitHub:** https://github.com/itthj/bioforge — **everything is on `main`** (fast-forwarded).
-- **Local:** `C:\Users\james\OneDrive\Documents\BIOTECH 101\bioforge` (Windows; WSL Ubuntu mirror under `/mnt/c/...`).
-- **Suite:** `770 passed, 2 skipped, 11 deselected`. Lint + format clean.
-- Feature branches (all already merged into `main`): `feat/grounding-validator`, `chore/license-audit`, `feat/registry-metadata`, `feat/clinvar-fidelity-benchmark`. Safe to delete on origin.
+- **Local:** `C:\Users\james\OneDrive\Documents\BIOTECH 101\bioforge` (Windows; Docker Desktop + WSL2 available).
+- **`origin/main` HEAD: `64d20c4`.** Working tree clean.
+- **Suite:** `846 passed, 2 skipped, 11 deselected`. Lint + format clean.
+- This session's feature branches were all FF-merged into `main` and **deleted**. The prior
+  session's branches (`chore/license-audit`, `feat/clinvar-fidelity-benchmark`,
+  `feat/grounding-validator`, `feat/registry-metadata`) still exist (local + origin) — safe to delete.
 
-## What this session built
-Scope was set by the user: **harden the existing (v2) platform for accuracy / anti-hallucination toward the v4 blueprint — NOT a rebuild.** Capability-expansion groups were parked unless explicitly unblocked.
+## What this session built (8 commits on `main`, oldest -> newest)
+1. **`2aabdfc` section 4.2 metadata mop-up + DeepCRISPR Spearman sourced.** Populated `reference_data_keys`
+   on the DB-backed tools (ncbi_blast/clinvar/dbsnp, gnomad, ensembl_vep, ensembl_variant_recoder,
+   rcsb_pdb, alphafold_db, interpro, sifts) + model metadata on `find_offtargets` (Hsu-2013 MIT) and
+   `edit_outcome`. Resolved the DeepCRISPR Spearman `VERIFY:` in `license_audit.md` via the PMC mirror
+   (on-target ROC-AUC **0.857**; exact regression rho is in Additional file 3). Pure transforms stay empty
+   (honest). Rule: a tool carries metadata iff it owns a model/heuristic OR depends on a reference dataset.
+2. **`527ba7d` DeepCRISPR on-target scaffold** (later superseded by the validated version, #8).
+3. **`2bf6e55` section 6 OOD gate** (`agent/grounding/ood.py`): deterministic `check_ood(tool_calls)` flags
+   inputs outside a model's stated envelope (e.g. non-20-nt guide vs `find_offtargets`' Hsu weights);
+   `collect_model_uncertainty(tool_names)` surfaces each ran model's `uncertainty_note`. Both ride the
+   `validation` verdict (`ood`, `model_uncertainty`); advisory appended in annotate/enforce, silent in
+   shadow. Detector/recorder only (acting-on-flag deferred, like L7).
+4. **`f7a4d66` section 13 ClinVar fidelity adapter** (`benchmarks/clinvar_fidelity.py`):
+   `review_status_to_stars` (NCBI scale, verified) + `case_from_clinvar_record` to turn a live
+   `lookup_clinvar` record + caller-supplied gold into a fidelity case. Live >=2-star gold-set still
+   deferred (network; never hardcode ClinVar truth from memory).
+5. **`212d795` section 10 reproducibility research-object** (`provenance/research_object.py`):
+   `build_run_manifest(result)` -> content-hashed RO-Crate-inspired lineage (hashed tool I/O,
+   reference-build pins, NON-SECRET settings fingerprint). `export_research_object`. Pure read, never
+   auto-invoked. Digest-pinned containers / JSON-LD / repro CI deferred.
+6. **`04f3e55` Lindel edit-outcome model** (scaffold) -- `edit_outcome(model="lindel")`.
+7. **`2d8807c` FORECasT edit-outcome model** (scaffold) -- `edit_outcome(model="forecast")`.
+8. **`64d20c4` DeepCRISPR VALIDATED end-to-end** + rewired to the authors' official image.
 
-1. **Grounding stack (v4 §4)** in `backend/src/bioforge/agent/grounding/`:
-   - **L0** — hardened `prompts/system.md` + `prompts/critic.md` (all claim kinds trace; findings≠background; caveats-first; never fabricate uncertainty). Scoped to current tools only (no DeepSpCas9/OOD clauses that reference unbuilt things).
-   - **L3** `numeric.py` — deterministic numeric grounding; conservative extractor (Cas9/BRCA1/5'/SARS-CoV-2 not treated as quantities); percent/rounding aware.
-   - **L3+** `entities.py` — deterministic structured-identifier grounding (rsID/RefSeq/Ensembl/ClinVar/PDB), echo-safe vs the user goal, inline-redactable.
-   - **L4** `judge.py` (+ `prompts/grounding_judge.md`) — Opus entity/mechanistic judge, may only cite tool fields. **Opt-in** (`BIOFORGE_GROUNDING_JUDGE_ENABLED`).
-   - **L6** `metrics.py` (+ `corpus/numeric_l3.json`) — validate-the-validator; `evaluate_corpus()` reports precision/recall for numeric **and** identifier layers. Release gate: 1.0 / 1.0.
-   - **L7** `soundness.py` — deterministic range/sanity detector (GC∈[0,100], scores∈[0,1], pLDDT∈[0,100], e-value≥0).
-   - `render.py` — `summarize_grounding()` scientist-facing trust line.
-   - Wired in `agent/loop.py` via `_apply_grounding` (+ `_enforce`); emits a `validation` trace step (report rides in `AgentStep.verdict`).
-2. **Modes & defaults** (`config.py`): `BIOFORGE_GROUNDING_ENABLED=true`, `BIOFORGE_GROUNDING_MODE=annotate` (default). `shadow`=record only, `annotate`=visible summary (removes nothing), `enforce`=redact unsupported numeric/identifier inline + audit footer, judged entity/mechanistic flagged in footer. **Free deterministic layers run by default; the Opus judge is opt-in.**
-3. **§4.2 registry metadata + §6 honesty helper** (`tools/base.py`, `registry.py`): optional `model_versions / emits_instance_uncertainty / published_accuracy / training_distribution / reference_data_keys` on `ToolSpec` (defaults preserve all 28 tools). `uncertainty_note()` = the honesty rule as code (report emitted uncertainty → else sourced published accuracy → else explicit point-estimate; never fabricate). Populated on `score_guide_on_target` + `design_guides` as exemplars.
-4. **Verified license audit** (`docs/license_audit.md`) — done with the web tools, against upstream LICENSE files.
-5. **§13 ClinVar fidelity harness** (`benchmarks/clinvar_fidelity.py`) — `score_clinvar_fidelity()`, the no-remap / star-preservation guard as a gating metric.
+### Phase-2 ML status (the headline)
+All three ML models are **opt-in, off by default, graceful when absent** (behavioral equivalence),
+**faithful** (raw distributions surfaced verbatim, never remapped), out-of-process, with section 4.2
+metadata + section 10 provenance pins. Each wrapper routes library chatter to stderr so **only JSON**
+hits stdout.
+- **DeepCRISPR** (on-target, Apache-2.0) -- **VALIDATED end-to-end** through the real bioforge path
+  (`predict_on_target` -> runner -> live Docker -> wrapper -> scores). Recipe: thin image
+  **`bioforge/deepcrispr:legacy`** (already built locally) FROM `michaelchuai/deepcrispr:latest`
+  (py3.6.5, **TF 1.13.2**; base digest `sha256:812deef9...`); weights bundled at
+  `/root/DeepCRISPR/trained_models/ontar_cnn_reg_seq`. Encoding uses DeepCRISPR's **own** `Sgt`
+  (1-col `.rsgt`, `with_y=False`) -> `[N,4,1,23]` -> `DCModelOntar(is_reg=True, seq_feature_only=True)`.
+  Validated scores: `ACGTTAGCAGTTTGATGGCATGG,ACCTCCAATCGGCCCACGGCTGG,CATTGACAGGATAGTGGCCAGGG`
+  -> `[0.0307, 0.1461, 0.191]`. Output is a regression head (~`-0.01..0.19`), **not** strict `[0,1]`.
+  **To enable:** `BIOFORGE_DEEPCRISPR_ENABLED=true`, `BIOFORGE_DEEPCRISPR_DOCKER_IMAGE=bioforge/deepcrispr:legacy`.
+- **Lindel** (edit-outcome, MIT) -- scaffolded, **NOT yet env-validated**. numpy/scipy + bundled weights;
+  API `gen_prediction(seq60, weights, prereq) -> (y_hat array, fs)`; 60 bp window (PAM `NGG` near pos 33);
+  weights `Model_weights.pkl` + `model_prereq.pkl` in the Lindel package. VERIFY at validation: the
+  weight/prereq filenames + how `rev_index` is stored in `model_prereq.pkl` (the wrapper guesses; it
+  fails loudly if wrong). `edit_outcome` builds the 60 bp window via `_lindel_window` (hard-validated).
+- **FORECasT** (edit-outcome, MIT) -- scaffolded, **NOT yet env-validated**. Py3 + C++ `indelmap`; official
+  image **`quay.io/felicityallen/selftarget`**; CLI `python FORECasT.py <seq> <pam_index> <prefix>` -> 2 TSVs.
+  VERIFY at validation: the `FORECasT.py` path in the image (set `FORECAST_SCRIPT`) + the profile-TSV
+  column layout the wrapper parses. `edit_outcome` passes the PAM index `_locate_guide` already found.
 
 ## Decisions made (do NOT re-litigate)
-- **Grounding ON by default in `annotate` mode** — a scientific instrument should prove itself on every answer (free, deterministic, precision 1.0). Judge stays opt-in (Opus cost).
-- **On-target primary = DeepCRISPR (Apache-2.0)** — user chose "option 2": swap the primary off DeepSpCas9 (CC-BY-NC + its code repo has *no* license → all-rights-reserved). DeepSpCas9 → optional, non-commercial gated. **inDelphi** non-commercial posture **confirmed** (keep the consent gate). **Lindel + FORECasT = MIT** (clear to integrate/redistribute). Full table in `docs/license_audit.md`.
-- **Enforcement = visible redaction + audit note** (never a silent rewrite; never a vague qualitative substitution).
-- **Post-hoc grounding** (matches v4 §4 text). **Structured-claim emission is deferred** — it's the validator's true recall ceiling (you can't ground a claim never extracted); flagged in `docs/grounding.md`.
+- **All external ML models run out-of-process** over a tiny JSON stdin/stdout protocol. Each model package:
+  `manifest`/`schema`/`runner`/`inference`/`__init__` + a `legacy/` dir (wrapper + Dockerfile + README)
+  that is **ruff-excluded** (`**/tools/sequence/models/*/legacy`).
+- **Use the authors' official images** where they exist (DeepCRISPR `michaelchuai/deepcrispr:latest`,
+  FORECasT `quay.io/felicityallen/selftarget`) via a **thin image** (FROM official + bake the wrapper),
+  NOT a from-scratch TF1 build (the README pins are loose/fragile; the official image is the source of truth).
+- **Faithful, never remap:** ML wrappers emit the upstream label->frequency / score **verbatim**; the
+  edit-outcome models populate `lindel_distribution` / `forecast_distribution` (raw) and leave `outcomes=[]`.
+- **Wrapper stdout guard:** `_REAL_STDOUT = sys.stdout; sys.stdout = sys.stderr; _emit()` -- library prints
+  must never corrupt the JSON protocol. (A real bug found + fixed in all three wrappers.)
+- **No self-computed accuracy numbers from unknown-split data.** DeepCRISPR accuracy stays anchored to the
+  paper's sourced figures (ROC-AUC 0.857). The bundled example set (10 guides) is too small/narrow.
+- **Section 6 OOD / section 10 research-object are detectors/recorders;** acting-on-flag (replan) +
+  calibration + digest-pinned containers are deeper changes, deliberately deferred.
+- **Grounding stays ON by default in `annotate` mode** (carried over). DeepCRISPR/Lindel/FORECasT default OFF.
 
-## Completion: ~62% of the full v4 vision
-(base platform ~95% · grounding §4 ~85% · uncertainty/§6 ~25% · provenance/§10 ~25% · benchmarks/§13 ~20% · Phase-2 ML ~15% · frontend additions ~40%). The anti-hallucination core is largely done; the accuracy-proving and ML-capability layers are the frontier.
+## Completion: ~72% of the full v4 vision
+(base ~95% · grounding section 4 ~88% · section 6 uncertainty/OOD ~55% · section 10 provenance ~45% ·
+section 13 benchmarks ~35% · Phase-2 ML ~70% [DeepCRISPR validated; Lindel/FORECasT scaffolded; CFD pending]
+· frontend ~40%).
 
 ## Next steps (priority order)
-1. **Phase-2 ML integration.** Primary on-target = **DeepCRISPR** (`bm2-lab/DeepCRISPR`, Apache-2.0). It's **TensorFlow 1.x** → integrate **out-of-process via a pinned legacy-TF env**, mirroring the existing `tools/sequence/models/indelphi/` fetch-on-first-use pattern **minus the consent gate** (Apache-2.0 is clean). **Use existing weights — do NOT retrain** (project rule). Needs a TF1-capable environment to validate (can't be tested in the current `.venv`). Also: add **CFD** off-target (`offtarget_scoring.py` currently ships MIT/Hsu-2013 as primary with **no CFD** — load the Doench 2016 CFD matrix from a committed data file); add **FORECasT + Lindel** edit-outcome models (both MIT).
-2. **§13 real gold-sets.** Wire `score_clinvar_fidelity()` to live `annotate_variant`/`lookup_clinvar` output against a real ≥2★ ClinVar subset; add GIAB (variant calling) + GUIDE-seq (off-target) sets; build the in-product **Accuracy Report** page.
-3. **§6 OOD gate + calibration.** Metadata rails now exist — add `check_ood()` (input vs `training_distribution`) wired into the loop, plus calibration/reliability diagrams.
-4. **§10 reproducibility research-object** — hashed I/O, reference-build pin+checksum, digest-pinned containers, recorded seeds, RO-Crate-style lineage manifest export, a repro CI test.
-5. **v4 frontend** — surface grounding / uncertainty / accuracy report in the React UI (validation step is already in the trace).
-6. **Mop-up:** populate §4.2 metadata across the remaining ~26 tools; extend L6 to measure the **L4 judge** precision/recall against a labeled corpus; pull **DeepCRISPR's published Spearman** (still a `VERIFY:` — Springer's auth wall blocked it; try the PMC mirror / supplementary).
+1. **Validate Lindel + FORECasT end-to-end** (same playbook as DeepCRISPR #8): build/pull the env, confirm
+   the wrappers' `VERIFY` items, run `predict_lindel` / `predict_forecast` through the real runner, then a
+   parity check. FORECasT: `docker pull quay.io/felicityallen/selftarget`, build the thin `Dockerfile`,
+   confirm `FORECasT.py` path + TSV columns. Lindel: build its `Dockerfile` (numpy/scipy + `setup.py install`),
+   confirm the `rev_index` decoding in `lindel_infer.py`.
+2. **DeepCRISPR provenance polish:** `model_version` currently reads `...@master`; pin
+   `BIOFORGE_DEEPCRISPR_UPSTREAM_COMMIT` (or repoint the section 10 pin) to the image digest.
+3. **Section 13 real gold-sets:** wire `case_from_clinvar_record` against a real >=2-star ClinVar subset
+   (online test) + GIAB/GUIDE-seq; build the in-product **Accuracy Report** page.
+4. **CFD off-target** (`offtarget_scoring.py` ships MIT/Hsu only): add the Doench-2016 CFD matrix from a
+   **trustworthy committed data file** (320 values -- do NOT transcribe from memory).
+5. **Section 6 calibration/reliability diagrams** + wiring `check_ood` into the loop (replan on OOD).
+6. **Section 10 deeper:** digest-pinned containers, JSON-LD RO-Crate export, a repro CI job.
+7. **v4 frontend:** surface grounding / OOD / uncertainty / accuracy / model distributions in React.
 
-## Commands (Windows PowerShell; venv at `bioforge\.venv`)
+## Commands (Windows; venv at `bioforge\.venv`)
+Run git-bash from the repo root OR `bioforge`. The Bash-tool cwd **flips** between the two -- normalize with
+an absolute `cd` or `git -C`:
 ```
-bioforge\.venv\Scripts\python.exe -m pytest bioforge\backend\tests\ -q
-bioforge\.venv\Scripts\python.exe -m ruff check bioforge\backend\
-bioforge\.venv\Scripts\python.exe -m ruff format --check bioforge\backend\
+cd "/c/Users/james/OneDrive/Documents/BIOTECH 101/bioforge"
+.venv/Scripts/python.exe -m pytest backend/tests/ -q
+.venv/Scripts/python.exe -m ruff check backend/
+.venv/Scripts/python.exe -m ruff format --check backend/
 ```
-Enable grounding judge / enforce in tests via `monkeypatch.setattr(settings, "grounding_*", ...)`.
+DeepCRISPR (validated): the image `bioforge/deepcrispr:legacy` is built; enable via the two env vars above.
+End-to-end smoke (real Docker): `predict_on_target(guides, settings=settings.model_copy(update={enabled,image,...}))`.
 
-## Environment gotchas (learned the hard way this session)
-- **PowerShell here-string commits:** keep commit messages **ASCII — no `"` double-quotes and no backticks**; they break `@'...'@` parsing and git reads the message as pathspecs. (Use `--` for em-dashes, words for symbols.)
+## Environment gotchas (learned this session)
+- **Docker works from the Bash tool** (Docker Desktop 29.4.3 / WSL2). You can build + run images directly.
+- **git-bash MSYS path mangling:** a `/opt/...` arg typed on the git-bash command line becomes
+  `C:/Program Files/Git/opt/...`. Use the image `CMD`, or `MSYS_NO_PATHCONV=1`. This does **not** affect
+  the runner (Windows-python `subprocess` -> docker passes args literally; works on the target WSL2/Linux too).
+- **In-image scripting:** `docker run --rm -i --entrypoint bash <img> -lc 'cd ...; python - ' <<'PY' ... PY`
+  feeds a script via stdin (avoids mount/space issues; the repo path has spaces + OneDrive).
+- **Bind-mounting the repo into a container is flaky** on this host (spaces + OneDrive) -- prefer baking the
+  wrapper into a thin image.
+- **Commit messages via bash heredoc** `git commit -F - <<'EOF' ... EOF` work; keep them ASCII (write
+  "section 6" not the section symbol, "->" not arrows) to be safe.
+- **ruff:** `E501` is ignored (long citation/desc strings OK). The model `legacy/` dirs are ruff-excluded.
 - **CRLF warnings** on `git add` are harmless (autocrlf).
-- **ruff** trips `I001` on freshly-written test files (blank line after docstring) → run `ruff check --fix <file>` after creating one.
-- **git push from Windows** works (creds cached); set `$env:GIT_TERMINAL_PROMPT=0` to fail fast instead of hang. `gh` CLI is **WSL-only**.
-- **Web tools:** `WebSearch`, `WebFetch` (fails on auth-redirect/paywall — Springer bounced repeatedly; use PMC/BMC mirrors), and the academic search `mcp__4a27a32c-...__search` (**no `max_results` arg** — query + optional filters only). These unblock license/accuracy sourcing — use them rather than asserting facts from memory.
-- **Grounding default-on** changed 3 general tests (a `validation` step now trails `final`): `test_agent_run.py`, `test_streaming.py` (expect last step `validation`), and `test_no_validation_step_when_disabled` (now monkeypatches grounding off). Any new full-loop test will see a trailing `validation` step.
+- **`settings.model_copy(update={...})`** is the clean way to make per-test/per-call Settings (alias-free).
 
 ## Hard rules still in force
-Plan before coding · vertical slices · no heavy agent frameworks · real biology in tests (lambda/BRCA1/HBB/CFTR/SARS-CoV-2) · provenance from day one · typed everything · never silently truncate · **AI never fabricates biology** · **no unsourced scientific constants** (cite or `# VERIFY:`) · **no license claims from memory** (verify upstream) · **no ML training code** (use existing weights) · behavioral equivalence is the gate for refactors.
+Plan before coding · vertical slices · no heavy agent frameworks · real biology in tests
+(lambda/BRCA1/HBB/CFTR/EMX1/SARS-CoV-2) · provenance from day one · typed everything · never silently
+truncate · **AI never fabricates biology** · **no unsourced scientific constants** (cite or `# VERIFY:`) ·
+**no license claims from memory** · **no ML training code** (use published weights only) · **faithful, never
+remap upstream** · **validation-gated legacy wrappers are marked `VERIFY:` and fail loudly, never silently** ·
+behavioral equivalence is the gate.
