@@ -85,5 +85,34 @@ class Settings(BaseSettings):
     )
     deepcrispr_timeout_seconds: float = Field(default=300.0, alias="BIOFORGE_DEEPCRISPR_TIMEOUT_SECONDS")
 
+    # Lindel (Chen 2019) -- opt-in per-guide edit-outcome predictor (logistic regression).
+    # MIT, so NO consent gate. Pure numpy/scipy with bundled weights, but run OUT OF PROCESS
+    # in a pinned env (Docker image, or a local `lindel_python`) to keep it isolated and
+    # uniform with the other ML scorers -- the env carries the weights, so there is no
+    # separate weight fetch. edit_outcome(model="lindel") degrades gracefully (rule_of_thumb
+    # still works) when the env is absent or `lindel_enabled` is False.
+    lindel_enabled: bool = Field(default=False, alias="BIOFORGE_LINDEL_ENABLED")
+    lindel_runner: str = Field(default="docker", alias="BIOFORGE_LINDEL_RUNNER")  # docker | local
+    lindel_docker_image: str = Field(default="", alias="BIOFORGE_LINDEL_DOCKER_IMAGE")
+    lindel_python: str = Field(default="", alias="BIOFORGE_LINDEL_PYTHON")
+    lindel_upstream_commit: str = Field(
+        # TODO(validation): pin to a real shendurelab/Lindel commit SHA before enabling.
+        default="master",
+        alias="BIOFORGE_LINDEL_UPSTREAM_COMMIT",
+    )
+    lindel_timeout_seconds: float = Field(default=120.0, alias="BIOFORGE_LINDEL_TIMEOUT_SECONDS")
+
+    # FORECasT (Allen 2018) -- opt-in per-guide edit-outcome predictor. MIT, NO consent gate.
+    # Python 3 + a compiled C++ component (indelmap), so it runs OUT OF PROCESS via the
+    # authors' official image (quay.io/felicityallen/selftarget) by default, or a local
+    # `forecast_python`. The image bundles the model, so there is no separate weight fetch.
+    forecast_enabled: bool = Field(default=False, alias="BIOFORGE_FORECAST_ENABLED")
+    forecast_runner: str = Field(default="docker", alias="BIOFORGE_FORECAST_RUNNER")  # docker | local
+    forecast_docker_image: str = Field(
+        default="quay.io/felicityallen/selftarget", alias="BIOFORGE_FORECAST_DOCKER_IMAGE"
+    )
+    forecast_python: str = Field(default="", alias="BIOFORGE_FORECAST_PYTHON")
+    forecast_timeout_seconds: float = Field(default=300.0, alias="BIOFORGE_FORECAST_TIMEOUT_SECONDS")
+
 
 settings = Settings()

@@ -59,10 +59,10 @@ addopts = "-m 'not online and not nextflow'"
 [tool.ruff]
 line-length = 120
 target-version = "py311"
-# The DeepCRISPR legacy inference script targets Python 3.6 / TensorFlow 1.x and runs
-# only inside the pinned legacy environment (never imported by the package). Exclude it
-# so ruff doesn't lint/format it into 3.11-only syntax.
-extend-exclude = ["backend/src/bioforge/tools/sequence/models/deepcrispr/legacy"]
+# Legacy model-inference scripts (DeepCRISPR/Lindel/FORECasT) target their own pinned
+# legacy environments and are never imported by the package. Exclude them so ruff doesn't
+# lint/format them into modern-only syntax.
+extend-exclude = ["**/tools/sequence/models/*/legacy"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP"]

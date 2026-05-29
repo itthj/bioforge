@@ -48,6 +48,9 @@ _FINGERPRINT_KEYS: tuple[str, ...] = (
     "deepcrispr_runner",
     "deepcrispr_upstream_commit",
     "indelphi_upstream_commit",
+    "lindel_enabled",
+    "lindel_runner",
+    "lindel_upstream_commit",
 )
 
 # reference_data_keys that BioForge version-pins itself -> the settings field holding the pin.
@@ -55,6 +58,7 @@ _FINGERPRINT_KEYS: tuple[str, ...] = (
 _REFERENCE_PINS: dict[str, str] = {
     "deepcrispr_weights": "deepcrispr_upstream_commit",
     "indelphi_weights": "indelphi_upstream_commit",
+    "lindel_weights": "lindel_upstream_commit",
 }
 
 

@@ -1,0 +1,19 @@
+# Conda environment for Lindel (Chen 2019) legacy inference -- the `local` runner fallback.
+#   conda env create -f environment.yml
+#   git clone https://github.com/shendurelab/Lindel.git && cd Lindel && python setup.py install
+# then set:
+#   BIOFORGE_LINDEL_ENABLED=true
+#   BIOFORGE_LINDEL_RUNNER=local
+#   BIOFORGE_LINDEL_PYTHON=/path/to/envs/lindel/bin/python
+#
+# Lindel is pure numpy/scipy (MIT) and runs on modern Python 3 -- the trivial env is why it
+# can also be run in-process later if desired; out-of-process keeps it uniform + isolated.
+name: lindel
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - numpy
+  - scipy
+  - pip

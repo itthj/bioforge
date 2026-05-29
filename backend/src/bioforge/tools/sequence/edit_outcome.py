@@ -62,6 +62,7 @@ from bioforge.tools.sequence.models.indelphi import (
     predict as indelphi_predict,
 )
 from bioforge.tools.sequence.models.indelphi.manifest import SUPPORTED_CELLTYPES, CellType
+from bioforge.tools.sequence.models.lindel import LindelDistribution
 
 _DNA_CHARS = set("ACGTNacgtn")
 _IUPAC_REGEX = {
@@ -121,7 +122,7 @@ OutcomeType = Literal[
 ]
 
 
-EditOutcomeModel = Literal["rule_of_thumb", "indelphi"]
+EditOutcomeModel = Literal["rule_of_thumb", "indelphi", "lindel"]
 
 
 # MMEJ accounts for ~20-50% of Cas9 repair events in published Cas9 datasets;
@@ -318,6 +319,15 @@ class EditOutcomeOutput(ToolOutput):
             "list already contains a flattened view of the same data — this field gives "
             "the agent / UI access to the original per-position predictions and aggregate "
             "metrics (frameshift_frequency, MH del frequency, expected_indel_length, etc.)."
+        ),
+    )
+    lindel_distribution: LindelDistribution | None = Field(
+        default=None,
+        description=(
+            "Full Lindel result (raw label->frequency map + frameshift_ratio), verbatim. "
+            "Populated only when model='lindel'; None otherwise. Lindel's labels are NOT "
+            "remapped into our indel taxonomy, so `outcomes` is empty in lindel mode and this "
+            "field is the source of truth."
         ),
     )
     summary_caveats: list[str] = Field(
@@ -597,6 +607,30 @@ def _generate_outcomes(
     return outcomes
 
 
+def _lindel_window(target_fwd: str, cut_fwd: int, strand: Literal["+", "-"]) -> str:
+    """Extract Lindel's 60 bp window (30 bp each side of the cut) on the protospacer strand.
+
+    On that strand the cut sits at local index 30 and a SpCas9 NGG PAM falls at local 33-35 —
+    exactly Lindel's expected framing. Raises ToolError if the target lacks 30 bp of flank on
+    either side of the cut. (Lindel itself re-checks the PAM/cut placement, so a misframe fails
+    loudly in the subprocess rather than scoring the wrong sequence.)
+    """
+    if strand == "+":
+        strand_seq = target_fwd
+        strand_cut = cut_fwd
+    else:
+        strand_seq = str(Seq(target_fwd).reverse_complement())
+        strand_cut = len(target_fwd) - cut_fwd
+    start, end = strand_cut - 30, strand_cut + 30
+    if start < 0 or end > len(strand_seq):
+        raise ToolError(
+            "model='lindel' needs at least 30 bp of target flanking each side of the cut (a 60 bp "
+            f"window); the cut at protospacer-strand position {strand_cut} leaves too little context. "
+            "Provide a longer target."
+        )
+    return strand_seq[start:end]
+
+
 # --- Tool ----------------------------------------------------------------------------
 
 
@@ -604,7 +638,7 @@ def _generate_outcomes(
     name="edit_outcome",
     description=(
         "Predict the likely outcomes of a Cas9 edit at a given guide site. "
-        "Two models are available via the `model` parameter: "
+        "Three models are available via the `model` parameter: "
         "(a) `rule_of_thumb` (default, no setup): enumerates NHEJ perfect "
         "repair, +1 insertions, and -1/-2/-3/larger deletions with "
         "published-average probabilities, plus a Bae 2014 MMEJ branch that "
@@ -617,7 +651,9 @@ def _generate_outcomes(
         "carries an edited_sequence, indel_size, frameshift flag, probability, "
         "and the structured inDelphi distribution when applicable. Use whenever "
         "the user asks 'what does the edit look like?' or 'will this disrupt "
-        "the gene?'."
+        "the gene?'. (c) `lindel` (opt-in, MIT, Chen 2019) runs the logistic-regression model "
+        "out-of-process and returns its raw label->frequency distribution + frameshift_ratio "
+        "verbatim in `lindel_distribution`."
     ),
     input_model=EditOutcomeInput,
     output_model=EditOutcomeOutput,
@@ -636,8 +672,9 @@ def _generate_outcomes(
         "rule_of_thumb": "bioforge-nhej-rule-of-thumb-2.1.0",
         "mmej": "bae-2014-pattern-score",
         "indelphi": "shen-2018",
+        "lindel": "chen-2019-logreg",
     },
-    emits_instance_uncertainty={"rule_of_thumb": False, "mmej": False, "indelphi": False},
+    emits_instance_uncertainty={"rule_of_thumb": False, "mmej": False, "indelphi": False, "lindel": False},
     published_accuracy={
         "rule_of_thumb": (
             "VERIFY: published-average NHEJ frequencies (van Overbeek 2016 et al.) plus the "
@@ -649,6 +686,11 @@ def _generate_outcomes(
             "(e.g. Pearson r on indel-frequency / frameshift predictions); source the exact "
             "figures from the paper before display."
         ),
+        "lindel": (
+            "VERIFY: Chen et al. 2019 (NAR 47:7989-8003) report Lindel's held-out accuracy "
+            "(R^2 / KL divergence on indel-frequency predictions); source the exact figures "
+            "before display."
+        ),
     },
     training_distribution={
         "rule_of_thumb": {"note": "published averages across guides and cell types; not trained"},
@@ -656,8 +698,9 @@ def _generate_outcomes(
             "cell_types": list(SUPPORTED_CELLTYPES),
             "note": "trained on cell-line repair outcomes (Shen 2018); pick the matching cell_type",
         },
+        "lindel": {"note": "logistic regression trained on Cas9 indel outcomes (Chen 2019); 60 bp window, SpCas9 NGG"},
     },
-    reference_data_keys=["indelphi_weights"],
+    reference_data_keys=["indelphi_weights", "lindel_weights"],
 )
 async def edit_outcome(inp: EditOutcomeInput) -> EditOutcomeOutput:
     pam_re = _pam_to_regex(inp.pam)
@@ -718,6 +761,40 @@ async def edit_outcome(inp: EditOutcomeInput) -> EditOutcomeOutput:
             outcomes=outcomes,
             indelphi_distribution=dist,
             summary_caveats=caveats,
+        )
+
+    if inp.model == "lindel":
+        # Local import keeps registry load light and avoids the model glue unless used.
+        from bioforge.tools.sequence.models.lindel import (
+            LindelInferenceError,
+            LindelUnavailable,
+            predict_lindel,
+        )
+
+        window = _lindel_window(inp.target, cut_fwd, strand)
+        try:
+            lindel_dist = predict_lindel(window)
+        except (LindelUnavailable, LindelInferenceError) as e:
+            raise ToolError(str(e)) from e
+        return EditOutcomeOutput(
+            guide=inp.guide,
+            guide_strand=strand,
+            cut_position_fwd=cut_fwd,
+            target_length=len(inp.target),
+            model_used="lindel",
+            outcomes=[],
+            lindel_distribution=lindel_dist,
+            summary_caveats=[
+                "Lindel per-guide ML prediction (Chen 2019, MIT) over a 60 bp window. The full "
+                "label->frequency distribution + frameshift_ratio are in `lindel_distribution`; "
+                "Lindel's outcome labels are surfaced verbatim (not remapped), so `outcomes` is "
+                "empty for this model.",
+                "Lindel assumes SpCas9 with an NGG PAM and a blunt cut 3 bp 5' of the PAM; for "
+                "other nucleases / cut geometries the 60 bp window will not match its framing and "
+                "Lindel rejects it.",
+                "Whether a frameshift disrupts a protein depends on the cut sitting inside a CDS — "
+                "the tool does not infer that.",
+            ],
         )
 
     # --- rule_of_thumb path (existing behavior, unchanged) ---
