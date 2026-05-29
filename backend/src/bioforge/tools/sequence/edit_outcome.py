@@ -51,6 +51,7 @@ from bioforge.tools.sequence.microhomology import (
     find_microhomologies,
     normalize_to_probabilities,
 )
+from bioforge.tools.sequence.models.forecast import ForecastDistribution
 from bioforge.tools.sequence.models.indelphi import (
     InDelphiConsentRequired,
     InDelphiDistribution,
@@ -122,7 +123,7 @@ OutcomeType = Literal[
 ]
 
 
-EditOutcomeModel = Literal["rule_of_thumb", "indelphi", "lindel"]
+EditOutcomeModel = Literal["rule_of_thumb", "indelphi", "lindel", "forecast"]
 
 
 # MMEJ accounts for ~20-50% of Cas9 repair events in published Cas9 datasets;
@@ -328,6 +329,14 @@ class EditOutcomeOutput(ToolOutput):
             "Populated only when model='lindel'; None otherwise. Lindel's labels are NOT "
             "remapped into our indel taxonomy, so `outcomes` is empty in lindel mode and this "
             "field is the source of truth."
+        ),
+    )
+    forecast_distribution: ForecastDistribution | None = Field(
+        default=None,
+        description=(
+            "Full FORECasT result (raw indel-label->frequency map), verbatim. Populated only "
+            "when model='forecast'; None otherwise. Labels are NOT remapped, so `outcomes` is "
+            "empty in forecast mode and this field is the source of truth."
         ),
     )
     summary_caveats: list[str] = Field(
@@ -638,7 +647,7 @@ def _lindel_window(target_fwd: str, cut_fwd: int, strand: Literal["+", "-"]) -> 
     name="edit_outcome",
     description=(
         "Predict the likely outcomes of a Cas9 edit at a given guide site. "
-        "Three models are available via the `model` parameter: "
+        "Four models are available via the `model` parameter: "
         "(a) `rule_of_thumb` (default, no setup): enumerates NHEJ perfect "
         "repair, +1 insertions, and -1/-2/-3/larger deletions with "
         "published-average probabilities, plus a Bae 2014 MMEJ branch that "
@@ -653,7 +662,9 @@ def _lindel_window(target_fwd: str, cut_fwd: int, strand: Literal["+", "-"]) -> 
         "the user asks 'what does the edit look like?' or 'will this disrupt "
         "the gene?'. (c) `lindel` (opt-in, MIT, Chen 2019) runs the logistic-regression model "
         "out-of-process and returns its raw label->frequency distribution + frameshift_ratio "
-        "verbatim in `lindel_distribution`."
+        "verbatim in `lindel_distribution`. (d) `forecast` (opt-in, MIT, Allen 2018) similarly "
+        "runs out-of-process and returns its raw indel-label->frequency distribution in "
+        "`forecast_distribution`."
     ),
     input_model=EditOutcomeInput,
     output_model=EditOutcomeOutput,
@@ -673,8 +684,15 @@ def _lindel_window(target_fwd: str, cut_fwd: int, strand: Literal["+", "-"]) -> 
         "mmej": "bae-2014-pattern-score",
         "indelphi": "shen-2018",
         "lindel": "chen-2019-logreg",
+        "forecast": "allen-2018",
     },
-    emits_instance_uncertainty={"rule_of_thumb": False, "mmej": False, "indelphi": False, "lindel": False},
+    emits_instance_uncertainty={
+        "rule_of_thumb": False,
+        "mmej": False,
+        "indelphi": False,
+        "lindel": False,
+        "forecast": False,
+    },
     published_accuracy={
         "rule_of_thumb": (
             "VERIFY: published-average NHEJ frequencies (van Overbeek 2016 et al.) plus the "
@@ -691,6 +709,10 @@ def _lindel_window(target_fwd: str, cut_fwd: int, strand: Literal["+", "-"]) -> 
             "(R^2 / KL divergence on indel-frequency predictions); source the exact figures "
             "before display."
         ),
+        "forecast": (
+            "VERIFY: Allen et al. 2018 (Nat Biotechnol 37:64-72) report FORECasT's held-out "
+            "accuracy (KL / correlation on indel profiles); source the exact figures before display."
+        ),
     },
     training_distribution={
         "rule_of_thumb": {"note": "published averages across guides and cell types; not trained"},
@@ -699,8 +721,11 @@ def _lindel_window(target_fwd: str, cut_fwd: int, strand: Literal["+", "-"]) -> 
             "note": "trained on cell-line repair outcomes (Shen 2018); pick the matching cell_type",
         },
         "lindel": {"note": "logistic regression trained on Cas9 indel outcomes (Chen 2019); 60 bp window, SpCas9 NGG"},
+        "forecast": {
+            "note": "trained on measured SpCas9 indel profiles (Allen 2018); compiled indelmap, out-of-process"
+        },
     },
-    reference_data_keys=["indelphi_weights", "lindel_weights"],
+    reference_data_keys=["indelphi_weights", "lindel_weights", "forecast_model"],
 )
 async def edit_outcome(inp: EditOutcomeInput) -> EditOutcomeOutput:
     pam_re = _pam_to_regex(inp.pam)
@@ -792,6 +817,40 @@ async def edit_outcome(inp: EditOutcomeInput) -> EditOutcomeOutput:
                 "Lindel assumes SpCas9 with an NGG PAM and a blunt cut 3 bp 5' of the PAM; for "
                 "other nucleases / cut geometries the 60 bp window will not match its framing and "
                 "Lindel rejects it.",
+                "Whether a frameshift disrupts a protein depends on the cut sitting inside a CDS — "
+                "the tool does not infer that.",
+            ],
+        )
+
+    if inp.model == "forecast":
+        # Local import keeps registry load light and avoids the model glue unless used.
+        from bioforge.tools.sequence.models.forecast import (
+            ForecastInferenceError,
+            ForecastUnavailable,
+            predict_forecast,
+        )
+
+        # FORECasT wants the target on the protospacer strand + the 0-based PAM index there —
+        # exactly what _locate_guide returned (pam_start_on_strand on `strand`).
+        strand_seq = inp.target if strand == "+" else str(Seq(inp.target).reverse_complement())
+        try:
+            forecast_dist = predict_forecast(strand_seq, pam_start_on_strand)
+        except (ForecastUnavailable, ForecastInferenceError) as e:
+            raise ToolError(str(e)) from e
+        return EditOutcomeOutput(
+            guide=inp.guide,
+            guide_strand=strand,
+            cut_position_fwd=cut_fwd,
+            target_length=len(inp.target),
+            model_used="forecast",
+            outcomes=[],
+            forecast_distribution=forecast_dist,
+            summary_caveats=[
+                "FORECasT per-guide ML prediction (Allen 2018, MIT). The full indel-label->"
+                "frequency distribution is in `forecast_distribution`; labels are surfaced "
+                "verbatim (not remapped), so `outcomes` is empty for this model.",
+                "FORECasT models SpCas9 outcomes from the sequence context around the cut; it runs "
+                "out-of-process (compiled indelmap) and is unavailable until that env is built.",
                 "Whether a frameshift disrupts a protein depends on the cut sitting inside a CDS — "
                 "the tool does not infer that.",
             ],
