@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     # recorded but NEVER alters the response. Enforcement (visible redaction of
     # unsupported claims) is a later slice. Default-off keeps the loop behaviorally
     # identical until the flag is flipped.
-    grounding_enabled: bool = Field(default=False, alias="BIOFORGE_GROUNDING_ENABLED")
+    grounding_enabled: bool = Field(default=True, alias="BIOFORGE_GROUNDING_ENABLED")
     # "shadow" (observe + record only) or "enforce" (also redact unsupported numeric claims
     # in place, with an audit note). Only consulted when grounding_enabled=True. Default
     # "shadow" so enabling the validator never silently changes a response until you opt in
@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     # real use), or "enforce" (redact unsupported numeric/identifier claims in place with an
     # audit note). Only consulted when grounding_enabled=True. Default "shadow" so enabling
     # the validator never changes a response until you choose annotate/enforce.
-    grounding_mode: str = Field(default="shadow", alias="BIOFORGE_GROUNDING_MODE")
+    grounding_mode: str = Field(default="annotate", alias="BIOFORGE_GROUNDING_MODE")
     # Layer 4 entity/mechanistic LLM judge. Default OFF and independent of the (free,
     # deterministic) numeric layer, because it makes an extra model call per response.
     # Only consulted when grounding_enabled=True as well. The blueprint recommends Opus

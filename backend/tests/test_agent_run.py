@@ -46,7 +46,8 @@ async def test_happy_path_trivial_plan_then_tool_use_then_final(
     step_types = [s.type for s in result.steps]
     assert step_types[0] == "plan"
     assert "tool_call" in step_types
-    assert step_types[-1] == "final"
+    assert "final" in step_types
+    assert step_types[-1] == "validation"  # grounding runs by default (annotate mode)
     assert "critique" not in step_types  # trivial → critic skipped
 
     tool_step = next(s for s in result.steps if s.type == "tool_call")

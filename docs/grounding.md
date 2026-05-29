@@ -8,8 +8,11 @@ BioForge defends correctness with defense-in-depth, organized around one princip
 > execution, and output.
 
 The validator lives in `backend/src/bioforge/agent/grounding/` and is wired into the agent
-loop after the response is produced. **Every layer is gated and off by default** — with the
-flags unset, the loop is byte-for-byte identical to before.
+loop after the response is produced. **The free, deterministic layers (numeric, identifier,
+soundness) run by default in `annotate` mode** — every answer is validated and carries a
+visible grounding summary, at zero model cost. The L4 LLM judge is **opt-in** (it makes an
+extra model call), and `shadow` (record-only) / `enforce` (redact) are opt-in alternatives
+to `annotate`.
 
 ## Layers implemented
 
@@ -30,8 +33,8 @@ field, so no serialization change). It carries the numeric report, judged claims
 
 | Env var | Default | Effect |
 |---|---|---|
-| `BIOFORGE_GROUNDING_ENABLED` | `false` | Master switch. When on, L3 + L7 run and a `validation` step is recorded. |
-| `BIOFORGE_GROUNDING_MODE` | `shadow` | `shadow` = observe/record only; **`annotate`** = append a visible grounding summary to the response (affirms traced claims, flags untraceable ones — removes nothing; **recommended for real use**); `enforce` = redact unsupported numeric/identifier claims in place (`[unverifiable]`) with an audit note. |
+| `BIOFORGE_GROUNDING_ENABLED` | `true` | Master switch for the free deterministic layers (L3, L3+, L7). Set `false` to disable grounding entirely. |
+| `BIOFORGE_GROUNDING_MODE` | `annotate` | **`annotate`** (default) = append a visible grounding summary to the response (affirms traced claims, flags untraceable ones — removes nothing); `shadow` = observe/record only (no text change); `enforce` = redact unsupported numeric/identifier claims in place (`[unverifiable]`) with an audit note. |
 | `BIOFORGE_GROUNDING_JUDGE_ENABLED` | `false` | Enables the L4 LLM judge (an extra model call per response). Independent of the free numeric layer. |
 | `BIOFORGE_GROUNDING_JUDGE_MODEL` | `""` | Model id for the judge (Opus recommended). Empty = reuse the run model. |
 

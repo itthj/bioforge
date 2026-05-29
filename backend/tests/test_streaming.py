@@ -241,7 +241,8 @@ async def test_sse_run_stream_emits_step_and_done(
     step_types_in_order = [d["type"] for d in step_payloads]
     assert step_types_in_order[0] == "plan"
     assert "tool_call" in step_types_in_order
-    assert step_types_in_order[-1] == "final"
+    assert "final" in step_types_in_order
+    assert step_types_in_order[-1] == "validation"  # grounding validation step (default annotate)
 
     done = [data for name, data in events if name == "done"][0]
     assert done["status"] == "completed"

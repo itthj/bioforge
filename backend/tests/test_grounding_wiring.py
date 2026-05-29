@@ -17,8 +17,9 @@ from bioforge.constants import DEFAULT_PROJECT_ID
 
 @pytest.fixture
 def grounding_on(monkeypatch):
-    """Enable shadow grounding for the duration of one test (auto-reverted)."""
+    """Enable grounding in shadow mode for the duration of one test (auto-reverted)."""
     monkeypatch.setattr(settings, "grounding_enabled", True)
+    monkeypatch.setattr(settings, "grounding_mode", "shadow")
 
 
 def _script(
@@ -34,9 +35,10 @@ def _script(
 
 
 async def test_no_validation_step_when_disabled(
-    fake_llm_factory, make_submit_plan_response, make_tool_use_response, make_text_response, trivial_plan
+    monkeypatch, fake_llm_factory, make_submit_plan_response, make_tool_use_response, make_text_response, trivial_plan
 ) -> None:
-    # gc_content of ATGCATGC is 50.0% — a grounded statement, but the flag is OFF.
+    # Explicitly OFF (grounding is ON by default now) → no validation step at all.
+    monkeypatch.setattr(settings, "grounding_enabled", False)
     llm = _script(
         fake_llm_factory,
         make_submit_plan_response,
