@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     # in place, with an audit note). Only consulted when grounding_enabled=True. Default
     # "shadow" so enabling the validator never silently changes a response until you opt in
     # to enforcement. Enforcement currently covers the numeric layer (L3) only.
+    # "shadow" (observe + record only), "annotate" (append a visible grounding summary to
+    # the response -- flags untraceable claims without removing anything; recommended for
+    # real use), or "enforce" (redact unsupported numeric/identifier claims in place with an
+    # audit note). Only consulted when grounding_enabled=True. Default "shadow" so enabling
+    # the validator never changes a response until you choose annotate/enforce.
     grounding_mode: str = Field(default="shadow", alias="BIOFORGE_GROUNDING_MODE")
     # Layer 4 entity/mechanistic LLM judge. Default OFF and independent of the (free,
     # deterministic) numeric layer, because it makes an extra model call per response.

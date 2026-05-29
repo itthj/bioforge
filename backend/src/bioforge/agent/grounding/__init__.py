@@ -28,6 +28,7 @@ from bioforge.agent.grounding.numeric import (
     extract_numeric_claims,
     ground_response,
 )
+from bioforge.agent.grounding.render import summarize_grounding
 from bioforge.agent.grounding.report import (
     ClaimKind,
     EntityClaimVerdict,
@@ -65,4 +66,5 @@ __all__ = [
     "ground_response",
     "judge_claims",
     "load_numeric_corpus",
+    "summarize_grounding",
 ]

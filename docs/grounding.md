@@ -31,7 +31,7 @@ field, so no serialization change). It carries the numeric report, judged claims
 | Env var | Default | Effect |
 |---|---|---|
 | `BIOFORGE_GROUNDING_ENABLED` | `false` | Master switch. When on, L3 + L7 run and a `validation` step is recorded. |
-| `BIOFORGE_GROUNDING_MODE` | `shadow` | `shadow` = observe/record only; `enforce` = redact unsupported numeric claims in place (`[unverifiable]`) and flag entity/mechanistic claims, with an audit note. |
+| `BIOFORGE_GROUNDING_MODE` | `shadow` | `shadow` = observe/record only; **`annotate`** = append a visible grounding summary to the response (affirms traced claims, flags untraceable ones — removes nothing; **recommended for real use**); `enforce` = redact unsupported numeric/identifier claims in place (`[unverifiable]`) with an audit note. |
 | `BIOFORGE_GROUNDING_JUDGE_ENABLED` | `false` | Enables the L4 LLM judge (an extra model call per response). Independent of the free numeric layer. |
 | `BIOFORGE_GROUNDING_JUDGE_MODEL` | `""` | Model id for the judge (Opus recommended). Empty = reuse the run model. |
 

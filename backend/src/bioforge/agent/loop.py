@@ -38,7 +38,13 @@ from pydantic import ValidationError
 from bioforge.agent.approval import requires_approval
 from bioforge.agent.context import get_current_db_session
 from bioforge.agent.critic import CriticVerdict
-from bioforge.agent.grounding import ValidationReport, check_soundness, ground_response, judge_claims
+from bioforge.agent.grounding import (
+    ValidationReport,
+    check_soundness,
+    ground_response,
+    judge_claims,
+    summarize_grounding,
+)
 from bioforge.agent.llm import LLM, UsageSummary, summarize_usage
 from bioforge.agent.local_critic import LocalCritic
 from bioforge.agent.local_executor import LocalExecutor
@@ -254,13 +260,20 @@ async def _apply_grounding(
             report.summary += f" | L4 judge skipped: {type(e).__name__}"
     # Recompute the gate over both layers.
     report.ok = report.ok and not report.unsupported_judged
-    enforced = settings.grounding_mode == "enforce" and not report.ok
-    final_text = _enforce(response_text, report) if enforced else response_text
+    mode = settings.grounding_mode
+    enforced = mode == "enforce" and not report.ok
+    if enforced:
+        final_text = _enforce(response_text, report)
+    elif mode == "annotate":
+        # Visible grounding: append a scientist-facing trust signal, remove nothing.
+        final_text = response_text + summarize_grounding(report)
+    else:  # shadow
+        final_text = response_text
     step = AgentStep(
         idx=step_idx,
         type="validation",
         duration_ms=int((time.monotonic() - t0) * 1000),
-        verdict={**report.model_dump(), "enforced": enforced, "soundness": soundness.model_dump()},
+        verdict={**report.model_dump(), "enforced": enforced, "mode": mode, "soundness": soundness.model_dump()},
     )
     return final_text, step, judge_usage
 
