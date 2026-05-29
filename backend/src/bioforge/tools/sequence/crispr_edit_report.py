@@ -226,6 +226,9 @@ def _rationale(
     cost_hint="expensive",
     destructive=False,
     tags=["sequence", "crispr", "editing", "workflow", "report"],
+    # Composite: may BLAST-search off-targets when run_offtarget_search=True. Scoring/uncertainty
+    # metadata lives on the composed tools (design_guides / find_offtargets / edit_outcome).
+    reference_data_keys=["ncbi_blast"],
 )
 async def crispr_edit_report(inp: CrisprEditReportInput) -> CrisprEditReportOutput:
     design = await execute_tool(

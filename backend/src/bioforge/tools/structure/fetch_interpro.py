@@ -215,6 +215,7 @@ def _parse_entries(results: list[dict[str, Any]], uniprot_id: str) -> list[Inter
     cost_hint="cheap",
     destructive=False,
     tags=["structure", "annotation", "interpro", "protein"],
+    reference_data_keys=["interpro"],
 )
 async def fetch_interpro_domains(inp: FetchInterproInput) -> FetchInterproOutput:
     results = await _fetch_interpro(inp.uniprot_id)

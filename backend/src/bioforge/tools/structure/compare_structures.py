@@ -173,6 +173,7 @@ def _compute_overlap(
     cost_hint="cheap",
     destructive=False,
     tags=["structure", "composite", "comparison", "protein"],
+    reference_data_keys=["sifts", "rcsb_pdb", "alphafold_db"],
 )
 async def compare_structures(inp: CompareStructuresInput) -> CompareStructuresOutput:
     # Fire the experimental + predicted fetches concurrently — they're independent.

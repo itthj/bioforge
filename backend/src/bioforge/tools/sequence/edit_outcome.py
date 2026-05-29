@@ -632,6 +632,32 @@ def _generate_outcomes(
     cost_hint="cheap",
     destructive=False,
     tags=["sequence", "crispr", "editing", "simulation"],
+    model_versions={
+        "rule_of_thumb": "bioforge-nhej-rule-of-thumb-2.1.0",
+        "mmej": "bae-2014-pattern-score",
+        "indelphi": "shen-2018",
+    },
+    emits_instance_uncertainty={"rule_of_thumb": False, "mmej": False, "indelphi": False},
+    published_accuracy={
+        "rule_of_thumb": (
+            "VERIFY: published-average NHEJ frequencies (van Overbeek 2016 et al.) plus the "
+            "Bae 2014 MMEJ pattern score — not a per-guide trained predictor, so no standalone "
+            "held-out accuracy applies."
+        ),
+        "indelphi": (
+            "VERIFY: Shen et al. 2018 (Nature 563:646-651) report held-out per-guide accuracy "
+            "(e.g. Pearson r on indel-frequency / frameshift predictions); source the exact "
+            "figures from the paper before display."
+        ),
+    },
+    training_distribution={
+        "rule_of_thumb": {"note": "published averages across guides and cell types; not trained"},
+        "indelphi": {
+            "cell_types": list(SUPPORTED_CELLTYPES),
+            "note": "trained on cell-line repair outcomes (Shen 2018); pick the matching cell_type",
+        },
+    },
+    reference_data_keys=["indelphi_weights"],
 )
 async def edit_outcome(inp: EditOutcomeInput) -> EditOutcomeOutput:
     pam_re = _pam_to_regex(inp.pam)

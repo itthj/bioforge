@@ -29,6 +29,41 @@ def test_populated_tool_carries_metadata() -> None:
     assert spec.training_distribution["guide_length_nt"] == 20
 
 
+def test_reference_data_keys_populated_on_db_backed_tools() -> None:
+    # DB-backed tools declare the external reference they depend on (future §10 pin target).
+    assert get_tool("lookup_clinvar").reference_data_keys == ["ncbi_clinvar"]
+    assert get_tool("lookup_gnomad").reference_data_keys == ["gnomad"]
+    assert get_tool("annotate_variant").reference_data_keys == ["ensembl_vep"]
+    assert get_tool("fetch_pdb_structure").reference_data_keys == ["rcsb_pdb"]
+
+
+def test_pure_transforms_stay_empty() -> None:
+    # No model and no external reference → metadata is honestly empty, not invented.
+    for name in ("reverse_complement", "translate", "format_hgvs"):
+        spec = get_tool(name)
+        assert spec.model_versions == {}
+        assert spec.published_accuracy == {}
+        assert spec.reference_data_keys == []
+
+
+def test_scoring_tool_metadata_drives_uncertainty_note() -> None:
+    # find_offtargets owns the Hsu-2013 MIT score; the §6 note must surface the
+    # sourced/VERIFY accuracy, never a fabricated per-prediction interval.
+    spec = get_tool("find_offtargets")
+    assert spec.emits_instance_uncertainty == {"mit_offtarget": False}
+    note = uncertainty_note(spec, "mit_offtarget")
+    assert "point estimate only" in note
+    assert "VERIFY" in note
+
+
+def test_edit_outcome_declares_both_models() -> None:
+    spec = get_tool("edit_outcome")
+    assert "VERIFY" in spec.published_accuracy["rule_of_thumb"]
+    assert "VERIFY" in spec.published_accuracy["indelphi"]
+    # inDelphi's training distribution records the supported cell types (non-empty).
+    assert spec.training_distribution["indelphi"]["cell_types"]
+
+
 # --- The honesty helper -------------------------------------------------------------
 
 

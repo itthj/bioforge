@@ -386,6 +386,7 @@ def _build_caveats(meta_fields: dict, structure_stats: dict) -> list[str]:
     cost_hint="cheap",
     destructive=False,
     tags=["structure", "pdb", "rcsb", "protein"],
+    reference_data_keys=["rcsb_pdb"],
 )
 async def fetch_pdb_structure(inp: FetchPdbInput) -> FetchPdbOutput:
     pdb_id_upper = inp.pdb_id.upper()

@@ -349,6 +349,7 @@ _BASE_CAVEATS = [
     cost_hint="moderate",
     destructive=False,
     tags=["variants", "annotation", "clinvar"],
+    reference_data_keys=["ncbi_clinvar"],
 )
 async def lookup_clinvar(inp: LookupClinvarInput) -> LookupClinvarOutput:
     kind = _classify_query(inp.query)

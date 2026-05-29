@@ -262,6 +262,7 @@ def _make_step_command(step_name: str, uniprot_id: str, include_pdb_text: bool, 
     cost_hint="expensive",
     destructive=False,
     tags=["structure", "alphafold", "workflow"],
+    reference_data_keys=["alphafold_db"],
 )
 async def submit_alphafold_batch(inp: AlphaFoldBatchInput) -> AlphaFoldBatchOutput:
     engine = get_engine()

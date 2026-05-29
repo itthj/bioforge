@@ -269,6 +269,7 @@ def _summarize_plddt(plddt: list[float]) -> tuple[float, dict[str, int]]:
     cost_hint="cheap",
     destructive=False,
     tags=["structure", "alphafold", "protein"],
+    reference_data_keys=["alphafold_db"],
 )
 async def fetch_alphafold_structure(inp: FetchAlphaFoldInput) -> FetchAlphaFoldOutput:
     metadata, pdb_text = await _fetch_alphafold(inp.uniprot_id)

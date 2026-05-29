@@ -393,6 +393,8 @@ def _parse_blast_record(record: Any, max_hits: int) -> list[BlastHit]:
     cost_hint="expensive",
     destructive=False,
     tags=["sequence", "alignment", "search"],
+    # v4 §4.2/§10: external reference dataset this tool depends on (for provenance pinning).
+    reference_data_keys=["ncbi_blast"],
 )
 async def blast(inp: BlastInput) -> BlastOutput:
     # Sanity-check residue alphabet against the chosen program before paying for the

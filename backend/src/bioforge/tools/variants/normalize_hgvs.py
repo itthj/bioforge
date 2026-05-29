@@ -278,6 +278,7 @@ _BASE_CAVEATS = [
     cost_hint="moderate",
     destructive=False,
     tags=["variants", "annotation", "hgvs", "normalize"],
+    reference_data_keys=["ensembl_variant_recoder"],
 )
 async def normalize_hgvs(inp: NormalizeHgvsInput) -> NormalizeHgvsOutput:
     payload = await _fetch_variant_recoder(inp.hgvs, inp.species)

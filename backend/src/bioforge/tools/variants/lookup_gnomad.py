@@ -370,6 +370,7 @@ _BASE_CAVEATS = [
     cost_hint="moderate",
     destructive=False,
     tags=["variants", "annotation", "gnomad", "frequency"],
+    reference_data_keys=["gnomad"],
 )
 async def lookup_gnomad(inp: LookupGnomadInput) -> LookupGnomadOutput:
     raw = await _fetch_gnomad(inp.variant_id, inp.dataset)

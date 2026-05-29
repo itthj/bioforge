@@ -269,6 +269,21 @@ def _classify_risk(
     cost_hint="expensive",
     destructive=False,
     tags=["sequence", "crispr", "search", "offtarget"],
+    model_versions={"mit_offtarget": "hsu-2013-mit-score"},
+    emits_instance_uncertainty={"mit_offtarget": False},
+    published_accuracy={
+        "mit_offtarget": (
+            "VERIFY: Hsu 2013 per-position MIT specificity score is a published deterministic "
+            "weighting, not a trained predictor with a standalone held-out accuracy. Does NOT "
+            "include CFD (Doench 2016) base-pair-identity weighting."
+        )
+    },
+    training_distribution={
+        "nuclease": "SpCas9",
+        "guide_length_nt": 20,
+        "note": "deterministic published weights (Hsu 2013), not a trained model",
+    },
+    reference_data_keys=["ncbi_blast"],
 )
 async def find_offtargets(inp: FindOfftargetsInput) -> FindOfftargetsOutput:
     # Compose: call the blast tool through the registry. blastn-short is essential for

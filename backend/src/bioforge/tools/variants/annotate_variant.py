@@ -466,6 +466,8 @@ _BASE_CAVEATS = [
     cost_hint="moderate",
     destructive=False,
     tags=["variants", "annotation", "vep", "clinvar"],
+    # ClinVar/dbSNP/gnomAD ride along via Ensembl's indexed release — pin the Ensembl release.
+    reference_data_keys=["ensembl_vep"],
 )
 async def annotate_variant(inp: AnnotateVariantInput) -> AnnotateVariantOutput:
     payload = await _fetch_vep(inp.hgvs, inp.species)

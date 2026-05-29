@@ -61,6 +61,9 @@ their *current upstream* licenses:
 ### Honest integration caveats (decide before building)
 
 1. **DeepCRISPR is TensorFlow 1.x (2018).** That framework is effectively deprecated; integrating it into the Python 3.11 stack means either a pinned legacy-TF container invoked out-of-process (mirrors the existing inDelphi fetch-on-first-use pattern, **minus** the consent gate since Apache-2.0 is clean), or reimplementing its inference path. This is the main engineering cost of option 2.
-2. **Trained on human cell-line data** → declare its OOD envelope (§6) and flag out-of-envelope inputs.
-3. **Source its published held-out accuracy** (Spearman) for the caveats / calibrated-uncertainty display before shipping — `# VERIFY:` until cited.
+2. **Trained on human cell-line data** (on-target training spanned HCT116, HEK293T, HeLa, and HL60; Chuai 2018) → declare its OOD envelope (§6) and flag out-of-envelope inputs.
+3. **Published held-out accuracy — now sourced** (Chuai et al. 2018, *Genome Biol* 19:80; open-access mirror [PMC6020378](https://pmc.ncbi.nlm.nih.gov/articles/PMC6020378/)). Re-verify against the supplement before wiring a numeric calibration display.
+   - *On-target, classification schema:* best **ROC-AUC 0.857** (full model: pretraining + data augmentation), a reported ~157% gain over sgRNA Designer (Fig. 2a,b). Leave-one-cell-type-out generalization averaged **ROC-AUC 0.722** across the four human cell lines (Fig. 2d).
+   - *On-target, regression schema:* on an independent HEL dataset (425 sgRNAs) DeepCRISPR reported a "nearly twofold improvement" in Spearman correlation over sgRNA Designer, and outperformed SSC, sgRNA Scorer, and CRISPRator (Fig. 2g). The **exact Spearman ρ lives in Additional file 3**, not the main text — pull it from the supplement before displaying a numeric value; cite ROC-AUC 0.857 as the headline on-target figure until then.
+   - *Off-target* (relevant only if the optional DeepCRISPR off-target path is also adopted): **ROC-AUC 0.981 / PR-AUC 0.497** at ≤6 mismatches, exceeding the CFD score (Fig. 3a–c).
 

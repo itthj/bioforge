@@ -249,6 +249,8 @@ def _format_resolution(x: float | None) -> str:
     cost_hint="cheap",
     destructive=False,
     tags=["structure", "composite", "protein"],
+    # Consults SIFTS to choose, then returns RCSB experimental or AlphaFold predicted content.
+    reference_data_keys=["sifts", "rcsb_pdb", "alphafold_db"],
 )
 async def find_best_structure(inp: FindBestStructureInput) -> FindBestStructureOutput:
     candidates: list[ExperimentalCandidate] = []

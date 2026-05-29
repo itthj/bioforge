@@ -366,6 +366,7 @@ _BASE_CAVEATS = [
     cost_hint="moderate",
     destructive=False,
     tags=["variants", "annotation", "dbsnp"],
+    reference_data_keys=["ncbi_dbsnp"],
 )
 async def lookup_dbsnp(inp: LookupDbsnpInput) -> LookupDbsnpOutput:
     snp_id = _normalize_snp_id(inp.query)
