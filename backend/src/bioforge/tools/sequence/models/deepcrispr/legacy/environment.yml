@@ -1,0 +1,24 @@
+# Conda environment for DeepCRISPR (Chuai 2018) legacy inference -- Python 3.6 / TF 1.x.
+# This is the `local` runner fallback to the Docker image. After creating it:
+#   conda env create -f environment.yml
+#   git clone https://github.com/bm2-lab/DeepCRISPR.git   # put on PYTHONPATH for `import deepcrispr`
+# then set, in BioForge's environment:
+#   BIOFORGE_DEEPCRISPR_RUNNER=local
+#   BIOFORGE_DEEPCRISPR_PYTHON=/path/to/miniconda3/envs/deepcrispr/bin/python
+#
+# IMPORTANT (reconcile at build): tensorflow==1.3.0 + dm-sonnet==1.9 are upstream's
+# stated pins and are fragile (sonnet 1.9 usually wants tensorflow >= 1.8). Find a
+# self-consistent set during the env build + numeric validation. Best run inside the
+# WSL Ubuntu mirror -- these legacy wheels are painful on native Windows.
+name: deepcrispr
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.6
+  - numpy=1.16.6
+  - scipy=1.2.3
+  - pip
+  - pip:
+      - tensorflow==1.3.0
+      - dm-sonnet==1.9

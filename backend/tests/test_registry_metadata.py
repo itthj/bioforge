@@ -24,9 +24,14 @@ def test_existing_tool_without_metadata_defaults_empty() -> None:
 
 def test_populated_tool_carries_metadata() -> None:
     spec = get_tool("score_guide_on_target")
-    assert spec.emits_instance_uncertainty == {"on_target": False}
+    # The transparent rule-based scorer is declared and honest (no fabricated figure).
+    assert spec.emits_instance_uncertainty["on_target"] is False
     assert "VERIFY" in spec.published_accuracy["on_target"]  # unsourced figures are stubbed, not guessed
     assert spec.training_distribution["guide_length_nt"] == 20
+    # The tool now also declares the opt-in DeepCRISPR scorer side-by-side, equally honestly.
+    assert spec.emits_instance_uncertainty["deepcrispr"] is False
+    assert "VERIFY" in spec.published_accuracy["deepcrispr"]
+    assert spec.reference_data_keys == ["deepcrispr_weights"]
 
 
 def test_reference_data_keys_populated_on_db_backed_tools() -> None:

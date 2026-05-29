@@ -64,5 +64,26 @@ class Settings(BaseSettings):
         alias="BIOFORGE_INDELPHI_UPSTREAM_COMMIT",
     )
 
+    # DeepCRISPR (Chuai 2018) -- opt-in deep on-target efficacy scorer. Apache-2.0, so
+    # there is NO consent gate (unlike inDelphi). DeepCRISPR is TensorFlow 1.3 / Python
+    # 3.6 and CANNOT run in this interpreter, so it executes OUT OF PROCESS in a pinned
+    # legacy environment: a digest-pinned Docker image by default, or a local conda
+    # python (`deepcrispr_python`) as a fallback. The fetcher downloads the Apache-2.0
+    # weights into `deepcrispr_data_dir` on first use, pinned to `deepcrispr_upstream_commit`
+    # for reproducible provenance. The score tool degrades gracefully (it still returns the
+    # deterministic rule-based score) when the legacy env is absent or `deepcrispr_enabled`
+    # is False, so the default configuration is behaviorally identical to before.
+    deepcrispr_enabled: bool = Field(default=False, alias="BIOFORGE_DEEPCRISPR_ENABLED")
+    deepcrispr_data_dir: str = Field(default="", alias="BIOFORGE_DEEPCRISPR_DATA_DIR")
+    deepcrispr_runner: str = Field(default="docker", alias="BIOFORGE_DEEPCRISPR_RUNNER")  # docker | local
+    deepcrispr_docker_image: str = Field(default="", alias="BIOFORGE_DEEPCRISPR_DOCKER_IMAGE")
+    deepcrispr_python: str = Field(default="", alias="BIOFORGE_DEEPCRISPR_PYTHON")
+    deepcrispr_upstream_commit: str = Field(
+        # TODO(validation): pin to a real bm2-lab/DeepCRISPR commit SHA before enabling.
+        default="master",
+        alias="BIOFORGE_DEEPCRISPR_UPSTREAM_COMMIT",
+    )
+    deepcrispr_timeout_seconds: float = Field(default=300.0, alias="BIOFORGE_DEEPCRISPR_TIMEOUT_SECONDS")
+
 
 settings = Settings()

@@ -33,6 +33,8 @@ instructed (via tool description + caveats) to surface this distinction to the u
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field, field_validator
 
 from bioforge.tools.base import ToolError, ToolInput, ToolOutput
@@ -147,6 +149,19 @@ class ScoreGuideOnTargetInput(ToolInput):
             "Rule Set 2 model (which uses positions -4..+6 relative to protospacer)."
         ),
     )
+    model: Literal["rule_based", "deepcrispr"] = Field(
+        default="rule_based",
+        description=(
+            "Which on-target scorer to run. 'rule_based' (default) returns ONLY the "
+            "transparent Doench-rules proxy — fast, deterministic, no setup. 'deepcrispr' "
+            "ALSO runs the DeepCRISPR sequence-only CNN regression model (Chuai 2018, "
+            "Apache-2.0) out-of-process and returns it side-by-side in "
+            "`deepcrispr_on_target_score`. 'deepcrispr' REQUIRES a concrete 3-nt ACGT `pam` "
+            "(the model scores the 23-bp protospacer+PAM window) and the DeepCRISPR legacy "
+            "environment to be built + enabled; if it is unavailable the rule-based score is "
+            "still returned, with a caveat."
+        ),
+    )
 
     @field_validator("protospacer")
     @classmethod
@@ -197,6 +212,20 @@ class ScoreGuideOnTargetOutput(ToolOutput):
         )
     )
     score_breakdown: ScoreBreakdown
+    deepcrispr_on_target_score: float | None = Field(
+        default=None,
+        description=(
+            "DeepCRISPR sequence-only CNN regression on-target score (Chuai 2018), populated "
+            "only when model='deepcrispr' AND the legacy environment is available; None "
+            "otherwise. Shown SIDE-BY-SIDE with on_target_score — they use different scales, "
+            "so compare guide rankings, not absolute values. Not yet validated end-to-end "
+            "(see the DeepCRISPR legacy README)."
+        ),
+    )
+    deepcrispr_model_version: str | None = Field(
+        default=None,
+        description="Provenance tag (DeepCRISPR model id + pinned upstream commit), when its score is present.",
+    )
     caveats: list[str]
 
 
@@ -258,6 +287,53 @@ _COMPONENT_WEIGHTS: dict[str, float] = {
 }
 
 
+def _score_with_deepcrispr(protospacer: str, pam: str) -> tuple[float | None, str | None, list[str]]:
+    """Run the DeepCRISPR seq-only model for one guide, side-by-side with the rule-based score.
+
+    Returns `(score, model_version, caveats)`. On a graceful unavailable/inference failure it
+    returns `(None, None, [explanatory caveat])` so the rule-based score is still delivered.
+    Raises `ToolError` only for an invalid PAM — a fixable input problem the agent should retry.
+    """
+    pam_clean = "".join(pam.split()).upper()
+    if len(pam_clean) != 3 or (set(pam_clean) - set("ACGT")):
+        raise ToolError(
+            "model='deepcrispr' needs a concrete 3-nt ACGT pam (e.g. 'AGG') so the 23-bp "
+            f"protospacer+PAM window can be formed; got pam={pam!r}. Pass the matched PAM from "
+            "design_guides, or use model='rule_based'."
+        )
+    guide23 = protospacer + pam_clean
+
+    # Local import: keeps registry load light and avoids importing the model glue unless used.
+    from bioforge.tools.sequence.models.deepcrispr import (
+        DeepCRISPRInferenceError,
+        DeepCRISPRUnavailable,
+        predict_on_target,
+    )
+
+    try:
+        result = predict_on_target([guide23])
+    except DeepCRISPRUnavailable as e:
+        return (
+            None,
+            None,
+            [
+                f"DeepCRISPR on-target score unavailable: {e} The transparent rule-based on_target_score is returned alone."
+            ],
+        )
+    except DeepCRISPRInferenceError as e:
+        return None, None, [f"DeepCRISPR inference failed for this guide: {e} Returning the rule-based score only."]
+
+    caveats = [
+        "deepcrispr_on_target_score is the DeepCRISPR sequence-only CNN regression prediction "
+        "(Chuai 2018, Apache-2.0), shown SIDE-BY-SIDE with the rule-based on_target_score. The "
+        "two use different scales — compare guide RANKINGS, not absolute values.",
+        "DeepCRISPR was trained on human cell-line data (HCT116, HEK293T, HeLa, HL60; Chuai "
+        "2018). Sequences far from that distribution, or non-human systems, are out-of-"
+        "distribution (§6) — treat the score with caution there.",
+    ]
+    return result.scores[0].score, result.model_version, caveats
+
+
 @register_tool(
     name="score_guide_on_target",
     description=(
@@ -268,9 +344,11 @@ _COMPONENT_WEIGHTS: dict[str, float] = {
         "breakdown of contributing components. Use after `design_guides` to refine the "
         "ranking, or whenever the user asks 'how good is this guide?'. IMPORTANT: this "
         "is NOT the Doench 2016 Rule Set 2 trained model — it's a rule-based proxy. "
-        "Per-guide ML scoring (Azimuth, DeepCRISPR) is a future slice. The output "
-        "field is named `on_target_score`, not `doench_score`, to keep that distinction "
-        "visible."
+        "Set model='deepcrispr' to ALSO run the DeepCRISPR sequence-only CNN model "
+        "(Chuai 2018, Apache-2.0) side-by-side in `deepcrispr_on_target_score` (opt-in; "
+        "needs a 3-nt PAM and the legacy env). Azimuth/Rule Set 2 stays a future slice. "
+        "The output field is named `on_target_score`, not `doench_score`, to keep that "
+        "distinction visible."
     ),
     input_model=ScoreGuideOnTargetInput,
     output_model=ScoreGuideOnTargetOutput,
@@ -283,16 +361,31 @@ _COMPONENT_WEIGHTS: dict[str, float] = {
     cost_hint="cheap",
     destructive=False,
     tags=["sequence", "crispr", "scoring"],
-    model_versions={"on_target": "bioforge-rule-based-proxy-1.0.0"},
-    emits_instance_uncertainty={"on_target": False},
+    model_versions={
+        "on_target": "bioforge-rule-based-proxy-1.0.0",
+        "deepcrispr": "deepcrispr-ontar-cnn-reg-seq",
+    },
+    emits_instance_uncertainty={"on_target": False, "deepcrispr": False},
     published_accuracy={
         "on_target": (
             "VERIFY: transparent rule-based proxy of Doench 2014/2016 features; NOT the trained "
             "Rule Set 2 (Azimuth) model, so no standalone published held-out accuracy applies."
-        )
+        ),
+        "deepcrispr": (
+            "VERIFY: DeepCRISPR (Chuai 2018, Genome Biol 19:80) reports on-target ROC-AUC 0.857 "
+            "(classification); the seq-only regression Spearman is in Additional file 3 — confirm "
+            "the exact figure at numeric validation before displaying it as calibrated."
+        ),
     },
-    training_distribution={"guide_length_nt": 20, "note": "rule-based heuristic, not a trained model"},
-    reference_data_keys=[],
+    training_distribution={
+        "guide_length_nt": 20,
+        "note": "rule-based heuristic, not a trained model",
+        "deepcrispr_note": (
+            "model='deepcrispr' uses DeepCRISPR, trained on human cell-line data "
+            "(HCT116, HEK293T, HeLa, HL60; Chuai 2018) — declare that as its OOD envelope."
+        ),
+    },
+    reference_data_keys=["deepcrispr_weights"],
 )
 async def score_guide_on_target(
     inp: ScoreGuideOnTargetInput,
@@ -317,6 +410,23 @@ async def score_guide_on_target(
         + _COMPONENT_WEIGHTS["dinucleotide"] * dinuc
     )
 
+    caveats = [
+        "on_target_score is a TRANSPARENT rule-based combination of published "
+        "design preferences (Doench 2014/2016). It is NOT the Doench Rule Set 2 "
+        "trained linear-regression model — for that, integrate the Azimuth package "
+        "or its equivalent (future slice).",
+        "Position-specific weights are derived from Doench 2014 Tables S1/S2 "
+        "qualitative preferences, normalized into [0,1]. Different downstream "
+        "tools (CRISPRko, CRISPick) use different weightings of the same features.",
+        "This score does NOT predict off-target activity — use `find_offtargets` for specificity assessment.",
+    ]
+
+    deepcrispr_score: float | None = None
+    deepcrispr_version: str | None = None
+    if inp.model == "deepcrispr":
+        deepcrispr_score, deepcrispr_version, dc_caveats = _score_with_deepcrispr(seq, inp.pam)
+        caveats.extend(dc_caveats)
+
     return ScoreGuideOnTargetOutput(
         protospacer=seq,
         pam=inp.pam,
@@ -328,14 +438,7 @@ async def score_guide_on_target(
             dinucleotide_component=round(dinuc, 4),
             component_weights=dict(_COMPONENT_WEIGHTS),
         ),
-        caveats=[
-            "on_target_score is a TRANSPARENT rule-based combination of published "
-            "design preferences (Doench 2014/2016). It is NOT the Doench Rule Set 2 "
-            "trained linear-regression model — for that, integrate the Azimuth package "
-            "or its equivalent (future slice).",
-            "Position-specific weights are derived from Doench 2014 Tables S1/S2 "
-            "qualitative preferences, normalized into [0,1]. Different downstream "
-            "tools (CRISPRko, CRISPick) use different weightings of the same features.",
-            "This score does NOT predict off-target activity — use `find_offtargets` for specificity assessment.",
-        ],
+        deepcrispr_on_target_score=deepcrispr_score,
+        deepcrispr_model_version=deepcrispr_version,
+        caveats=caveats,
     )
