@@ -26,13 +26,23 @@ import subprocess
 import sys
 import tempfile
 
+# Library chatter (FORECasT prints) must not pollute the JSON protocol on stdout. Keep a
+# handle to the real stdout and route everything else to stderr; only the result JSON is
+# written to the real stdout.
+_REAL_STDOUT = sys.stdout
+sys.stdout = sys.stderr
+
 # VERIFY: the FORECasT entrypoint inside the env/image. Override via FORECAST_SCRIPT.
 _FORECAST_SCRIPT = os.environ.get("FORECAST_SCRIPT", "FORECasT.py")
 
 
+def _emit(obj):
+    _REAL_STDOUT.write(json.dumps(obj))
+    _REAL_STDOUT.flush()
+
+
 def _fail(message):
-    sys.stdout.write(json.dumps({"error": message}))
-    sys.stdout.flush()
+    _emit({"error": message})
     sys.stderr.write("forecast_infer: " + message + "\n")
     sys.exit(1)
 
@@ -118,8 +128,7 @@ def main():
             return
         results.append({"predictions": predictions})
 
-    sys.stdout.write(json.dumps({"results": results}))
-    sys.stdout.flush()
+    _emit({"results": results})
 
 
 if __name__ == "__main__":

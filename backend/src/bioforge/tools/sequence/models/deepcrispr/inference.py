@@ -1,26 +1,20 @@
 """DeepCRISPR on-target inference orchestration (the py3.11 side).
 
-Public entry point: `predict_on_target(guides)`. It validates the inputs, ensures
-the Apache-2.0 weights are present (fetch-on-first-use), runs the out-of-process
-legacy backend via `runner`, and maps the JSON result into the typed
+Public entry point: `predict_on_target(guides)`. It validates the inputs, runs the
+out-of-process legacy backend via `runner`, and maps the JSON result into the typed
 `DeepCRISPROnTargetResult` schema.
 
-No TensorFlow is imported here — that lives entirely in the legacy subprocess. This
-module stays import-safe in the modern interpreter, so the package can be imported
-during normal operation (and tests) without the legacy environment present.
+No TensorFlow is imported here — that lives entirely in the legacy subprocess. The legacy
+environment (the thin image FROM the authors' image, or a local DeepCRISPR install) carries
+the trained weights, so there is no separate weight fetch from this side. This module stays
+import-safe in the modern interpreter.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
-
 from bioforge.config import Settings
 from bioforge.config import settings as _default_settings
-from bioforge.tools.sequence.models.deepcrispr.fetcher import (
-    DeepCRISPRPaths,
-    DeepCRISPRUnavailable,
-    ensure_available,
-)
+from bioforge.tools.sequence.models.deepcrispr.fetcher import DeepCRISPRUnavailable
 from bioforge.tools.sequence.models.deepcrispr.manifest import (
     GUIDE_LENGTH_BP,
     OnTargetModel,
@@ -34,8 +28,6 @@ from bioforge.tools.sequence.models.deepcrispr.schema import (
     DeepCRISPROnTargetResult,
     DeepCRISPROnTargetScore,
 )
-
-EnsureFn = Callable[..., DeepCRISPRPaths]
 
 _DNA = set("ACGT")
 
@@ -62,7 +54,6 @@ def predict_on_target(
     *,
     model: OnTargetModel = "ontar_cnn_reg_seq",
     settings: Settings | None = None,
-    ensure_fn: EnsureFn = ensure_available,
     run_fn: RunFn | None = None,
 ) -> DeepCRISPROnTargetResult:
     """Score one or more 23 bp guides with the DeepCRISPR seq-only on-target model.
@@ -71,31 +62,29 @@ def predict_on_target(
     ----------
     guides : list of 23 bp ACGT windows (protospacer + PAM), 5'->3'.
     model  : the on-target model id (only the seq-only regression model is wired up).
-    settings / ensure_fn / run_fn : injection points for tests.
+    settings / run_fn : injection points for tests.
 
     Raises
     ------
-    DeepCRISPRUnavailable    : `deepcrispr_enabled` is False, or the legacy
-                               backend/runtime is missing or misconfigured.
-    DeepCRISPRInferenceError : invalid input, or the subprocess failed / returned
-                               an unexpected payload.
+    DeepCRISPRUnavailable    : `deepcrispr_enabled` is False, or the legacy backend/runtime is
+                               missing or misconfigured.
+    DeepCRISPRInferenceError : invalid input, or the subprocess failed / returned an
+                               unexpected payload.
     """
     s = settings if settings is not None else _default_settings
 
     if not s.deepcrispr_enabled:
         raise DeepCRISPRUnavailable(
-            "DeepCRISPR is disabled. After building the legacy environment "
-            "(models/deepcrispr/legacy/), set BIOFORGE_DEEPCRISPR_ENABLED=true and configure a "
-            "runner: either BIOFORGE_DEEPCRISPR_DOCKER_IMAGE (docker) or BIOFORGE_DEEPCRISPR_PYTHON "
-            "(local conda). Until then, use the deterministic rule-based on-target score."
+            "DeepCRISPR is disabled. After building the legacy image (models/deepcrispr/legacy/, "
+            "FROM michaelchuai/deepcrispr:latest), set BIOFORGE_DEEPCRISPR_ENABLED=true and "
+            "BIOFORGE_DEEPCRISPR_DOCKER_IMAGE (docker) or BIOFORGE_DEEPCRISPR_PYTHON (local). Until "
+            "then, use the deterministic rule-based on-target score."
         )
     if not guides:
         raise DeepCRISPRInferenceError("No guides provided to DeepCRISPR.")
 
     cleaned = [_validate_guide(g) for g in guides]
-
-    paths = ensure_fn(model, settings=s)
-    payload = run_inference(cleaned, model, paths, s, run_fn=run_fn)
+    payload = run_inference(cleaned, model, s, run_fn=run_fn)
 
     raw_scores = payload["scores"]
     scores = [DeepCRISPROnTargetScore(guide=g, score=float(v)) for g, v in zip(cleaned, raw_scores, strict=True)]

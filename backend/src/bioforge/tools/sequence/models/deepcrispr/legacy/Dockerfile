@@ -1,39 +1,24 @@
-# DeepCRISPR (Chuai 2018) legacy inference image -- Python 3.6 / TensorFlow 1.x.
-# Apache-2.0 upstream. Built once, then invoked out-of-process by BioForge's runner
-# (`docker run --rm -i <image> python /opt/deepcrispr/deepcrispr_infer.py ...`).
+# DeepCRISPR legacy inference image -- a thin layer over the AUTHORS' official image, which
+# already ships a working Python 3.6.5 / TensorFlow 1.13.2 stack with DeepCRISPR and the
+# trained weights at /root/DeepCRISPR. This sidesteps the fragile from-scratch TF1/Sonnet
+# build entirely. (The README's "tensorflow==1.3.0" is loose; the working image uses 1.13.2.)
 #
-# IMPORTANT (reconcile at build): the upstream README states tensorflow==1.3.0 +
-# dm-sonnet==1.9, but sonnet 1.9 generally wants tensorflow >= 1.8. Treat the pins
-# below as a starting point -- find a self-consistent set during the env build and
-# numeric validation, then capture the resulting image digest
-# (`docker inspect --format '{{index .RepoDigests 0}}' <image>`) and set
-# BIOFORGE_DEEPCRISPR_DOCKER_IMAGE to that digest-pinned reference for §10 provenance.
-FROM python:3.6-slim
+#   docker build -t bioforge/deepcrispr:legacy .
+#   docker inspect --format '{{index .RepoDigests 0}}' bioforge/deepcrispr:legacy
+# then set BIOFORGE_DEEPCRISPR_DOCKER_IMAGE to that digest for §10 provenance.
+#
+# Validated base digest (2026-05-29):
+#   michaelchuai/deepcrispr@sha256:812deef95aac01ca1b3b07363613c6393bdb74460399c27108e2acfe5e559ad2
+FROM michaelchuai/deepcrispr:latest
 
-ENV PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+# In-image layout (used by the wrapper's defaults).
+ENV DEEPCRISPR_REPO_DIR=/root/DeepCRISPR \
+    DEEPCRISPR_MODEL_DIR=/root/DeepCRISPR/trained_models/ontar_cnn_reg_seq \
+    TF_CPP_MIN_LOG_LEVEL=3
 
-# Pin to a real DeepCRISPR commit at build time:  --build-arg DEEPCRISPR_COMMIT=<sha>
-ARG DEEPCRISPR_COMMIT=master
-
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends git ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
-# Pinned legacy scientific stack. Reconcile TF/sonnet versions if they conflict.
-RUN pip install \
-      numpy==1.16.6 \
-      scipy==1.2.3 \
-      "tensorflow==1.3.0" \
-      "dm-sonnet==1.9"
-
-# Upstream DeepCRISPR (Apache-2.0), pinned to a commit for reproducibility.
-RUN git clone https://github.com/bm2-lab/DeepCRISPR.git /opt/DeepCRISPR \
-    && git -C /opt/DeepCRISPR checkout "${DEEPCRISPR_COMMIT}"
-ENV PYTHONPATH=/opt/DeepCRISPR
-
-# BioForge's legacy inference entrypoint (the JSON-protocol script).
+# BioForge's legacy inference entrypoint (the JSON-protocol wrapper).
 COPY deepcrispr_infer.py /opt/deepcrispr/deepcrispr_infer.py
 
-# No ENTRYPOINT: the runner passes the full `python ... --model-dir ...` command.
-CMD ["python", "/opt/deepcrispr/deepcrispr_infer.py", "--help"]
+# Clear the base image's entrypoint so the runner's explicit `python ...` command runs directly.
+ENTRYPOINT []
+CMD ["python", "/opt/deepcrispr/deepcrispr_infer.py"]

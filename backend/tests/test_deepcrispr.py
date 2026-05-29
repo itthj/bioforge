@@ -1,9 +1,10 @@
-"""DeepCRISPR on-target integration — scaffolding tests (no Docker, no TensorFlow).
+"""DeepCRISPR on-target integration — tests (no Docker, no TensorFlow).
 
-Everything here exercises the modern-side glue with injected fakes: an in-memory
-tarball for the fetcher, a fake `run_fn` for the subprocess, and a monkeypatched
-`predict_on_target` for the tool. The real numeric inference is validated separately,
-inside the legacy environment (see models/deepcrispr/legacy/README.md).
+The modern-side glue is exercised with injected fakes: an in-memory tarball for the
+(optional) weight fetcher, a fake `run_fn` for the subprocess, and a monkeypatched
+`predict_on_target` for the score tool. Real numeric inference is validated separately in
+the legacy environment (validated end-to-end against the authors' image, 2026-05-29 — see
+models/deepcrispr/legacy/README.md).
 """
 
 from __future__ import annotations
@@ -14,13 +15,13 @@ import json
 import tarfile
 from pathlib import Path
 
+import bioforge.tools  # noqa: F401 — ensure tools are registered
 import pytest
 from bioforge.config import settings
 from bioforge.tools.base import ToolError
 from bioforge.tools.sequence.models.deepcrispr import (
     DeepCRISPRFetchError,
     DeepCRISPRInferenceError,
-    DeepCRISPRPaths,
     DeepCRISPRUnavailable,
     ensure_available,
     predict_on_target,
@@ -33,7 +34,6 @@ from bioforge.tools.sequence.score_guide_on_target import (
     score_guide_on_target,
 )
 
-# A real EMX1 protospacer (20 nt) + a concrete PAM -> the 23 bp DeepCRISPR window.
 _EMX1 = "GAGTCCGAGCAGAAGAAGAA"
 _PAM = "AGG"
 _GUIDE23 = _EMX1 + _PAM
@@ -49,15 +49,7 @@ def _make_tar_gz(files: dict[str, bytes]) -> bytes:
     return buf.getvalue()
 
 
-def _paths(tmp_path: Path) -> DeepCRISPRPaths:
-    return DeepCRISPRPaths(
-        data_dir=tmp_path,
-        model_dir=tmp_path / "ontar_cnn_reg_seq",
-        archive_path=tmp_path / "ontar_cnn_reg_seq.tar.gz",
-    )
-
-
-# --- Fetcher ------------------------------------------------------------------------
+# --- Fetcher (optional weight-fetch path; the official image bakes weights in) ------
 
 
 def test_ensure_available_fetches_extracts_and_pins(tmp_path: Path) -> None:
@@ -74,8 +66,6 @@ def test_ensure_available_fetches_extracts_and_pins(tmp_path: Path) -> None:
     assert (paths.model_dir / "checkpoint").read_bytes() == b"model-state\n"
     assert paths.archive_path.exists()
     assert (paths.data_dir / "pinned_hashes.json").exists()
-
-    # Second call: archive present + hash matches -> no re-download.
     ensure_available("ontar_cnn_reg_seq", settings=s, download_fn=fake_dl)
     assert len(calls) == 1
 
@@ -94,43 +84,41 @@ def test_ensure_available_rejects_unknown_model(tmp_path: Path) -> None:
         ensure_available("ontar_pt_cnn_reg", settings=s, download_fn=lambda _u: b"")  # type: ignore[arg-type]
 
 
-# --- Runner: command construction ---------------------------------------------------
+# --- Runner: command construction (thin image is self-contained — no weight mount) --
 
 
-def test_build_command_docker(tmp_path: Path) -> None:
+def test_build_command_docker() -> None:
     s = settings.model_copy(update={"deepcrispr_runner": "docker", "deepcrispr_docker_image": "img@sha256:dead"})
-    argv = build_command(_paths(tmp_path), s)
+    argv = build_command(s)
     assert argv[0] == "docker"
     assert "img@sha256:dead" in argv
-    assert any(a.endswith("/models:ro") for a in argv)
-    i = argv.index("--model-dir")
-    assert argv[i + 1] == "/models/ontar_cnn_reg_seq"
+    assert argv[-1].endswith("deepcrispr_infer.py")
+    assert "-v" not in argv  # weights are baked into the image
+    assert "--model-dir" not in argv
 
 
-def test_build_command_docker_requires_image(tmp_path: Path) -> None:
+def test_build_command_docker_requires_image() -> None:
     s = settings.model_copy(update={"deepcrispr_runner": "docker", "deepcrispr_docker_image": ""})
     with pytest.raises(DeepCRISPRUnavailable):
-        build_command(_paths(tmp_path), s)
+        build_command(s)
 
 
-def test_build_command_local(tmp_path: Path) -> None:
+def test_build_command_local() -> None:
     s = settings.model_copy(update={"deepcrispr_runner": "local", "deepcrispr_python": "/envs/dc/bin/python"})
-    argv = build_command(_paths(tmp_path), s)
+    argv = build_command(s)
     assert argv[0] == "/envs/dc/bin/python"
     assert argv[1].endswith("deepcrispr_infer.py")
-    assert "--model-dir" in argv
 
 
-def test_build_command_unknown_runner(tmp_path: Path) -> None:
-    s = settings.model_copy(update={"deepcrispr_runner": "weird"})
+def test_build_command_unknown_runner() -> None:
     with pytest.raises(DeepCRISPRUnavailable):
-        build_command(_paths(tmp_path), s)
+        build_command(settings.model_copy(update={"deepcrispr_runner": "weird"}))
 
 
 # --- Runner: protocol ---------------------------------------------------------------
 
 
-def test_run_inference_happy_path(tmp_path: Path) -> None:
+def test_run_inference_happy_path() -> None:
     s = settings.model_copy(
         update={"deepcrispr_runner": "local", "deepcrispr_python": "py", "deepcrispr_timeout_seconds": 12.0}
     )
@@ -141,28 +129,28 @@ def test_run_inference_happy_path(tmp_path: Path) -> None:
         captured["timeout"] = timeout
         return json.dumps({"model": "ontar_cnn_reg_seq", "scores": [0.5, 0.9]})
 
-    payload = run_inference([_GUIDE23, "C" * 23], "ontar_cnn_reg_seq", _paths(tmp_path), s, run_fn=fake_run)
+    payload = run_inference([_GUIDE23, "C" * 23], "ontar_cnn_reg_seq", s, run_fn=fake_run)
     assert payload["scores"] == [0.5, 0.9]
     assert json.loads(captured["stdin"])["guides"] == [_GUIDE23, "C" * 23]  # type: ignore[arg-type]
     assert captured["timeout"] == 12.0
 
 
-def test_run_inference_length_mismatch(tmp_path: Path) -> None:
+def test_run_inference_length_mismatch() -> None:
     s = settings.model_copy(update={"deepcrispr_runner": "local", "deepcrispr_python": "py"})
     with pytest.raises(DeepCRISPRInferenceError):
-        run_inference([_GUIDE23], "m", _paths(tmp_path), s, run_fn=lambda *_a: json.dumps({"scores": [0.1, 0.2]}))
+        run_inference([_GUIDE23], "m", s, run_fn=lambda *_a: json.dumps({"scores": [0.1, 0.2]}))
 
 
-def test_run_inference_error_payload(tmp_path: Path) -> None:
+def test_run_inference_error_payload() -> None:
     s = settings.model_copy(update={"deepcrispr_runner": "local", "deepcrispr_python": "py"})
     with pytest.raises(DeepCRISPRInferenceError):
-        run_inference([_GUIDE23], "m", _paths(tmp_path), s, run_fn=lambda *_a: json.dumps({"error": "boom"}))
+        run_inference([_GUIDE23], "m", s, run_fn=lambda *_a: json.dumps({"error": "boom"}))
 
 
-def test_run_inference_non_json(tmp_path: Path) -> None:
+def test_run_inference_non_json() -> None:
     s = settings.model_copy(update={"deepcrispr_runner": "local", "deepcrispr_python": "py"})
     with pytest.raises(DeepCRISPRInferenceError):
-        run_inference([_GUIDE23], "m", _paths(tmp_path), s, run_fn=lambda *_a: "not json")
+        run_inference([_GUIDE23], "m", s, run_fn=lambda *_a: "not json")
 
 
 # --- Inference orchestration --------------------------------------------------------
@@ -174,7 +162,7 @@ def test_predict_on_target_disabled_raises() -> None:
         predict_on_target([_GUIDE23], settings=s)
 
 
-def test_predict_on_target_happy(tmp_path: Path) -> None:
+def test_predict_on_target_happy() -> None:
     s = settings.model_copy(
         update={
             "deepcrispr_enabled": True,
@@ -183,11 +171,9 @@ def test_predict_on_target_happy(tmp_path: Path) -> None:
             "deepcrispr_upstream_commit": "abc123",
         }
     )
-    fake_paths = _paths(tmp_path)
     res = predict_on_target(
         [_GUIDE23, "ACGTACGTACGTACGTACGTGGG"],
         settings=s,
-        ensure_fn=lambda _model, settings=None: fake_paths,
         run_fn=lambda _argv, _stdin, _timeout: json.dumps({"scores": [0.7, 0.3]}),
     )
     assert [sc.score for sc in res.scores] == [0.7, 0.3]
@@ -261,5 +247,4 @@ def test_tool_deepcrispr_mode_returns_both_scores(monkeypatch: pytest.MonkeyPatc
     out = asyncio.run(score_guide_on_target(ScoreGuideOnTargetInput(protospacer=_EMX1, pam=_PAM, model="deepcrispr")))
     assert out.deepcrispr_on_target_score == 0.91
     assert out.deepcrispr_model_version == "ontar_cnn_reg_seq@xyz"
-    # The transparent rule-based score is still returned side-by-side.
     assert 0.0 <= out.on_target_score <= 1.0

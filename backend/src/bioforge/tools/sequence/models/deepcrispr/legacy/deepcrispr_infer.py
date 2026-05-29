@@ -1,95 +1,56 @@
-"""DeepCRISPR on-target inference — LEGACY RUNTIME script (Python 3.6 / TF 1.3).
+"""DeepCRISPR on-target inference -- LEGACY RUNTIME wrapper (runs inside the DeepCRISPR env).
 
-This file is NOT imported by the BioForge package. It runs INSIDE the pinned legacy
-environment (the Docker image or the conda env), invoked as a subprocess by
-`runner.py`. It speaks the JSON protocol:
+NOT imported by the BioForge package. Invoked as a subprocess by `runner.py`, speaking JSON:
 
     stdin :  {"guides": ["<23bp>", ...], "model": "ontar_cnn_reg_seq"}
     stdout:  {"model": "...", "scores": [<float>, ...]}     on success
              {"error": "<message>"}                          on failure (also exit 1)
 
-Keep this file Python-3.6 compatible (no PEP 604 unions, walrus, or match). It is
-excluded from the repo's ruff config because it targets a different interpreter.
+VALIDATED against `michaelchuai/deepcrispr:latest` (Python 3.6.5, TensorFlow 1.13.2): it
+uses DeepCRISPR's OWN encoder (`deepcrispr.Sgt`, via a one-column `.rsgt` with `with_y=False`)
+and the bundled seq-only regression weights, so there is no reimplemented encoding and no
+chance of divergence. Excluded from the repo's ruff config -- it targets the DeepCRISPR env.
 
-VERIFY at numeric validation: the one-hot encoding below (A,C,G,T -> 4 channels,
-shape [N,4,1,23]) must match what DeepCRISPR was trained with. If the upstream repo
-exposes its own sequence encoder, prefer importing and using that to remove any
-chance of channel-order divergence. The score values' range/normalization should
-also be confirmed against the paper before they are surfaced as calibrated numbers.
+Defaults assume the authors' image layout (repo at /root/DeepCRISPR, weights at
+/root/DeepCRISPR/trained_models/ontar_cnn_reg_seq). Override with DEEPCRISPR_REPO_DIR /
+DEEPCRISPR_MODEL_DIR or the --repo-dir / --model-dir flags for a local install.
 """
 
 from __future__ import print_function
 
 import argparse
-import glob
 import json
 import os
 import sys
+import tempfile
 
-GUIDE_LENGTH_BP = 23
-# Channel order assumed by the one-hot fallback. VERIFY against the upstream encoder.
-_BASE_TO_CHANNEL = {"A": 0, "C": 1, "G": 2, "T": 3}
+# TensorFlow warnings and DeepCRISPR's own prints ("... loaded") would otherwise pollute
+# stdout and corrupt the JSON protocol. Keep a handle to the real stdout and route ALL other
+# library chatter to stderr; only the result JSON is ever written to the real stdout.
+_REAL_STDOUT = sys.stdout
+sys.stdout = sys.stderr
+
+_DEFAULT_REPO_DIR = os.environ.get("DEEPCRISPR_REPO_DIR", "/root/DeepCRISPR")
+_DEFAULT_MODEL_DIR = os.environ.get(
+    "DEEPCRISPR_MODEL_DIR", "/root/DeepCRISPR/trained_models/ontar_cnn_reg_seq"
+)
+
+
+def _emit(obj):
+    _REAL_STDOUT.write(json.dumps(obj))
+    _REAL_STDOUT.flush()
 
 
 def _fail(message):
-    """Emit a JSON error on stdout, a human message on stderr, and exit nonzero."""
-    sys.stdout.write(json.dumps({"error": message}))
-    sys.stdout.flush()
+    _emit({"error": message})
     sys.stderr.write("deepcrispr_infer: " + message + "\n")
     sys.exit(1)
 
 
-def _resolve_model_dir(model_dir):
-    """Find the directory that actually holds the TF checkpoint.
-
-    The weights tarball may extract to a nested folder. Descend until we find a
-    directory containing a `checkpoint` file or `*.meta` / `*.ckpt*` files.
-    """
-    candidates = [model_dir]
-    for _ in range(4):  # bounded descent
-        new_candidates = []
-        for d in candidates:
-            if not os.path.isdir(d):
-                continue
-            has_ckpt = (
-                os.path.exists(os.path.join(d, "checkpoint"))
-                or glob.glob(os.path.join(d, "*.meta"))
-                or glob.glob(os.path.join(d, "*.ckpt*"))
-            )
-            if has_ckpt:
-                return d
-            for name in sorted(os.listdir(d)):
-                sub = os.path.join(d, name)
-                if os.path.isdir(sub):
-                    new_candidates.append(sub)
-        if not new_candidates:
-            break
-        candidates = new_candidates
-    return model_dir  # let DCModelOntar raise a clear error if this is wrong
-
-
-def _encode(guide):
-    """One-hot encode a 23 bp guide into a [4, 1, 23] float array.
-
-    VERIFY: confirm this matches DeepCRISPR's training encoding (channel order +
-    layout). If the repo ships an encoder, use it instead of this fallback.
-    """
-    import numpy as np
-
-    guide = guide.strip().upper()
-    if len(guide) != GUIDE_LENGTH_BP:
-        raise ValueError("guide must be %d bp, got %d" % (GUIDE_LENGTH_BP, len(guide)))
-    arr = np.zeros((4, 1, GUIDE_LENGTH_BP), dtype=np.float32)
-    for pos, base in enumerate(guide):
-        if base not in _BASE_TO_CHANNEL:
-            raise ValueError("non-ACGT base %r in guide" % base)
-        arr[_BASE_TO_CHANNEL[base], 0, pos] = 1.0
-    return arr
-
-
 def main():
     parser = argparse.ArgumentParser(description="DeepCRISPR seq-only on-target inference (legacy runtime).")
-    parser.add_argument("--model-dir", required=True, help="Directory with the extracted on-target model.")
+    parser.add_argument("--model-dir", default=_DEFAULT_MODEL_DIR)
+    parser.add_argument("--repo-dir", default=_DEFAULT_REPO_DIR)
     args = parser.parse_args()
 
     try:
@@ -99,45 +60,50 @@ def main():
         return
 
     guides = request.get("guides")
-    model = request.get("model", "ontar_cnn_reg_seq")
     if not isinstance(guides, list) or not guides:
         _fail("request must carry a non-empty 'guides' list")
         return
+
+    # DeepCRISPR's package + relative model paths resolve from the repo dir.
+    if args.repo_dir and args.repo_dir not in sys.path:
+        sys.path.insert(0, args.repo_dir)
+    if os.path.isdir(args.repo_dir):
+        os.chdir(args.repo_dir)
 
     try:
         import numpy as np
         import tensorflow as tf
 
-        from deepcrispr import DCModelOntar
-    except Exception as e:  # noqa: E722 — surface any import failure as a clean protocol error
-        _fail(
-            "failed to import the legacy stack (tensorflow / deepcrispr): %s. "
-            "Is this running inside the pinned legacy environment?" % e
-        )
+        import deepcrispr as dc
+    except Exception as e:  # noqa: E722 -- surface any import failure as a clean protocol error
+        _fail("failed to import the DeepCRISPR stack (is this the DeepCRISPR env/image?): %s" % e)
         return
 
     try:
-        x = np.stack([_encode(g) for g in guides], axis=0)  # [N, 4, 1, 23]
-        model_dir = _resolve_model_dir(args.model_dir)
+        # Write the 23 bp guides to a one-column .rsgt and let DeepCRISPR's own Sgt encode
+        # them (with_y=False -> the single column is the sequence). x -> [N, 4, 1, 23].
+        tmp = tempfile.mktemp(suffix=".rsgt")
+        with open(tmp, "w") as f:
+            f.write("\n".join(g.strip().upper() for g in guides) + "\n")
+        x = dc.Sgt(tmp, with_y=False).get_dataset()
+        x = np.expand_dims(x, axis=2)
 
         sess = tf.InteractiveSession()
         try:
-            # is_reg=True (regression), seq_feature_only=True (4-channel seq-only model).
-            dcmodel = DCModelOntar(sess, model_dir, True, True)
+            dcmodel = dc.DCModelOntar(sess, args.model_dir, is_reg=True, seq_feature_only=True)
             predicted = dcmodel.ontar_predict(x)
             scores = [float(v) for v in np.asarray(predicted).reshape(-1).tolist()]
         finally:
             sess.close()
-    except Exception as e:  # noqa: E722 — protocol boundary: never leak a traceback to stdout
-        _fail("inference failed: %s" % e)
+    except Exception as e:  # noqa: E722
+        _fail("DeepCRISPR inference failed: %s" % e)
         return
 
     if len(scores) != len(guides):
         _fail("model returned %d scores for %d guides" % (len(scores), len(guides)))
         return
 
-    sys.stdout.write(json.dumps({"model": model, "scores": scores}))
-    sys.stdout.flush()
+    _emit({"model": request.get("model", "ontar_cnn_reg_seq"), "scores": scores})
 
 
 if __name__ == "__main__":

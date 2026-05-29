@@ -1,74 +1,56 @@
-# DeepCRISPR legacy runtime (Python 3.6 / TensorFlow 1.x)
+# DeepCRISPR legacy runtime — VALIDATED (Python 3.6 / TensorFlow 1.13.2, Apache-2.0)
 
-DeepCRISPR (Chuai et al. 2018, *Genome Biol* 19:80, **Apache-2.0**) is the primary
-deep on-target scorer. It runs TensorFlow 1.3 / Python 3.6, which **cannot** coexist
-with BioForge's Python 3.11 stack — so it executes **out of process** in the pinned
-legacy environment built here, and BioForge talks to it over a tiny JSON protocol
-(`deepcrispr_infer.py`).
+DeepCRISPR (Chuai et al. 2018, *Genome Biol* 19:80, **Apache-2.0**) is the primary deep
+on-target scorer. It runs out of process; BioForge talks to it over a JSON protocol
+(`deepcrispr_infer.py`). **Validated end-to-end on 2026-05-29** against the authors' image.
 
-This directory is a different-runtime artifact: it is **excluded from the repo's ruff
-config** and is never imported by the BioForge package.
+## Validated recipe (use this)
 
-## Which model
-
-Only the **sequence-only on-target regression** model (`ontar_cnn_reg_seq`) is wired
-up — 4-channel one-hot, 23 bp (20 nt protospacer + 3 nt PAM). The 8-channel
-epigenetic models (CTCF/DNase/H3K4me3/RRBS) are out of scope: BioForge has no
-per-locus epigenetic tracks for arbitrary targets, and fabricating them would
-violate the project's grounding rules.
-
-## Backend A — Docker (default, recommended)
+The authors publish a working image — `michaelchuai/deepcrispr:latest` (Python 3.6.5,
+**TensorFlow 1.13.2** — the README's "1.3.0" is loose) — which already contains the
+DeepCRISPR code AND the trained weights at `/root/DeepCRISPR`. This sidesteps the fragile
+from-scratch TF1/Sonnet build entirely. Our `Dockerfile` is a **thin layer** over it that
+just bakes in the wrapper:
 
 ```bash
-# from this directory; pin to a real DeepCRISPR commit
-docker build --build-arg DEEPCRISPR_COMMIT=<sha> -t bioforge/deepcrispr:legacy .
-# capture the digest for reproducible provenance (§10)
-docker inspect --format '{{index .RepoDigests 0}}' bioforge/deepcrispr:legacy
+cd backend/src/bioforge/tools/sequence/models/deepcrispr/legacy
+docker build -t bioforge/deepcrispr:legacy .
+docker inspect --format '{{index .RepoDigests 0}}' bioforge/deepcrispr:legacy   # for §10 pin
 ```
-
-Then set in BioForge's environment:
-
 ```
 BIOFORGE_DEEPCRISPR_ENABLED=true
 BIOFORGE_DEEPCRISPR_RUNNER=docker
-BIOFORGE_DEEPCRISPR_DOCKER_IMAGE=bioforge/deepcrispr@sha256:<digest>
-BIOFORGE_DEEPCRISPR_UPSTREAM_COMMIT=<sha>
+BIOFORGE_DEEPCRISPR_DOCKER_IMAGE=bioforge/deepcrispr:legacy   # or its @sha256 digest
 ```
+Validated base digest: `michaelchuai/deepcrispr@sha256:812deef95aac01ca1b3b07363613c6393bdb74460399c27108e2acfe5e559ad2`
 
-## Backend B — conda (fallback, run inside WSL Ubuntu)
+## What was validated
 
-```bash
-conda env create -f environment.yml
-git clone https://github.com/bm2-lab/DeepCRISPR.git   # add to PYTHONPATH
+- The image imports cleanly (`from deepcrispr import DCModelOntar`) and loads the seq-only
+  regression weights `trained_models/ontar_cnn_reg_seq` (checkpoint `model.ckpt-seq`).
+- **Encoding is DeepCRISPR's own** (`deepcrispr.Sgt` over a one-column `.rsgt`, `with_y=False`)
+  — no reimplementation, so the earlier encoder `VERIFY` is **resolved**. A 1-column file
+  reproduces the full-file scores exactly.
+- The bioforge wrapper, run via `docker run -i bioforge/deepcrispr:legacy`, returns **pure
+  JSON** on stdout (TF/`...loaded` chatter is routed to stderr): e.g. guides
+  `ACGTTAGCAGTTTGATGGCATGG, ACCTCCAATCGGCCCACGGCTGG, CATTGACAGGATAGTGGCCAGGG`
+  -> `{"model":"ontar_cnn_reg_seq","scores":[0.0307, 0.1461, 0.1910]}`.
+- Score range on the example set is ~`-0.01 .. 0.19` — a regression head, **not** strictly
+  `[0, 1]`; do not assume a unit interval when displaying it.
+
+## Still open (optional, for a calibrated accuracy claim)
+
+- A larger held-out parity check (the image ships `paper_data-regression.tar.gz`) to report a
+  real Spearman, and a calibrated-uncertainty display. The plumbing + sane outputs are
+  confirmed; the example set (10 near-identical-efficacy guides) is too small/narrow for a
+  meaningful correlation.
+
+## Backend B — local (alternative)
+
+Install DeepCRISPR locally (Python 3.6 + TF 1.x + sonnet), then:
 ```
-
-```
-BIOFORGE_DEEPCRISPR_ENABLED=true
 BIOFORGE_DEEPCRISPR_RUNNER=local
-BIOFORGE_DEEPCRISPR_PYTHON=/path/to/envs/deepcrispr/bin/python
+BIOFORGE_DEEPCRISPR_PYTHON=/path/to/py36/python
+DEEPCRISPR_REPO_DIR=/path/to/DeepCRISPR            # if not the in-image default
+DEEPCRISPR_MODEL_DIR=/path/to/trained_models/ontar_cnn_reg_seq
 ```
-
-## Weights
-
-BioForge fetches `trained_models/ontar_cnn_reg_seq.tar.gz` on first use (Apache-2.0,
-no consent gate), pins its sha256, and extracts it under
-`~/.bioforge/data/deepcrispr/<commit>/`. **If that tarball is tracked with Git LFS**,
-the fetcher will detect the pointer and tell you to place the real archive there
-(`git lfs pull` a clone, or download the LFS media URL it prints).
-
-## Validation checklist (the part that needs a human)
-
-This scaffolding ships behind a graceful "unavailable" path with mocked-subprocess
-tests; **nothing below has been run end-to-end yet.** Before flipping it on:
-
-1. **Reconcile the legacy deps.** `tensorflow==1.3.0` + `dm-sonnet==1.9` is fragile
-   (sonnet 1.9 usually wants TF ≥ 1.8). Find a self-consistent set; record it here.
-2. **Pin commits/digests.** Set `DEEPCRISPR_COMMIT` and the image digest.
-3. **VERIFY the encoding.** Confirm `deepcrispr_infer.py::_encode` (A,C,G,T → 4
-   channels, `[N,4,1,23]`) matches DeepCRISPR's training encoding. Prefer the repo's
-   own encoder if it exposes one.
-4. **Parity check.** Score a few known guides and confirm the outputs are sane and
-   track the paper's expected behavior; confirm the score range/normalization before
-   surfacing it as a calibrated number.
-5. **Then** set `BIOFORGE_DEEPCRISPR_ENABLED=true` and run the `online`-marked
-   DeepCRISPR test.
