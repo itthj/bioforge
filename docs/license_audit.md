@@ -31,3 +31,36 @@ Options, for an explicit decision:
 3. **Defer ML on-target** entirely; keep the current transparent rule-based scorer as an explicitly-labelled heuristic until a commercially-clear deep model is chosen.
 
 **Net:** Lindel + FORECasT are green to build now; inDelphi stays as-is (non-commercial gate); DeepSpCas9-as-primary needs your call before any work begins. None of these may be built on a commercial-use assumption without the sign-off above.
+
+---
+
+## On-target primary model selection — decision: option 2 (2026-05-29)
+
+Per the decision to **swap the primary on-target scorer to a commercially-clear deep model**
+(DeepSpCas9 demoted to optional), candidate deep on-target predictors were audited against
+their *current upstream* licenses:
+
+| Candidate | Upstream | License | Commercial? | Verdict |
+|---|---|---|---|---|
+| **DeepCRISPR** (Chuai et al., *Genome Biol* 2018) | `bm2-lab/DeepCRISPR` | **Apache-2.0** (verified) | ✅ Yes | **🟢 Recommended new primary** |
+| CRISPRon (Xiang et al., *Nat Commun* 2021) | `RTH-tools/crispron` | **AGPL-3.0** | ⚠ Copyleft | 🔴 Unsuitable — network-copyleft can force open-sourcing a hosted BioForge |
+| DeepHF (Wang et al., *Nat Commun* 2019) | `izhangcd/DeepHF` | **No LICENSE file** → all-rights-reserved | ❌ No grant | 🔴 Not usable without author permission |
+| Azimuth / Rule Set 2 (Doench et al. 2016) | `MicrosoftResearch/Azimuth` | not at expected path (unverified) | — | This is the *secondary* slot (Doench RS2); verify separately |
+
+**Sources:** [DeepCRISPR](https://github.com/bm2-lab/DeepCRISPR) ([paper](https://doi.org/10.1186/s13059-018-1459-4)) · [CRISPRon](https://github.com/RTH-tools/crispron) ([paper](https://www.nature.com/articles/s41467-021-23576-0)) · [DeepHF](https://github.com/izhangcd/DeepHF) ([paper](https://www.nature.com/articles/s41467-019-12281-8)) · [Azimuth](https://github.com/MicrosoftResearch/Azimuth)
+
+### Recommendation
+
+- **Primary: DeepCRISPR (Apache-2.0).** The only audited deep on-target model that is
+  unambiguously commercial-safe (and redistributable with attribution).
+- **Optional: DeepSpCas9** — kept behind a non-commercial consent gate (like inDelphi), for
+  users who want it and accept the terms.
+- **Secondary: Doench Rule Set 2** (verify the Azimuth license first) or the existing
+  transparent rule-based heuristic, shown side-by-side per the two-scorer design.
+
+### Honest integration caveats (decide before building)
+
+1. **DeepCRISPR is TensorFlow 1.x (2018).** That framework is effectively deprecated; integrating it into the Python 3.11 stack means either a pinned legacy-TF container invoked out-of-process (mirrors the existing inDelphi fetch-on-first-use pattern, **minus** the consent gate since Apache-2.0 is clean), or reimplementing its inference path. This is the main engineering cost of option 2.
+2. **Trained on human cell-line data** → declare its OOD envelope (§6) and flag out-of-envelope inputs.
+3. **Source its published held-out accuracy** (Spearman) for the caveats / calibrated-uncertainty display before shipping — `# VERIFY:` until cited.
+
