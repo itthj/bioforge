@@ -149,17 +149,29 @@ class ScoreGuideOnTargetInput(ToolInput):
             "Rule Set 2 model (which uses positions -4..+6 relative to protospacer)."
         ),
     )
-    model: Literal["rule_based", "deepcrispr"] = Field(
+    thirtymer: str = Field(
+        default="",
+        max_length=30,
+        description=(
+            "The 30-nt Azimuth / Rule Set 2 context window, REQUIRED when model='azimuth_rs2': "
+            "4 nt 5' context + 20 nt protospacer + 3 nt PAM (NGG) + 3 nt 3' context, 5'→3'. The "
+            "protospacer (positions 4-24) must equal `protospacer`. Rule Set 2 is a 30-mer model; "
+            "a bare protospacer cannot be scored faithfully. Ignored for other models."
+        ),
+    )
+    model: Literal["rule_based", "deepcrispr", "azimuth_rs2"] = Field(
         default="rule_based",
         description=(
             "Which on-target scorer to run. 'rule_based' (default) returns ONLY the "
             "transparent Doench-rules proxy — fast, deterministic, no setup. 'deepcrispr' "
             "ALSO runs the DeepCRISPR sequence-only CNN regression model (Chuai 2018, "
             "Apache-2.0) out-of-process and returns it side-by-side in "
-            "`deepcrispr_on_target_score`. 'deepcrispr' REQUIRES a concrete 3-nt ACGT `pam` "
-            "(the model scores the 23-bp protospacer+PAM window) and the DeepCRISPR legacy "
-            "environment to be built + enabled; if it is unavailable the rule-based score is "
-            "still returned, with a caveat."
+            "`deepcrispr_on_target_score`; it REQUIRES a concrete 3-nt ACGT `pam` (the model "
+            "scores the 23-bp protospacer+PAM window). 'azimuth_rs2' ALSO runs Doench 2016 "
+            "Rule Set 2 (Azimuth, BSD-3-Clause) as the labeled SECONDARY scorer in "
+            "`azimuth_rs2_on_target_score`; it REQUIRES the 30-nt `thirtymer` context window. "
+            "Both deep modes need their legacy env built + enabled; if unavailable, the "
+            "rule-based score is still returned, with a caveat."
         ),
     )
 
@@ -175,7 +187,7 @@ class ScoreGuideOnTargetInput(ToolInput):
             )
         return cleaned
 
-    @field_validator("upstream_context", "pam")
+    @field_validator("upstream_context", "pam", "thirtymer")
     @classmethod
     def _validate_dna_optional(cls, v: str) -> str:
         cleaned = "".join(v.split()).upper()
@@ -225,6 +237,19 @@ class ScoreGuideOnTargetOutput(ToolOutput):
     deepcrispr_model_version: str | None = Field(
         default=None,
         description="Provenance tag (DeepCRISPR model id + pinned upstream commit), when its score is present.",
+    )
+    azimuth_rs2_on_target_score: float | None = Field(
+        default=None,
+        description=(
+            "Doench 2016 Rule Set 2 (Azimuth) on-target efficiency score, populated only when "
+            "model='azimuth_rs2' AND the legacy environment is available; None otherwise. The "
+            "labeled SECONDARY scorer, shown SIDE-BY-SIDE with on_target_score — different "
+            "scales, so compare guide rankings, not absolute values. Never the primary scorer."
+        ),
+    )
+    azimuth_rs2_model_version: str | None = Field(
+        default=None,
+        description="Provenance tag (Azimuth model id + pinned upstream commit), when its score is present.",
     )
     caveats: list[str]
 
@@ -334,6 +359,76 @@ def _score_with_deepcrispr(protospacer: str, pam: str) -> tuple[float | None, st
     return result.scores[0].score, result.model_version, caveats
 
 
+def _score_with_azimuth_rs2(protospacer: str, thirtymer: str) -> tuple[float | None, str | None, list[str]]:
+    """Run Azimuth / Doench Rule Set 2 for one guide, side-by-side with the rule-based score.
+
+    Rule Set 2 scores a 30-nt window, not a bare protospacer, so `thirtymer` is REQUIRED and
+    must carry the REAL genomic context — fabricating flanks would violate "AI never fabricates
+    biology". Returns `(score, model_version, caveats)`; on a graceful unavailable/inference
+    failure returns `(None, None, [caveat])` so the rule-based score is still delivered. Raises
+    `ToolError` only for a fixable input problem (missing/short/inconsistent 30-mer).
+    """
+    from bioforge.tools.sequence.models.azimuth.manifest import PROTOSPACER_OFFSET, THIRTYMER_LENGTH
+
+    cleaned = "".join(thirtymer.split()).upper()
+    if not cleaned:
+        raise ToolError(
+            "model='azimuth_rs2' needs a 30-nt context window in `thirtymer` (4 nt 5' context + "
+            "20 nt protospacer + 3 nt PAM + 3 nt 3' context). Rule Set 2 is a 30-mer model; a bare "
+            "20-nt protospacer cannot be scored faithfully. Pass the real flanking context (e.g. "
+            "from design_guides), or use model='rule_based'."
+        )
+    if len(cleaned) != THIRTYMER_LENGTH or (set(cleaned) - _DNA_CHARS):
+        raise ToolError(
+            f"model='azimuth_rs2' needs a {THIRTYMER_LENGTH}-nt ACGT window; got thirtymer={thirtymer!r} "
+            f"({len(cleaned)} nt after cleanup)."
+        )
+    embedded = cleaned[PROTOSPACER_OFFSET : PROTOSPACER_OFFSET + _GUIDE_LENGTH]
+    if embedded != protospacer:
+        raise ToolError(
+            "thirtymer is inconsistent with protospacer: expected the 20-nt protospacer at "
+            f"positions {PROTOSPACER_OFFSET}-{PROTOSPACER_OFFSET + _GUIDE_LENGTH} of the 30-mer "
+            f"(got {embedded!r}) to equal protospacer ({protospacer!r}). Check the window layout: "
+            "4 nt 5' context + protospacer + 3 nt PAM + 3 nt 3' context."
+        )
+
+    # Local import: keeps registry load light and avoids importing the model glue unless used.
+    from bioforge.tools.sequence.models.azimuth import (
+        AzimuthInferenceError,
+        AzimuthUnavailable,
+        predict_on_target,
+    )
+
+    try:
+        result = predict_on_target([cleaned])
+    except AzimuthUnavailable as e:
+        return (
+            None,
+            None,
+            [
+                f"Azimuth / Rule Set 2 on-target score unavailable: {e} The transparent rule-based "
+                "on_target_score is returned alone."
+            ],
+        )
+    except AzimuthInferenceError as e:
+        return (
+            None,
+            None,
+            [f"Azimuth / Rule Set 2 inference failed for this guide: {e} Returning the rule-based score only."],
+        )
+
+    caveats = [
+        "azimuth_rs2_on_target_score is Doench 2016 Rule Set 2 (Azimuth, BSD-3-Clause), the "
+        "labeled SECONDARY on-target scorer shown SIDE-BY-SIDE with the rule-based on_target_score "
+        "for comparison / legacy reproducibility — never the sole or primary scorer. The two use "
+        "different scales; compare guide RANKINGS, not absolute values.",
+        "Rule Set 2 was trained on the Doench 2016 human-cell guide-efficiency screen "
+        "(V3_model_nopos, sequence-only). Inputs far from that distribution are out-of-"
+        "distribution (§6) — treat the score with caution there.",
+    ]
+    return result.scores[0].score, result.model_version, caveats
+
+
 @register_tool(
     name="score_guide_on_target",
     description=(
@@ -346,7 +441,10 @@ def _score_with_deepcrispr(protospacer: str, pam: str) -> tuple[float | None, st
         "is NOT the Doench 2016 Rule Set 2 trained model — it's a rule-based proxy. "
         "Set model='deepcrispr' to ALSO run the DeepCRISPR sequence-only CNN model "
         "(Chuai 2018, Apache-2.0) side-by-side in `deepcrispr_on_target_score` (opt-in; "
-        "needs a 3-nt PAM and the legacy env). Azimuth/Rule Set 2 stays a future slice. "
+        "needs a 3-nt PAM and the legacy env). Set model='azimuth_rs2' to ALSO run Doench "
+        "2016 Rule Set 2 (Azimuth, BSD-3-Clause) as the labeled SECONDARY scorer in "
+        "`azimuth_rs2_on_target_score` (opt-in; needs the 30-nt `thirtymer` context window "
+        "and the legacy env). "
         "The output field is named `on_target_score`, not `doench_score`, to keep that "
         "distinction visible."
     ),
@@ -364,8 +462,9 @@ def _score_with_deepcrispr(protospacer: str, pam: str) -> tuple[float | None, st
     model_versions={
         "on_target": "bioforge-rule-based-proxy-1.0.0",
         "deepcrispr": "deepcrispr-ontar-cnn-reg-seq",
+        "azimuth_rs2": "azimuth-doench-rule-set-2-v3-nopos",
     },
-    emits_instance_uncertainty={"on_target": False, "deepcrispr": False},
+    emits_instance_uncertainty={"on_target": False, "deepcrispr": False, "azimuth_rs2": False},
     published_accuracy={
         "on_target": (
             "VERIFY: transparent rule-based proxy of Doench 2014/2016 features; NOT the trained "
@@ -376,6 +475,11 @@ def _score_with_deepcrispr(protospacer: str, pam: str) -> tuple[float | None, st
             "(classification); the seq-only regression Spearman is in Additional file 3 — confirm "
             "the exact figure at numeric validation before displaying it as calibrated."
         ),
+        "azimuth_rs2": (
+            "VERIFY: Doench 2016 Rule Set 2 (Azimuth) reports a Spearman correlation on held-out "
+            "guide-efficiency data; confirm the exact value + dataset against Doench et al. 2016 "
+            "(Nat Biotechnol 34:184-191) before displaying it as calibrated."
+        ),
     },
     training_distribution={
         "guide_length_nt": 20,
@@ -384,8 +488,13 @@ def _score_with_deepcrispr(protospacer: str, pam: str) -> tuple[float | None, st
             "model='deepcrispr' uses DeepCRISPR, trained on human cell-line data "
             "(HCT116, HEK293T, HeLa, HL60; Chuai 2018) — declare that as its OOD envelope."
         ),
+        "azimuth_rs2_note": (
+            "model='azimuth_rs2' uses Doench 2016 Rule Set 2 (Azimuth), trained on a human-cell "
+            "guide-efficiency screen (Doench 2016); needs a 30-nt context window — declare that "
+            "as its OOD envelope."
+        ),
     },
-    reference_data_keys=["deepcrispr_weights"],
+    reference_data_keys=["deepcrispr_weights", "azimuth_weights"],
 )
 async def score_guide_on_target(
     inp: ScoreGuideOnTargetInput,
@@ -413,8 +522,7 @@ async def score_guide_on_target(
     caveats = [
         "on_target_score is a TRANSPARENT rule-based combination of published "
         "design preferences (Doench 2014/2016). It is NOT the Doench Rule Set 2 "
-        "trained linear-regression model — for that, integrate the Azimuth package "
-        "or its equivalent (future slice).",
+        "trained model — run that via model='azimuth_rs2' (Azimuth, opt-in).",
         "Position-specific weights are derived from Doench 2014 Tables S1/S2 "
         "qualitative preferences, normalized into [0,1]. Different downstream "
         "tools (CRISPRko, CRISPick) use different weightings of the same features.",
@@ -426,6 +534,12 @@ async def score_guide_on_target(
     if inp.model == "deepcrispr":
         deepcrispr_score, deepcrispr_version, dc_caveats = _score_with_deepcrispr(seq, inp.pam)
         caveats.extend(dc_caveats)
+
+    azimuth_rs2_score: float | None = None
+    azimuth_rs2_version: str | None = None
+    if inp.model == "azimuth_rs2":
+        azimuth_rs2_score, azimuth_rs2_version, az_caveats = _score_with_azimuth_rs2(seq, inp.thirtymer)
+        caveats.extend(az_caveats)
 
     return ScoreGuideOnTargetOutput(
         protospacer=seq,
@@ -440,5 +554,7 @@ async def score_guide_on_target(
         ),
         deepcrispr_on_target_score=deepcrispr_score,
         deepcrispr_model_version=deepcrispr_version,
+        azimuth_rs2_on_target_score=azimuth_rs2_score,
+        azimuth_rs2_model_version=azimuth_rs2_version,
         caveats=caveats,
     )

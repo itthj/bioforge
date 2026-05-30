@@ -31,7 +31,10 @@ def test_populated_tool_carries_metadata() -> None:
     # The tool now also declares the opt-in DeepCRISPR scorer side-by-side, equally honestly.
     assert spec.emits_instance_uncertainty["deepcrispr"] is False
     assert "VERIFY" in spec.published_accuracy["deepcrispr"]
-    assert spec.reference_data_keys == ["deepcrispr_weights"]
+    # ...and the opt-in Azimuth / Doench Rule Set 2 secondary scorer, likewise honest.
+    assert spec.emits_instance_uncertainty["azimuth_rs2"] is False
+    assert "VERIFY" in spec.published_accuracy["azimuth_rs2"]
+    assert spec.reference_data_keys == ["deepcrispr_weights", "azimuth_weights"]
 
 
 def test_reference_data_keys_populated_on_db_backed_tools() -> None:

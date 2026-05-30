@@ -113,6 +113,27 @@ class Settings(BaseSettings):
     forecast_python: str = Field(default="", alias="BIOFORGE_FORECAST_PYTHON")
     forecast_timeout_seconds: float = Field(default=300.0, alias="BIOFORGE_FORECAST_TIMEOUT_SECONDS")
 
+    # Azimuth / Doench Rule Set 2 (Doench 2016) -- opt-in SECONDARY on-target scorer, shown
+    # side by side with the rule-based proxy for comparison / legacy reproducibility (never the
+    # primary). BSD-3-Clause (verified 2026-05-30, docs/license_audit.md), so NO consent gate.
+    # The trained scikit-learn pickles ship in the upstream repo and are version-fragile, so
+    # Azimuth runs OUT OF PROCESS in a pinned env (Docker image, or a local `azimuth_python`)
+    # loading the committed pickles AS-IS -- no retrain, no weight fetch.
+    # score_guide_on_target(model="azimuth_rs2") degrades gracefully (the deterministic
+    # rule-based score still returns) when the env is absent or `azimuth_enabled` is False, so
+    # the default configuration is behaviorally identical to before.
+    # SCAFFOLD: the legacy image is not yet built/validated end-to-end (see models/azimuth/legacy).
+    azimuth_enabled: bool = Field(default=False, alias="BIOFORGE_AZIMUTH_ENABLED")
+    azimuth_runner: str = Field(default="docker", alias="BIOFORGE_AZIMUTH_RUNNER")  # docker | local
+    azimuth_docker_image: str = Field(default="", alias="BIOFORGE_AZIMUTH_DOCKER_IMAGE")
+    azimuth_python: str = Field(default="", alias="BIOFORGE_AZIMUTH_PYTHON")
+    azimuth_upstream_commit: str = Field(
+        # VERIFY: pin to a real Biomatters/Azimuth (py3 port) commit SHA before enabling + validating.
+        default="master",
+        alias="BIOFORGE_AZIMUTH_UPSTREAM_COMMIT",
+    )
+    azimuth_timeout_seconds: float = Field(default=300.0, alias="BIOFORGE_AZIMUTH_TIMEOUT_SECONDS")
+
     # (v4 §0/§4.1/§4.3) OOD input gate. "off" (default) = the OOD detector records flags
     # post-response only (behavior unchanged). "block" = refuse a tool call whose input falls
     # outside an involved model's validated envelope BEFORE it runs (the §0 inputs boundary).
