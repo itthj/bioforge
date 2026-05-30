@@ -151,12 +151,28 @@ class VariantConsequence(BaseModel):
         default=None,
         description="Coding-DNA change derived from CDS positions (e.g. 'c.181T>G'). None when not coding.",
     )
-    sift_score: float | None = Field(default=None, description="SIFT score (0=damaging, 1=tolerated).")
+    sift_score: float | None = Field(
+        default=None,
+        description="SIFT score (0=damaging, 1=tolerated); < 0.05 is 'deleterious' (Ensembl).",
+    )
     sift_prediction: str | None = Field(default=None, description="SIFT label: 'deleterious', 'tolerated', etc.")
-    polyphen_score: float | None = Field(default=None, description="PolyPhen-2 score (0=benign, 1=damaging).")
+    polyphen_score: float | None = Field(
+        default=None,
+        description=(
+            "PolyPhen-2 score (0=benign, 1=damaging) from the HumVar model (Ensembl VEP default). "
+            "Ensembl thresholds: >0.908 probably_damaging, 0.446-0.908 possibly_damaging, <=0.446 benign."
+        ),
+    )
     polyphen_prediction: str | None = Field(
         default=None,
-        description="PolyPhen-2 label: 'benign', 'possibly_damaging', 'probably_damaging'.",
+        description="PolyPhen-2 (HumVar) label: 'benign', 'possibly_damaging', 'probably_damaging'.",
+    )
+    polyphen_model: str | None = Field(
+        default=None,
+        description=(
+            "Which PolyPhen-2 classifier produced the score/label. Ensembl VEP defaults to HumVar "
+            "(Ensembl protein-function docs); populated only when a PolyPhen score is present."
+        ),
     )
     distance: int | None = Field(
         default=None,
@@ -368,6 +384,7 @@ def _map_transcript_consequence(raw: dict[str, Any], allele_string: str | None) 
         sift_prediction=raw.get("sift_prediction"),
         polyphen_score=raw.get("polyphen_score"),
         polyphen_prediction=raw.get("polyphen_prediction"),
+        polyphen_model=("HumVar" if raw.get("polyphen_score") is not None else None),
         distance=raw.get("distance"),
     )
 
@@ -429,7 +446,7 @@ def _sorted_consequences(rows: list[VariantConsequence]) -> list[VariantConseque
 
 _BASE_CAVEATS = [
     "VEP consequences are computational predictions based on transcript structure. They are NOT clinical assertions of pathogenicity — use ClinVar / variant-specific literature for that.",
-    "SIFT and PolyPhen-2 are sequence-based predictors with documented false-positive and false-negative rates. Treat their labels as one input to interpretation, not as ground truth.",
+    "SIFT and PolyPhen-2 are sequence-based predictors with documented false-positive and false-negative rates -- treat their labels as one input to interpretation, not as ground truth. PolyPhen-2 here is the HumVar model (Ensembl VEP default; thresholds >0.908 probably_damaging, 0.446-0.908 possibly_damaging, <=0.446 benign); SIFT < 0.05 is deleterious. Source: https://www.ensembl.org/info/genome/variation/prediction/protein_function.html",
     "Consequences in NMD-targeted transcripts (biotype='nonsense_mediated_decay') reflect the predicted RNA — the protein change is usually never expressed because NMD degrades the mRNA.",
     "Colocated variants come from Ensembl's join with dbSNP, ClinVar, HGMD, COSMIC, and gnomAD at indexing time. Records added since the last Ensembl release won't appear; verify clinical-significance claims at https://www.ncbi.nlm.nih.gov/clinvar/ directly when stakes are high.",
 ]
