@@ -141,8 +141,11 @@ _BENCHMARKS: list[BenchmarkStatus] = [
         status="guard_only",
         detail=(
             "The fidelity guard (verbatim significance, Pathogenic vs Likely-pathogenic kept distinct, star "
-            "rating preserved) is unit-tested against faithful + adversarial reference cases. A live >=2-star "
-            "ClinVar gold-set is not yet wired."
+            "rating preserved) is unit-tested against faithful + adversarial reference cases, AND a live "
+            ">=2-star ClinVar fidelity benchmark is now wired as a nightly online test "
+            "(test_clinvar_fidelity_online): gold from an independent NCBI read vs the platform's "
+            "lookup_clinvar output, asserting no relabeling. Not computed at request time (no synchronous "
+            "NCBI call on page load), so it stays guard_only here."
         ),
     ),
     BenchmarkStatus(

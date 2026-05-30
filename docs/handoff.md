@@ -1,135 +1,73 @@
-# BioForge — Session handoff (Phase-2 ML + accuracy-hardening session, 2026-05-29)
+# BioForge — Session handoff (v4 finalization + usability push, 2026-05-29/30)
 
-Pick up cold from here. Read `docs/grounding.md` and `docs/license_audit.md` next (both
-updated this session). This continues the odyssey from the prior grounding-hardening handoff.
+Pick up cold from here. Read `docs/grounding.md`, `docs/license_audit.md`, and the v4 blueprint
+(the user has it; **it is NOT committed** — ask for it / re-paste it. Until then assess against
+its in-repo footprint: `grounding.md` + the §-references in code).
 
 ## Repo state
-- **GitHub:** https://github.com/itthj/bioforge — **everything is on `main`** (fast-forwarded).
-- **Local:** `C:\Users\james\OneDrive\Documents\BIOTECH 101\bioforge` (Windows; Docker Desktop + WSL2 available).
-- **`origin/main` HEAD: `64d20c4`.** Working tree clean.
-- **Suite:** `846 passed, 2 skipped, 11 deselected`. Lint + format clean.
-- This session's feature branches were all FF-merged into `main` and **deleted**. The prior
-  session's branches (`chore/license-audit`, `feat/clinvar-fidelity-benchmark`,
-  `feat/grounding-validator`, `feat/registry-metadata`) still exist (local + origin) — safe to delete.
+- **GitHub:** https://github.com/itthj/bioforge — everything on **`main`**, pushed.
+- **Local:** `C:\Users\james\OneDrive\Documents\BIOTECH 101\bioforge` (Windows; Docker Desktop + WSL2).
+- **HEAD = the `feat(benchmarks): … ClinVar live fidelity + handoff` commit** (run `git log --oneline -14`). Working tree clean, in sync with origin.
+- **Suite:** ~873 passed, 2 skipped, ~14 deselected (online+nextflow+docker). Lint + format clean. Frontend: 81 vitest passed, `tsc --strict` clean.
+- **Stale prior-session branches** still exist (local+origin): `chore/license-audit`, `feat/clinvar-fidelity-benchmark`, `feat/grounding-validator`, `feat/registry-metadata` — safe to delete.
 
-## What this session built (8 commits on `main`, oldest -> newest)
-1. **`2aabdfc` section 4.2 metadata mop-up + DeepCRISPR Spearman sourced.** Populated `reference_data_keys`
-   on the DB-backed tools (ncbi_blast/clinvar/dbsnp, gnomad, ensembl_vep, ensembl_variant_recoder,
-   rcsb_pdb, alphafold_db, interpro, sifts) + model metadata on `find_offtargets` (Hsu-2013 MIT) and
-   `edit_outcome`. Resolved the DeepCRISPR Spearman `VERIFY:` in `license_audit.md` via the PMC mirror
-   (on-target ROC-AUC **0.857**; exact regression rho is in Additional file 3). Pure transforms stay empty
-   (honest). Rule: a tool carries metadata iff it owns a model/heuristic OR depends on a reference dataset.
-2. **`527ba7d` DeepCRISPR on-target scaffold** (later superseded by the validated version, #8).
-3. **`2bf6e55` section 6 OOD gate** (`agent/grounding/ood.py`): deterministic `check_ood(tool_calls)` flags
-   inputs outside a model's stated envelope (e.g. non-20-nt guide vs `find_offtargets`' Hsu weights);
-   `collect_model_uncertainty(tool_names)` surfaces each ran model's `uncertainty_note`. Both ride the
-   `validation` verdict (`ood`, `model_uncertainty`); advisory appended in annotate/enforce, silent in
-   shadow. Detector/recorder only (acting-on-flag deferred, like L7).
-4. **`f7a4d66` section 13 ClinVar fidelity adapter** (`benchmarks/clinvar_fidelity.py`):
-   `review_status_to_stars` (NCBI scale, verified) + `case_from_clinvar_record` to turn a live
-   `lookup_clinvar` record + caller-supplied gold into a fidelity case. Live >=2-star gold-set still
-   deferred (network; never hardcode ClinVar truth from memory).
-5. **`212d795` section 10 reproducibility research-object** (`provenance/research_object.py`):
-   `build_run_manifest(result)` -> content-hashed RO-Crate-inspired lineage (hashed tool I/O,
-   reference-build pins, NON-SECRET settings fingerprint). `export_research_object`. Pure read, never
-   auto-invoked. Digest-pinned containers / JSON-LD / repro CI deferred.
-6. **`04f3e55` Lindel edit-outcome model** (scaffold) -- `edit_outcome(model="lindel")`.
-7. **`2d8807c` FORECasT edit-outcome model** (scaffold) -- `edit_outcome(model="forecast")`.
-8. **`64d20c4` DeepCRISPR VALIDATED end-to-end** + rewired to the authors' official image.
-
-### Phase-2 ML status (the headline)
-All three ML models are **opt-in, off by default, graceful when absent** (behavioral equivalence),
-**faithful** (raw distributions surfaced verbatim, never remapped), out-of-process, with section 4.2
-metadata + section 10 provenance pins. Each wrapper routes library chatter to stderr so **only JSON**
-hits stdout.
-- **DeepCRISPR** (on-target, Apache-2.0) -- **VALIDATED end-to-end** through the real bioforge path
-  (`predict_on_target` -> runner -> live Docker -> wrapper -> scores). Recipe: thin image
-  **`bioforge/deepcrispr:legacy`** (already built locally) FROM `michaelchuai/deepcrispr:latest`
-  (py3.6.5, **TF 1.13.2**; base digest `sha256:812deef9...`); weights bundled at
-  `/root/DeepCRISPR/trained_models/ontar_cnn_reg_seq`. Encoding uses DeepCRISPR's **own** `Sgt`
-  (1-col `.rsgt`, `with_y=False`) -> `[N,4,1,23]` -> `DCModelOntar(is_reg=True, seq_feature_only=True)`.
-  Validated scores: `ACGTTAGCAGTTTGATGGCATGG,ACCTCCAATCGGCCCACGGCTGG,CATTGACAGGATAGTGGCCAGGG`
-  -> `[0.0307, 0.1461, 0.191]`. Output is a regression head (~`-0.01..0.19`), **not** strict `[0,1]`.
-  **To enable:** `BIOFORGE_DEEPCRISPR_ENABLED=true`, `BIOFORGE_DEEPCRISPR_DOCKER_IMAGE=bioforge/deepcrispr:legacy`.
-- **Lindel** (edit-outcome, MIT) -- scaffolded, **NOT yet env-validated**. numpy/scipy + bundled weights;
-  API `gen_prediction(seq60, weights, prereq) -> (y_hat array, fs)`; 60 bp window (PAM `NGG` near pos 33);
-  weights `Model_weights.pkl` + `model_prereq.pkl` in the Lindel package. VERIFY at validation: the
-  weight/prereq filenames + how `rev_index` is stored in `model_prereq.pkl` (the wrapper guesses; it
-  fails loudly if wrong). `edit_outcome` builds the 60 bp window via `_lindel_window` (hard-validated).
-- **FORECasT** (edit-outcome, MIT) -- scaffolded, **NOT yet env-validated**. Py3 + C++ `indelmap`; official
-  image **`quay.io/felicityallen/selftarget`**; CLI `python FORECasT.py <seq> <pam_index> <prefix>` -> 2 TSVs.
-  VERIFY at validation: the `FORECasT.py` path in the image (set `FORECAST_SCRIPT`) + the profile-TSV
-  column layout the wrapper parses. `edit_outcome` passes the PAM index `_locate_guide` already found.
+## What this session built (all on `main`, oldest→newest; ~74%→~89% of the v4 vision)
+A full conformance audit against the v4 blueprint, then 9 vertical slices (each its own branch, FF-merged, tested green, ruff/tsc clean):
+1. **Lindel + FORECasT validated end-to-end** — out-of-process Docker models, parity-checked. Images built locally: `bioforge/lindel:legacy` (pinned `fdcad58`, **editable install** so weights resolve; `rev_index=prereq[1]`), `bioforge/forecast:legacy` (thin FROM `selftarget`, cwd=predictor dir for theta, drops the `-` null). Opt-in, off by default.
+2. **Accuracy Report** (§13/§5) — `GET /benchmarks/accuracy` + a React "Accuracy" tab. Publishes the **real** L6 validator metrics + registry `published_accuracy` + an honest ledger (live/guard_only/not_yet_wired). `benchmarks/accuracy_report.py`, `api/benchmarks.py`.
+3. **Digest-pinning** (rule 19) — all external images `@sha256`, `:latest` forbidden; guard test `test_digest_pinning.py`.
+4. **CFD off-target** (Phase 2, rule 16) — Doench-2016 matrix **sourced verbatim** from CRISPOR (`data/cfd_doench2016.json`, sha256+provenance, NEVER memory) + parity-tested engine in `offtarget_scoring.py`. `find_offtargets` reports `cfd_mismatch_score` (PAM factor omitted — off-target PAM unverified; full CFD awaits the PAM-verification slice).
+5. **OOD pre-gate** (§0/§4.1, rule 12) — `BIOFORGE_OOD_GATE=block` refuses out-of-envelope inputs before a tool runs (`ood_refusal` in `grounding/ood.py`, wired in `loop.py`). Off by default.
+6. **PolyPhen HumVar naming** (rule 16) — `VariantConsequence.polyphen_model="HumVar"`; verified Ensembl VEP default + thresholds against the Ensembl protein-function docs.
+7. **Frontend trust-surfacing** (§5) — the `validation` step (grounding/OOD/uncertainty) now renders in the trace via `StepCard` (was silently dropped).
+8. **Close-the-loop soundness gate** (§0/§4.1) — `BIOFORGE_SOUNDNESS_GATE=block` rejects impossible tool outputs before they feed downstream (`soundness_refusal`). Off by default.
+9. **RO-Crate 1.1 JSON-LD export** (§10) — `to_ro_crate` / `export_ro_crate` in `provenance/research_object.py`.
+10. **§13 ClinVar fidelity wired to LIVE ClinVar** (latest slice) — `test_clinvar_fidelity_online.py` (`-m online`, nightly): gold from an independent NCBI esummary read vs `lookup_clinvar`, scored via the §13 harness, ≥2★ subset data-driven. **Verified green against real ClinVar.** Accuracy Report ledger updated to say so.
 
 ## Decisions made (do NOT re-litigate)
-- **All external ML models run out-of-process** over a tiny JSON stdin/stdout protocol. Each model package:
-  `manifest`/`schema`/`runner`/`inference`/`__init__` + a `legacy/` dir (wrapper + Dockerfile + README)
-  that is **ruff-excluded** (`**/tools/sequence/models/*/legacy`).
-- **Use the authors' official images** where they exist (DeepCRISPR `michaelchuai/deepcrispr:latest`,
-  FORECasT `quay.io/felicityallen/selftarget`) via a **thin image** (FROM official + bake the wrapper),
-  NOT a from-scratch TF1 build (the README pins are loose/fragile; the official image is the source of truth).
-- **Faithful, never remap:** ML wrappers emit the upstream label->frequency / score **verbatim**; the
-  edit-outcome models populate `lindel_distribution` / `forecast_distribution` (raw) and leave `outcomes=[]`.
-- **Wrapper stdout guard:** `_REAL_STDOUT = sys.stdout; sys.stdout = sys.stderr; _emit()` -- library prints
-  must never corrupt the JSON protocol. (A real bug found + fixed in all three wrappers.)
-- **No self-computed accuracy numbers from unknown-split data.** DeepCRISPR accuracy stays anchored to the
-  paper's sourced figures (ROC-AUC 0.857). The bundled example set (10 guides) is too small/narrow.
-- **Section 6 OOD / section 10 research-object are detectors/recorders;** acting-on-flag (replan) +
-  calibration + digest-pinned containers are deeper changes, deliberately deferred.
-- **Grounding stays ON by default in `annotate` mode** (carried over). DeepCRISPR/Lindel/FORECasT default OFF.
+- **The honestly-gated remainder must NOT be faked.** Fabricating gold-sets / coefficients / calibration would destroy the platform's whole reason to exist. Source-or-stub, never a confident wrong number. This is the line.
+- New gates (`ood_gate`, `soundness_gate`) are **opt-in, default "off"** → behavioral equivalence; the post-response detector still records flags. Interactive "proceed-with-OOD-flag" HITL (§4.3) + L5 iterative rewrite re-validation remain deferred (enforce uses in-place redaction, which sidesteps the rewrite trap).
+- CFD wired as the **mismatch component only** until off-target PAM verification exists.
+- DeepSpCas9 stays dropped (license); DeepCRISPR is the on-target deep primary (opt-in).
 
-## Completion: ~72% of the full v4 vision
-(base ~95% · grounding section 4 ~88% · section 6 uncertainty/OOD ~55% · section 10 provenance ~45% ·
-section 13 benchmarks ~35% · Phase-2 ML ~70% [DeepCRISPR validated; Lindel/FORECasT scaffolded; CFD pending]
-· frontend ~40%).
+## Completion ≈ 89% of the v4 vision
+Scorecard rules now ✅: 1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 14, 15, 16, 17, 19, 20. §5 Accuracy page + trust-trace ✅; §10 RO-Crate + digest-pin ✅; §13 has 3 live benchmarks (numeric L3, identifier L3+, ClinVar fidelity).
 
-## Next steps (priority order)
-1. **Validate Lindel + FORECasT end-to-end** (same playbook as DeepCRISPR #8): build/pull the env, confirm
-   the wrappers' `VERIFY` items, run `predict_lindel` / `predict_forecast` through the real runner, then a
-   parity check. FORECasT: `docker pull quay.io/felicityallen/selftarget`, build the thin `Dockerfile`,
-   confirm `FORECasT.py` path + TSV columns. Lindel: build its `Dockerfile` (numpy/scipy + `setup.py install`),
-   confirm the `rev_index` decoding in `lindel_infer.py`.
-2. **DeepCRISPR provenance polish:** `model_version` currently reads `...@master`; pin
-   `BIOFORGE_DEEPCRISPR_UPSTREAM_COMMIT` (or repoint the section 10 pin) to the image digest.
-3. **Section 13 real gold-sets:** wire `case_from_clinvar_record` against a real >=2-star ClinVar subset
-   (online test) + GIAB/GUIDE-seq; build the in-product **Accuracy Report** page.
-4. **CFD off-target** (`offtarget_scoring.py` ships MIT/Hsu only): add the Doench-2016 CFD matrix from a
-   **trustworthy committed data file** (320 values -- do NOT transcribe from memory).
-5. **Section 6 calibration/reliability diagrams** + wiring `check_ood` into the loop (replan on OOD).
-6. **Section 10 deeper:** digest-pinned containers, JSON-LD RO-Crate export, a repro CI job.
-7. **v4 frontend:** surface grounding / OOD / uncertainty / accuracy / model distributions in React.
+## The honestly-gated remainder (~11%) — each needs real external data, NOT a sprint
+1. **§13 GIAB (variant calling)** — gated on a variant-CALLING path that doesn't exist (tools are annotation-only) + a huge truth-set/reference download. Build variant calling first, then wire GIAB.
+2. **§13 GUIDE-seq/CIRCLE-seq off-target recall** — needs validated off-target sites + full-genome off-target search + CFD-with-PAM (PAM verification slice).
+3. **Doench Rule Set 2** (two-scorer secondary, rest of #5) — a full trained model. Do it the **DeepCRISPR way**: published weights/image, out-of-process, validated — NOT a reimplement (banned ML-training code). License-audit first.
+4. **Calibration + reliability diagrams** (rule 11) — needs real (prediction, observed-outcome) pairs, which only exist AFTER §13 gold-sets produce scored predictions. Downstream of #1/#2 by construction.
+5. **Deeper frontend** — reliability diagrams + per-ML-prediction uncertainty on result cards (downstream of #4).
+6. **Repro-determinism CI test** (§10/rule 19) — a CI test asserting `build_run_manifest` content_hash is byte-stable for a fixed run; wire into `.github/workflows/ci.yml`. **Small, buildable now — good first pick next session.**
+
+## Next-step priority (recommended)
+1. **Repro-determinism test + CI wiring** (small, closes rule 19's "re-run" clause, no external data).
+2. **Variant-calling path** → unlocks §13 GIAB.
+3. **Doench RS2** out-of-process (DeepCRISPR playbook) → completes the two-scorer requirement.
+4. Then calibration + the reliability-diagram frontend (need #2/#3 producing scored predictions first).
 
 ## Commands (Windows; venv at `bioforge\.venv`)
-Run git-bash from the repo root OR `bioforge`. The Bash-tool cwd **flips** between the two -- normalize with
-an absolute `cd` or `git -C`:
 ```
 cd "/c/Users/james/OneDrive/Documents/BIOTECH 101/bioforge"
-.venv/Scripts/python.exe -m pytest backend/tests/ -q
-.venv/Scripts/python.exe -m ruff check backend/
-.venv/Scripts/python.exe -m ruff format --check backend/
+.venv/Scripts/python.exe -m pytest backend/tests/ -q            # ~873 passed
+.venv/Scripts/python.exe -m pytest backend/tests/ -m online -q  # live-API suite (nightly)
+.venv/Scripts/python.exe -m ruff check backend/ ; .venv/Scripts/python.exe -m ruff format --check backend/
 ```
-DeepCRISPR (validated): the image `bioforge/deepcrispr:legacy` is built; enable via the two env vars above.
-End-to-end smoke (real Docker): `predict_on_target(guides, settings=settings.model_copy(update={enabled,image,...}))`.
+Frontend (node is NOT on PATH — prepend it; PowerShell):
+```
+$env:PATH = "C:\Users\james\AppData\Local\Programs\nodejs;" + $env:PATH
+Set-Location "C:\Users\james\OneDrive\Documents\BIOTECH 101\bioforge\frontend"
+npm run typecheck ; npm test   # tsc --strict ; 81 vitest
+```
 
-## Environment gotchas (learned this session)
-- **Docker works from the Bash tool** (Docker Desktop 29.4.3 / WSL2). You can build + run images directly.
-- **git-bash MSYS path mangling:** a `/opt/...` arg typed on the git-bash command line becomes
-  `C:/Program Files/Git/opt/...`. Use the image `CMD`, or `MSYS_NO_PATHCONV=1`. This does **not** affect
-  the runner (Windows-python `subprocess` -> docker passes args literally; works on the target WSL2/Linux too).
-- **In-image scripting:** `docker run --rm -i --entrypoint bash <img> -lc 'cd ...; python - ' <<'PY' ... PY`
-  feeds a script via stdin (avoids mount/space issues; the repo path has spaces + OneDrive).
-- **Bind-mounting the repo into a container is flaky** on this host (spaces + OneDrive) -- prefer baking the
-  wrapper into a thin image.
-- **Commit messages via bash heredoc** `git commit -F - <<'EOF' ... EOF` work; keep them ASCII (write
-  "section 6" not the section symbol, "->" not arrows) to be safe.
-- **ruff:** `E501` is ignored (long citation/desc strings OK). The model `legacy/` dirs are ruff-excluded.
-- **CRLF warnings** on `git add` are harmless (autocrlf).
-- **`settings.model_copy(update={...})`** is the clean way to make per-test/per-call Settings (alias-free).
+## Environment gotchas
+- **Docker works** (Desktop 29.4.3/WSL2). Legacy model images built locally: `bioforge/deepcrispr:legacy`, `bioforge/lindel:legacy`, `bioforge/forecast:legacy`. Enable via per-model `BIOFORGE_*_ENABLED` + image env vars.
+- **node/npm** at `C:\Users\james\AppData\Local\Programs\nodejs` — NOT on the bash/PowerShell PATH; prepend it.
+- **Network reachable** from the venv (NCBI eutils, raw.githubusercontent) — that's how the live ClinVar test + CFD sourcing worked.
+- Bash-tool cwd flips between repo root and `bioforge`; normalize with an absolute `cd` or `git -C`. CRLF warnings on `git add` are harmless. Commit messages: keep ASCII ("section 13" not the symbol, "->" not arrows).
+- ruff: `E501` ignored; `**/tools/sequence/models/*/legacy` excluded. `ruff check --fix` fixes import-order (I001).
+- The Bash-tool **safety classifier occasionally goes down** ("temporarily unavailable") — read-only tools still work; retry, or use WebFetch/Read.
 
 ## Hard rules still in force
-Plan before coding · vertical slices · no heavy agent frameworks · real biology in tests
-(lambda/BRCA1/HBB/CFTR/EMX1/SARS-CoV-2) · provenance from day one · typed everything · never silently
-truncate · **AI never fabricates biology** · **no unsourced scientific constants** (cite or `# VERIFY:`) ·
-**no license claims from memory** · **no ML training code** (use published weights only) · **faithful, never
-remap upstream** · **validation-gated legacy wrappers are marked `VERIFY:` and fail loudly, never silently** ·
-behavioral equivalence is the gate.
+Plan before coding · vertical slices · no heavy agent frameworks · real biology in tests · provenance from day one · typed everything · never silently truncate · **AI never fabricates biology** · **no unsourced constants** (cite or `# VERIFY:`) · **no license claims from memory** · **no ML training code** (published weights only) · **faithful, never remap upstream** · behavioral equivalence is the gate · **the gated ~11% must be earned with real data, never faked — the integrity IS the product.**
