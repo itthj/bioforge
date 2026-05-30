@@ -45,6 +45,7 @@ from bioforge.agent.grounding import (
     collect_model_uncertainty,
     ground_response,
     judge_claims,
+    ood_refusal,
     summarize_grounding,
     summarize_ood,
 )
@@ -453,6 +454,36 @@ async def _execute(
                             "type": "tool_result",
                             "tool_use_id": block.id,
                             "content": err,
+                            "is_error": True,
+                        }
+                    )
+                    continue
+
+                # (v4 §0/§4.1/§4.3) OOD pre-gate: refuse an out-of-envelope input BEFORE acting,
+                # when BIOFORGE_OOD_GATE=block. Off by default -> unchanged (the validator's
+                # post-response detector still records OOD either way).
+                ood_block = ood_refusal(tool_name, tool_input, mode=settings.ood_gate)
+                if ood_block is not None:
+                    msg = "[OOD] refused before running {}: {}".format(
+                        tool_name, "; ".join(f.message for f in ood_block.flags)
+                    )
+                    await _append(
+                        AgentStep(
+                            idx=step_idx,
+                            type="tool_error",
+                            duration_ms=int((time.monotonic() - t_tool) * 1000),
+                            tool_name=tool_name,
+                            tool_input=tool_input,
+                            error=msg,
+                            verdict={"ood": ood_block.model_dump()},
+                        )
+                    )
+                    step_idx += 1
+                    tool_results.append(
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": block.id,
+                            "content": msg,
                             "is_error": True,
                         }
                     )

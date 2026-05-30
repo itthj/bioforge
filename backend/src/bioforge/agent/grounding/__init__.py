@@ -34,6 +34,7 @@ from bioforge.agent.grounding.ood import (
     OODReport,
     check_ood,
     collect_model_uncertainty,
+    ood_refusal,
     summarize_ood,
 )
 from bioforge.agent.grounding.render import summarize_grounding
@@ -79,6 +80,7 @@ __all__ = [
     "ground_response",
     "judge_claims",
     "load_numeric_corpus",
+    "ood_refusal",
     "summarize_grounding",
     "summarize_ood",
 ]

@@ -113,5 +113,10 @@ class Settings(BaseSettings):
     forecast_python: str = Field(default="", alias="BIOFORGE_FORECAST_PYTHON")
     forecast_timeout_seconds: float = Field(default=300.0, alias="BIOFORGE_FORECAST_TIMEOUT_SECONDS")
 
+    # (v4 §0/§4.1/§4.3) OOD input gate. "off" (default) = the OOD detector records flags
+    # post-response only (behavior unchanged). "block" = refuse a tool call whose input falls
+    # outside an involved model's validated envelope BEFORE it runs (the §0 inputs boundary).
+    ood_gate: str = Field(default="off", alias="BIOFORGE_OOD_GATE")  # off | block
+
 
 settings = Settings()

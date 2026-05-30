@@ -105,6 +105,21 @@ def check_ood(tool_calls: Iterable[tuple[str, dict]]) -> OODReport:
     return OODReport(ok=not flags, checked=checked, flags=flags)
 
 
+def ood_refusal(tool_name: str, tool_input: dict, *, mode: str) -> OODReport | None:
+    """The §0/§4.3 OOD pre-gate decision, as a pure function the loop acts on.
+
+    When `mode == "block"` and the input falls outside an involved model's stated envelope,
+    return the OODReport to refuse on (the loop turns it into a refusal BEFORE the tool runs).
+    Otherwise return None -- no pre-gate. `mode` is `settings.ood_gate`; the default "off"
+    disables the pre-gate (the validator's post-response detector still records OOD), so the
+    loop stays behaviorally identical until the flag is flipped.
+    """
+    if mode != "block":
+        return None
+    report = check_ood([(tool_name, tool_input)])
+    return report if report.flags else None
+
+
 def collect_model_uncertainty(tool_names: Iterable[str]) -> list[ModelUncertaintyNote]:
     """Surface the §6 uncertainty posture of each model-derived score that ran this turn.
 
