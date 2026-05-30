@@ -50,6 +50,16 @@ jobs:
         # of CI. Online tests run weekly via `.github/workflows/nightly.yml`.
         run: pytest -v
 
+      - name: Reproducibility (cross-seed manifest determinism)
+        # Rule 19 / section 10: a run manifest's content_hash must be byte-identical across
+        # re-runs. The test itself spawns subprocesses under different PYTHONHASHSEED values,
+        # so it already proves the property regardless of this job's seed; running it again
+        # here with a randomized parent seed adds one more independent dimension and keeps
+        # the reproducibility guarantee visible in the CI log instead of buried in the suite.
+        env:
+          PYTHONHASHSEED: random
+        run: pytest -v -k byte_stable_across_processes
+
   frontend:
     name: frontend (node 22)
     runs-on: ubuntu-latest
