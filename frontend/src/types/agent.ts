@@ -11,6 +11,7 @@ export type StepType =
   | "tool_error"
   | "refusal"
   | "critique"
+  | "validation"
   | "final";
 
 export interface AgentStep {
@@ -27,7 +28,7 @@ export interface AgentStep {
   tool_output?: Record<string, unknown> | null;
   error?: string | null;
   plan?: PlanPayload | null;
-  verdict?: VerdictPayload | null;
+  verdict?: VerdictPayload | ValidationVerdict | null;
   approval_reasons?: string[] | null;
   approved?: boolean | null;
 }
@@ -49,6 +50,31 @@ export interface VerdictPayload {
   satisfies_goal: boolean;
   reason: string;
   concrete_complaints: string[];
+}
+
+export interface OodFlag {
+  tool: string;
+  field: string;
+  detail: string;
+  envelope: string;
+  message: string;
+}
+
+export interface ModelUncertaintyNote {
+  tool: string;
+  score_key: string;
+  note: string;
+}
+
+// The validation/grounding step (BioForge v4 §4/§6) reuses the `verdict` slot with this shape:
+// grounding status, the OOD report, and per-model uncertainty posture.
+export interface ValidationVerdict {
+  ok: boolean;
+  summary: string;
+  mode: string;
+  enforced: boolean;
+  ood: { ok: boolean; checked: number; flags: OodFlag[] };
+  model_uncertainty: ModelUncertaintyNote[];
 }
 
 export interface UsageSummary {

@@ -1,4 +1,4 @@
-import type { AgentStep, PlanStep } from "../types/agent";
+import type { AgentStep, PlanStep, ValidationVerdict, VerdictPayload } from "../types/agent";
 import type { CrisprEditReportOutput } from "../types/crispr";
 import { isCrisprEditReport } from "../types/crispr";
 import type { DesignPrimersOutput } from "../types/primers";
@@ -41,6 +41,7 @@ const TYPE_STYLES: Record<string, { badge: string; border: string }> = {
   tool_error: { badge: "bg-rose-100 text-rose-800", border: "border-rose-200" },
   refusal: { badge: "bg-rose-100 text-rose-800", border: "border-rose-200" },
   critique: { badge: "bg-purple-100 text-purple-800", border: "border-purple-200" },
+  validation: { badge: "bg-teal-100 text-teal-800", border: "border-teal-200" },
   final: { badge: "bg-slate-200 text-slate-800", border: "border-slate-300" },
 };
 
@@ -83,22 +84,28 @@ function renderStepBody(step: AgentStep): React.ReactNode {
           {step.output_tokens ?? 0}
         </div>
       );
-    case "critique":
-      return step.verdict ? (
+    case "critique": {
+      const v = step.verdict as VerdictPayload | undefined;
+      return v ? (
         <div className="space-y-1">
           <div className="font-medium">
-            {step.verdict.satisfies_goal ? "✓ Satisfies goal" : "✗ Does not satisfy goal"}
+            {v.satisfies_goal ? "✓ Satisfies goal" : "✗ Does not satisfy goal"}
           </div>
-          <div className="text-xs text-slate-600">{step.verdict.reason}</div>
-          {step.verdict.concrete_complaints.length > 0 && (
+          <div className="text-xs text-slate-600">{v.reason}</div>
+          {v.concrete_complaints.length > 0 && (
             <ul className="ml-4 list-disc text-xs text-slate-600">
-              {step.verdict.concrete_complaints.map((c, i) => (
+              {v.concrete_complaints.map((c, i) => (
                 <li key={i}>{c}</li>
               ))}
             </ul>
           )}
         </div>
       ) : null;
+    }
+    case "validation": {
+      const v = step.verdict as ValidationVerdict | undefined;
+      return v ? <ValidationBody v={v} /> : null;
+    }
     case "approval_requested":
       return (
         <div className="text-xs text-slate-600">
@@ -143,6 +150,61 @@ function PlanBody({ steps, summary }: { steps: PlanStep[]; summary: string }) {
             </li>
           ))}
         </ol>
+      )}
+    </div>
+  );
+}
+
+function ValidationBody({ v }: { v: ValidationVerdict }) {
+  const oodFlags = v.ood?.flags ?? [];
+  const notes = v.model_uncertainty ?? [];
+  return (
+    <div className="space-y-1.5">
+      <div className="flex flex-wrap items-center gap-2">
+        <span
+          className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium ${
+            v.ok ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
+          }`}
+        >
+          {v.ok ? "✓ grounded" : "⚠ unverifiable claim(s) flagged"}
+        </span>
+        <span className="font-mono text-[10px] text-slate-400">
+          mode: {v.mode}
+          {v.enforced ? " · redacted" : ""}
+        </span>
+      </div>
+      {v.summary && <div className="text-xs text-slate-600">{v.summary}</div>}
+      {oodFlags.length > 0 && (
+        <div className="rounded border border-amber-200 bg-amber-50 p-1.5 text-xs text-amber-800">
+          <div className="font-medium">Out-of-distribution input(s) — affected scores are extrapolations:</div>
+          <ul className="ml-4 list-disc">
+            {oodFlags.map((f, i) => (
+              <li key={i}>
+                <span className="font-mono">
+                  {f.tool}.{f.field}
+                </span>
+                : {f.detail} (envelope: {f.envelope})
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {notes.length > 0 && (
+        <details className="text-xs">
+          <summary className="cursor-pointer text-slate-500 hover:text-slate-700">
+            model uncertainty ({notes.length})
+          </summary>
+          <ul className="ml-4 mt-1 space-y-0.5 text-slate-600">
+            {notes.map((n, i) => (
+              <li key={i}>
+                <span className="font-mono">
+                  {n.tool}.{n.score_key}
+                </span>
+                : {n.note}
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
     </div>
   );
