@@ -37,9 +37,10 @@ from pydantic import BaseModel, Field, field_validator
 
 from bioforge.tools.base import ToolError, ToolInput, ToolOutput
 from bioforge.tools.registry import execute_tool, register_tool
-from bioforge.tools.sequence.offtarget_scoring import score_offtarget
+from bioforge.tools.sequence.offtarget_scoring import cfd_mismatch_component, score_offtarget
 
 _DNA_CHARS = set("ACGTNacgtn")
+_ACGT = set("ACGT")
 
 
 class FindOfftargetsInput(ToolInput):
@@ -132,6 +133,16 @@ class OfftargetHit(BaseModel):
             "True if mit_score was computed from per-position mismatch info. "
             "False = optimistic fallback (mismatches assumed to be at the "
             "PAM-distal end, which under-estimates risk)."
+        ),
+    )
+    cfd_mismatch_score: float | None = Field(
+        default=None,
+        description=(
+            "Doench-2016 CFD mismatch-tolerance component in [0,1] (base-identity-weighted; the "
+            "field-standard off-target metric, slightly outperforms MIT). Higher = more likely "
+            "cleaved. NOTE: this is the MISMATCH component only -- the off-target PAM is not "
+            "verified, so CFD's PAM-activity factor is not applied (treat as an upper bound). "
+            "null for gapped / partial / non-ACGT alignments."
         ),
     )
     alignment_length: int
@@ -263,20 +274,25 @@ def _classify_risk(
     version="1.0.0",
     citations=[
         "Hsu PD et al. (2013) DNA targeting specificity of RNA-guided Cas9 nucleases. Nat Biotechnol 31:827-832 (mismatch tolerance)",
-        "Doench JG et al. (2016) Optimized sgRNA design to maximize activity and minimize off-target effects of CRISPR-Cas9. Nat Biotechnol 34:184-191",
+        "Doench JG et al. (2016) Optimized sgRNA design to maximize activity and minimize off-target effects of CRISPR-Cas9. Nat Biotechnol 34:184-191 (CFD)",
+        "CFD scoring weights: Doench 2016 values via maximilianh/crisporWebsite CFD_Scoring, committed + checksummed at data/cfd_doench2016.json",
         "Inherits from the `blast` tool: NCBI BLAST (Altschul 1990); Biopython qblast",
     ],
     cost_hint="expensive",
     destructive=False,
     tags=["sequence", "crispr", "search", "offtarget"],
-    model_versions={"mit_offtarget": "hsu-2013-mit-score"},
-    emits_instance_uncertainty={"mit_offtarget": False},
+    model_versions={"mit_offtarget": "hsu-2013-mit-score", "cfd_offtarget": "cfd-doench-2016"},
+    emits_instance_uncertainty={"mit_offtarget": False, "cfd_offtarget": False},
     published_accuracy={
         "mit_offtarget": (
-            "VERIFY: Hsu 2013 per-position MIT specificity score is a published deterministic "
-            "weighting, not a trained predictor with a standalone held-out accuracy. Does NOT "
-            "include CFD (Doench 2016) base-pair-identity weighting."
-        )
+            "Hsu 2013 per-position MIT specificity score: a published deterministic weighting, "
+            "not a trained predictor with a standalone held-out accuracy."
+        ),
+        "cfd_offtarget": (
+            "CFD (Doench 2016) base-identity mismatch weighting, sourced verbatim from CRISPOR's "
+            "CFD_Scoring. Deterministic published weights; reported as the mismatch component "
+            "(PAM-activity factor omitted when the off-target PAM is unverified)."
+        ),
     },
     training_distribution={
         "nuclease": "SpCas9",
@@ -336,6 +352,24 @@ async def find_offtargets(inp: FindOfftargetsInput) -> FindOfftargetsOutput:
         if not score.used_full_alignment:
             any_fallback_used = True
 
+        # CFD mismatch component (Doench 2016) — only for a clean, full-length, gap-free, ACGT
+        # alignment. The off-target PAM isn't fetched, so the PAM-activity factor is omitted.
+        q_aln = (h.get("query_aligned", "") or "").upper()
+        s_aln = (h.get("subject_aligned", "") or "").upper()
+        cfd_mm: float | None = None
+        if (
+            score.used_full_alignment
+            and len(q_aln) == len(s_aln) == guide_len
+            and "-" not in q_aln
+            and "-" not in s_aln
+            and set(s_aln) <= _ACGT
+            and set(q_aln) <= _ACGT
+        ):
+            try:
+                cfd_mm = round(cfd_mismatch_component(q_aln, s_aln), 4)
+            except ValueError:
+                cfd_mm = None
+
         risk, reason = _classify_risk(
             mismatch_count=mismatches,
             mit_score=score.score,
@@ -352,6 +386,7 @@ async def find_offtargets(inp: FindOfftargetsInput) -> FindOfftargetsOutput:
                 mismatch_count=mismatches,
                 mismatch_positions=score.mismatch_positions,
                 mit_score=round(score.score, 4),
+                cfd_mismatch_score=cfd_mm,
                 used_full_alignment=score.used_full_alignment,
                 alignment_length=align_len,
                 query_coverage_percent=coverage,
@@ -379,9 +414,11 @@ async def find_offtargets(inp: FindOfftargetsInput) -> FindOfftargetsOutput:
         "sequence but does not confirm a downstream PAM exists in the genome. A "
         "match without a PAM cannot be cleaved by Cas9. Future enhancement: "
         "fetch flanking context via Entrez efetch to verify PAMs.",
-        "MIT scores use Hsu 2013's per-position weights for SpCas9. They do NOT "
-        "model the specific identity of mismatch base pairs (CFD scoring from "
-        "Doench 2016 does — a future slice).",
+        "Two off-target metrics are reported: the Hsu-2013 MIT score (position-weighted) and "
+        "the Doench-2016 CFD mismatch component (base-identity-weighted; field standard). The "
+        "CFD value is the MISMATCH component only -- the off-target PAM is NOT verified (see the "
+        "PAM caveat), so CFD's PAM-activity factor is not applied; treat it as an upper bound. "
+        "cfd_mismatch_score is null for gapped / partial / non-ACGT alignments.",
         "Bulges / insertions / deletions in the off-target alignment are treated "
         "as position-aligned mismatches, NOT as separate indel events.",
         "BLAST coverage is sensitive to the database choice. Searching 'nt' "

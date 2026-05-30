@@ -11,22 +11,28 @@ design tool (CHOPCHOP, CRISPOR, MIT CRISPR Design Tool).
 We also expose a simpler per-mismatch list so the agent / UI can explain
 WHERE the mismatches sit, not just produce a single number.
 
+# CFD scoring (Doench 2016) — now shipped
+
+`cfd_score` / `cfd_mismatch_component` implement Doench's base-identity-weighted CFD score
+(the modern field standard, slightly outperforms MIT). The 240 mismatch weights + 16 PAM
+weights load from a committed, checksummed data file (`data/cfd_doench2016.json`) sourced
+verbatim from CRISPOR's CFD_Scoring (a faithful redistribution of Doench 2016 Supp. Table 19)
+— NEVER transcribed from memory. The full CFD needs the off-target's PAM; where the PAM is
+unverified (the BLAST-based off-target search does not fetch flanking context) we report the
+mismatch-tolerance component only, clearly labelled.
+
 # What this file is NOT
 
-  - **CFD scoring (Doench 2016).** Doench's score uses a full 4×4 base-pair
-    substitution matrix per position (320 weights total). It is the modern
-    field standard and slightly outperforms MIT. We don't ship the full matrix
-    here because reproducing all 320 published values would be error-prone
-    without a curated copy of the supplementary table — the MIT score we DO
-    ship is functionally equivalent at the level of risk classification.
-    Future slice: load CFD matrix from a committed data file.
   - **Bulge / indel-aware scoring.** This module assumes substitution-only
     mismatches, consistent with how the upstream BLAST tool reports them.
 """
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
 
 # Hsu 2013 Supplementary Table — per-position mismatch weights for SpCas9.
 # Index 0 = 5' end of the 20-nt protospacer (PAM-distal).
@@ -199,3 +205,70 @@ def score_offtarget(
         score=mit_score_from_positions(fallback_positions, guide_length=len(guide_seq)),
         used_full_alignment=False,
     )
+
+
+# --- CFD off-target score (Doench 2016) ---------------------------------------------
+#
+# CFD weights each mismatch by its position AND its specific base pairing (an rG:dT at
+# position 15 differs from an rG:dA), unlike MIT which is position-only. Data is loaded from
+# a committed, checksummed JSON sourced verbatim from CRISPOR's CFD_Scoring — see the module
+# docstring + the JSON's `_provenance` block.
+
+_CFD_DATA_PATH = Path(__file__).parent / "data" / "cfd_doench2016.json"
+
+# Single-base "revcom" (Doench's basecomp) used to build the CFD mismatch key's DNA ('d') base.
+_CFD_COMPLEMENT = {"A": "T", "C": "G", "G": "C", "T": "A", "U": "A"}
+
+
+@lru_cache(maxsize=1)
+def _cfd_tables() -> tuple[dict[str, float], dict[str, float]]:
+    """Load the committed Doench-2016 CFD tables: (mismatch_scores, pam_scores).
+
+    Sourced verbatim (never transcribed); provenance + sha256 live in the JSON header.
+    """
+    data = json.loads(_CFD_DATA_PATH.read_text(encoding="utf-8"))
+    return data["mismatch_scores"], data["pam_scores"]
+
+
+def cfd_mismatch_component(on_target: str, off_target: str) -> float:
+    """CFD's mismatch-tolerance component: the product over mismatched positions of the
+    Doench-2016 per-(position, sgRNA-base, target-base) weight. NO PAM factor — the
+    sequence-only part of CFD, for when the off-target PAM is unknown/unverified.
+
+    Replicates CRISPOR/Doench `calc_cfd` exactly (minus the trailing PAM factor): after T->U
+    on both sequences, a mismatch contributes `mm['r'+sgRNA_base+':d'+complement(target_base)+
+    ','+position]`. Raises on length mismatch or any base/position absent from the published
+    table — it never silently scores a malformed input.
+    """
+    mm, _ = _cfd_tables()
+    wt = on_target.upper().replace("T", "U")
+    sg = off_target.upper().replace("T", "U")
+    if len(wt) != len(sg):
+        raise ValueError(f"CFD needs equal-length sequences; got {len(wt)} vs {len(sg)}.")
+    score = 1.0
+    for i, sl in enumerate(sg):
+        if wt[i] == sl:
+            continue
+        d = _CFD_COMPLEMENT.get(sl)
+        if d is None:
+            raise ValueError(f"CFD: non-ACGT base {sl!r} in off-target at position {i + 1}.")
+        key = f"r{wt[i]}:d{d},{i + 1}"
+        try:
+            score *= mm[key]
+        except KeyError as e:
+            raise ValueError(f"CFD: no published weight for {key!r} (verify the input bases).") from e
+    return score
+
+
+def cfd_score(on_target: str, off_target: str, pam: str) -> float:
+    """Full CFD off-target score (Doench 2016) = mismatch component x PAM-activity weight.
+
+    `pam` is the off-target's 2-nt PAM (the GG of NGG, i.e. `off_target_23mer[-2:]` in Doench's
+    convention). 1.0 = identical sequence with a fully-active PAM. Raises if the PAM is not in
+    the published 16-entry table.
+    """
+    _, pam_scores = _cfd_tables()
+    pam_key = pam.upper().replace("U", "T")
+    if pam_key not in pam_scores:
+        raise ValueError(f"CFD: PAM {pam!r} not in the published PAM table (expected 2 nt, e.g. 'GG').")
+    return cfd_mismatch_component(on_target, off_target) * pam_scores[pam_key]

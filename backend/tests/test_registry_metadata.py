@@ -52,13 +52,16 @@ def test_pure_transforms_stay_empty() -> None:
 
 
 def test_scoring_tool_metadata_drives_uncertainty_note() -> None:
-    # find_offtargets owns the Hsu-2013 MIT score; the §6 note must surface the
-    # sourced/VERIFY accuracy, never a fabricated per-prediction interval.
+    # find_offtargets owns the Hsu-2013 MIT score AND the Doench-2016 CFD score; the §6 note
+    # must surface each one's sourced published accuracy, never a fabricated per-prediction interval.
     spec = get_tool("find_offtargets")
-    assert spec.emits_instance_uncertainty == {"mit_offtarget": False}
-    note = uncertainty_note(spec, "mit_offtarget")
-    assert "point estimate only" in note
-    assert "VERIFY" in note
+    assert spec.emits_instance_uncertainty == {"mit_offtarget": False, "cfd_offtarget": False}
+    mit_note = uncertainty_note(spec, "mit_offtarget")
+    assert "point estimate only" in mit_note
+    assert "Hsu 2013" in mit_note  # sourced accuracy surfaced, not a fabricated interval
+    cfd_note = uncertainty_note(spec, "cfd_offtarget")
+    assert "point estimate only" in cfd_note
+    assert "CFD" in cfd_note or "Doench" in cfd_note
 
 
 def test_edit_outcome_declares_both_models() -> None:
