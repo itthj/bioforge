@@ -10,11 +10,17 @@ It drives FORECasT's documented CLI (`python FORECasT.py <target> <pam_index> <p
 then parses the predicted-indel profile into a label->frequency map, emitted verbatim (no
 remapping). Excluded from the repo's ruff config -- it targets the FORECasT env.
 
-VERIFY at numeric validation (confirm against the FORECasT version in the image/env):
-  * the FORECasT.py entrypoint path -- override with the FORECAST_SCRIPT env var if needed;
-  * which output file is the predicted-indel profile and its column layout (label + count).
-If these differ, the wrapper raises loudly (a clean protocol error); it never emits a
-misparsed distribution.
+VALIDATED 2026-05-29 against quay.io/felicityallen/selftarget (FORECasT, Python 3.6):
+  * entrypoint = /app/indel_prediction/predictor/FORECasT.py; single mode is
+    `python FORECasT.py <seq> <pam_index> <prefix>`. It is run with cwd = the script's own
+    dir so FORECasT's RELATIVE DEFAULT_MODEL theta file resolves; INDELGENTARGET_EXE (the
+    compiled indelmap binary) is provided by the image env.
+  * the predicted-indel profile is `<prefix>_predictedindelsummary.txt`, lines
+    `<indel_label>\t-\t<count>`. We take the first column as the label and the last numeric
+    column as the count, then normalize counts to sum to 1.0 -- DROPPING the injected `-`
+    null line (a fixed 1000 placeholder = the wild-type reference read for plotting, NOT a
+    model prediction) and any `@@@` bulk-mode header. Labels are emitted verbatim.
+The wrapper raises loudly on any structural surprise; it never emits a misparsed distribution.
 """
 
 from __future__ import print_function
@@ -32,8 +38,9 @@ import tempfile
 _REAL_STDOUT = sys.stdout
 sys.stdout = sys.stderr
 
-# VERIFY: the FORECasT entrypoint inside the env/image. Override via FORECAST_SCRIPT.
-_FORECAST_SCRIPT = os.environ.get("FORECAST_SCRIPT", "FORECasT.py")
+# The FORECasT entrypoint inside the official image. Its dir also holds the relative theta
+# model file, so the wrapper runs the script from there. Override via FORECAST_SCRIPT.
+_FORECAST_SCRIPT = os.environ.get("FORECAST_SCRIPT", "/app/indel_prediction/predictor/FORECasT.py")
 
 
 def _emit(obj):
@@ -56,23 +63,23 @@ def _is_number(value):
 
 
 def _parse_profile_tsv(path):
-    """Parse FORECasT's predicted-indel profile TSV into {label: frequency}.
+    """Parse FORECasT's <prefix>_predictedindelsummary.txt into {indel_label: frequency}.
 
-    Heuristic + VERIFY: first column is the indel label, the last numeric column is the
-    count/weight; frequencies are counts normalized to sum to 1.
+    VALIDATED layout: each line is `<indel_label>\t-\t<count>`. First column is the label,
+    the last numeric column is the count; frequencies are counts normalized to sum to 1. We
+    DROP the injected `-` null line (fixed 1000 placeholder = wild-type reference read, not a
+    prediction) and any `@@@`-prefixed bulk-mode id header. Labels are emitted verbatim.
     """
     with open(path) as handle:
         rows = [line.rstrip("\n").split("\t") for line in handle if line.strip()]
-    if not rows:
-        return {}
-    # Drop a header row if the first row has no numeric cell.
-    data = rows[1:] if not any(_is_number(c) for c in rows[0]) else rows
     counts = []
     total = 0.0
-    for row in data:
+    for row in rows:
         if not row:
             continue
         label = row[0]
+        if label == "-" or label.startswith("@@@"):
+            continue  # null placeholder / bulk-mode id header -- not a predicted indel
         count = None
         for cell in reversed(row):
             if _is_number(cell):
@@ -99,6 +106,8 @@ def main():
         _fail("request must carry a non-empty 'requests' list")
         return
 
+    script_dir = os.path.dirname(_FORECAST_SCRIPT) or None
+
     results = []
     for req in requests:
         seq = req.get("sequence")
@@ -109,17 +118,28 @@ def main():
         tmpdir = tempfile.mkdtemp()
         prefix = os.path.join(tmpdir, "fc")
         try:
+            # Run from the script's dir so FORECasT's relative DEFAULT_MODEL theta resolves.
             subprocess.check_call(
-                ["python", _FORECAST_SCRIPT, seq, str(pam), prefix], stdout=sys.stderr, stderr=sys.stderr
+                ["python", _FORECAST_SCRIPT, seq, str(pam), prefix],
+                stdout=sys.stderr,
+                stderr=sys.stderr,
+                cwd=script_dir,
             )
         except Exception as e:  # noqa: E722 -- surface as a clean protocol error
-            _fail("FORECasT.py failed (verify FORECAST_SCRIPT path): %s" % e)
+            _fail("FORECasT.py failed (verify FORECAST_SCRIPT path / cwd / INDELGENTARGET_EXE): %s" % e)
             return
 
-        candidates = sorted(glob.glob(prefix + "*"))
-        profile = next((c for c in candidates if c.endswith((".txt", ".tsv"))), None)
-        if profile is None:
-            _fail("could not find a FORECasT output profile for prefix %s (got %r)" % (prefix, candidates))
+        # predictMutationsSingle writes <prefix>_predictedindelsummary.txt (the profile) and
+        # <prefix>_predictedreads.txt (representative reads). We want the profile summary.
+        profile = prefix + "_predictedindelsummary.txt"
+        if not os.path.isfile(profile):
+            candidates = sorted(glob.glob(prefix + "*"))
+            profile = next((c for c in candidates if c.endswith("_predictedindelsummary.txt")), None)
+        if not profile or not os.path.isfile(profile):
+            _fail(
+                "could not find FORECasT's _predictedindelsummary.txt for prefix %s (got %r)"
+                % (prefix, sorted(glob.glob(prefix + "*")))
+            )
             return
         try:
             predictions = _parse_profile_tsv(profile)

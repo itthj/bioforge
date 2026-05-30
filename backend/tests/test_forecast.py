@@ -30,14 +30,14 @@ _PAM_INDEX = 52
 # --- runner: command construction ---------------------------------------------------
 
 
-def test_build_command_docker_default_image() -> None:
-    # The default forecast_docker_image is the authors' official image, and the wrapper is
-    # bind-mounted into it.
-    argv = build_command(settings.model_copy(update={"forecast_runner": "docker"}))
+def test_build_command_docker() -> None:
+    # The thin image bakes the wrapper in, so no bind-mount is constructed.
+    s = settings.model_copy(update={"forecast_runner": "docker", "forecast_docker_image": "img@sha256:dead"})
+    argv = build_command(s)
     assert argv[0] == "docker"
-    assert "quay.io/felicityallen/selftarget" in argv
-    assert "-v" in argv
+    assert "img@sha256:dead" in argv
     assert argv[-1].endswith("forecast_infer.py")
+    assert "-v" not in argv  # wrapper baked into the thin image, no bind-mount
 
 
 def test_build_command_docker_requires_image() -> None:

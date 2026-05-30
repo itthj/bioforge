@@ -96,21 +96,20 @@ class Settings(BaseSettings):
     lindel_docker_image: str = Field(default="", alias="BIOFORGE_LINDEL_DOCKER_IMAGE")
     lindel_python: str = Field(default="", alias="BIOFORGE_LINDEL_PYTHON")
     lindel_upstream_commit: str = Field(
-        # TODO(validation): pin to a real shendurelab/Lindel commit SHA before enabling.
-        default="master",
+        # Validated 2026-05-29 against this shendurelab/Lindel commit (built into bioforge/lindel:legacy).
+        default="fdcad580ba76bcfb7a98f58c3769b76f31693d63",
         alias="BIOFORGE_LINDEL_UPSTREAM_COMMIT",
     )
     lindel_timeout_seconds: float = Field(default=120.0, alias="BIOFORGE_LINDEL_TIMEOUT_SECONDS")
 
     # FORECasT (Allen 2018) -- opt-in per-guide edit-outcome predictor. MIT, NO consent gate.
-    # Python 3 + a compiled C++ component (indelmap), so it runs OUT OF PROCESS via the
-    # authors' official image (quay.io/felicityallen/selftarget) by default, or a local
-    # `forecast_python`. The image bundles the model, so there is no separate weight fetch.
+    # Python 3 + a compiled C++ component (indelmap), so it runs OUT OF PROCESS in a thin image
+    # built FROM the authors' official image (quay.io/felicityallen/selftarget) -- build it
+    # (models/forecast/legacy/) and set BIOFORGE_FORECAST_DOCKER_IMAGE -- or a local
+    # `forecast_python`. The image bundles the model + indelmap, so there is no weight fetch.
     forecast_enabled: bool = Field(default=False, alias="BIOFORGE_FORECAST_ENABLED")
     forecast_runner: str = Field(default="docker", alias="BIOFORGE_FORECAST_RUNNER")  # docker | local
-    forecast_docker_image: str = Field(
-        default="quay.io/felicityallen/selftarget", alias="BIOFORGE_FORECAST_DOCKER_IMAGE"
-    )
+    forecast_docker_image: str = Field(default="", alias="BIOFORGE_FORECAST_DOCKER_IMAGE")
     forecast_python: str = Field(default="", alias="BIOFORGE_FORECAST_PYTHON")
     forecast_timeout_seconds: float = Field(default=300.0, alias="BIOFORGE_FORECAST_TIMEOUT_SECONDS")
 

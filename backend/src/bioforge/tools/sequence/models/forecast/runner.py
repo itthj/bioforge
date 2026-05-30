@@ -8,9 +8,9 @@ has FORECasT installed. We talk to it over a JSON protocol on stdin/stdout:
     stdout:  {"results": [{"predictions": {label: freq, ...}}, ...]}   (or {"error": "..."})
 
 The legacy wrapper (`legacy/forecast_infer.py`) runs INSIDE that env. For the **docker**
-backend the wrapper is bind-mounted into the container (the official image does not contain
-it); for **local** it is invoked directly. `build_command` is pure + unit-testable and the
-launch goes through an injectable `run_fn`.
+backend it is baked into a thin image built FROM the official image (legacy/Dockerfile,
+which also clears the base web-server entrypoint); for **local** it is invoked directly.
+`build_command` is pure + unit-testable and the launch goes through an injectable `run_fn`.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ RunFn = Callable[[list[str], str, float], str]
 
 _LEGACY_DIR = Path(__file__).parent / "legacy"
 _LEGACY_SCRIPT = _LEGACY_DIR / "forecast_infer.py"
-_CONTAINER_DIR = "/opt/forecast"
+_CONTAINER_SCRIPT = "/opt/forecast/forecast_infer.py"
 
 
 class ForecastUnavailable(Exception):
@@ -40,28 +40,20 @@ class ForecastInferenceError(Exception):
 def build_command(s: Settings) -> list[str]:
     """Construct the subprocess argv for the configured backend. Pure + testable.
 
-    For docker we bind-mount the wrapper dir into the official image (which does not ship
-    it). Raises `ForecastUnavailable` when the backend is misconfigured.
+    The thin legacy image (FROM the authors' official image) bakes the wrapper in at
+    /opt/forecast and clears the base web-server entrypoint, so no bind-mount is needed --
+    this also sidesteps host bind-mount flakiness (Windows/OneDrive paths with spaces).
+    Raises `ForecastUnavailable` when the backend is misconfigured.
     """
     runner = (s.forecast_runner or "docker").lower()
     if runner == "docker":
         if not s.forecast_docker_image:
             raise ForecastUnavailable(
-                "forecast_runner='docker' but BIOFORGE_FORECAST_DOCKER_IMAGE is unset. Use the "
-                "authors' image (quay.io/felicityallen/selftarget) or a thin image built from it "
-                "(see models/forecast/legacy/Dockerfile)."
+                "forecast_runner='docker' but BIOFORGE_FORECAST_DOCKER_IMAGE is unset. Build the "
+                "thin legacy image (FROM quay.io/felicityallen/selftarget -- see "
+                "models/forecast/legacy/Dockerfile) and set the var to its digest-pinned reference."
             )
-        return [
-            "docker",
-            "run",
-            "--rm",
-            "-i",
-            "-v",
-            f"{_LEGACY_DIR}:{_CONTAINER_DIR}:ro",
-            s.forecast_docker_image,
-            "python",
-            f"{_CONTAINER_DIR}/forecast_infer.py",
-        ]
+        return ["docker", "run", "--rm", "-i", s.forecast_docker_image, "python", _CONTAINER_SCRIPT]
     if runner == "local":
         if not s.forecast_python:
             raise ForecastUnavailable(

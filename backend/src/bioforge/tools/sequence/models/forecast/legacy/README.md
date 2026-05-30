@@ -15,17 +15,24 @@ FORECasT takes a **target sequence + the 0-based PAM index** on the protospacer 
 strand; FORECasT enforces its own window, so a wrong index fails loudly rather than scoring
 the wrong site.
 
-## Backend A — Docker (default)
+## Backend A — Docker (default, VALIDATED)
 
-The default `BIOFORGE_FORECAST_DOCKER_IMAGE` is the authors' image; the runner **bind-mounts**
-`forecast_infer.py` into it, so no build is required:
+Build the thin image (FROM the authors' official image, baking in the JSON wrapper and
+clearing the base uwsgi/nginx entrypoint), then point the runner at it:
+```bash
+cd backend/src/bioforge/tools/sequence/models/forecast/legacy
+docker build -t bioforge/forecast:legacy .
+docker inspect --format '{{index .RepoDigests 0}}' bioforge/forecast:legacy   # for §10 pin
+```
 ```
 BIOFORGE_FORECAST_ENABLED=true
 BIOFORGE_FORECAST_RUNNER=docker
-BIOFORGE_FORECAST_DOCKER_IMAGE=quay.io/felicityallen/selftarget   # or a digest-pinned thin image
+BIOFORGE_FORECAST_DOCKER_IMAGE=bioforge/forecast:legacy   # or its @sha256 digest
 ```
-For a self-contained pinned image, build the thin `Dockerfile` here and set the image to its
-digest.
+Validated image digest (2026-05-29):
+`bioforge/forecast@sha256:92284be51de9ef4ee1ab27b3895c834c696b6aa945a3acfc2b12c3e076dafd4a`
+(base `quay.io/felicityallen/selftarget@sha256:fa8aa329aa9c49b83cdbdb126e5d2796fa179075871c5ea5809ff860631a091a`).
+No bind-mount is used — the wrapper is baked in — which also sidesteps host bind-mount flakiness.
 
 ## Backend B — local
 
@@ -34,18 +41,29 @@ Install FORECasT (SelfTarget) following its README (compiles `indelmap`), then:
 BIOFORGE_FORECAST_ENABLED=true
 BIOFORGE_FORECAST_RUNNER=local
 BIOFORGE_FORECAST_PYTHON=/path/to/forecast/python
+FORECAST_SCRIPT=/path/to/indel_prediction/predictor/FORECasT.py   # its dir must hold the theta model
+INDELGENTARGET_EXE=/path/to/indelgentarget                        # the compiled indelmap binary
 ```
 
-## Validation checklist (the part that needs a human)
+## Validated end-to-end (2026-05-29)
 
-Scaffolding ships behind a graceful "unavailable" path with mocked tests; **nothing below
-has run end-to-end yet.** Before enabling:
+Run through the real bioforge path (`predict_forecast` -> docker runner -> thin image ->
+typed `ForecastDistribution`) AND the `edit_outcome(model="forecast")` tool. Resolved
+`VERIFY:` items:
 
-1. **VERIFY `forecast_infer.py`** against the FORECasT version in the image: the `FORECasT.py`
-   entrypoint path (set `FORECAST_SCRIPT` if needed) and which output file is the predicted-
-   indel profile + its column layout (the wrapper assumes first col = label, last numeric col
-   = count). The wrapper raises loudly if it guessed wrong — fix it, never ship a misparse.
-2. **Pin** the image digest for provenance.
-3. **Parity check** a few gRNAs against FORECasT's own CLI / website; confirm the label set
-   and frequencies.
-4. **Then** set `BIOFORGE_FORECAST_ENABLED=true` and run the `online`-marked FORECasT test.
+- **Entrypoint + CWD.** Single mode is `python FORECasT.py <seq> <pam_index> <prefix>`, at
+  `/app/indel_prediction/predictor/FORECasT.py`. FORECasT's `DEFAULT_MODEL` theta file is a
+  RELATIVE path, so the wrapper runs the script with `cwd` = its own dir (which ships the theta
+  alongside it). `INDELGENTARGET_EXE` (the compiled indelmap) is set in the image env
+  (`/usr/local/bin/indelgentarget`); `FORECAST_SCRIPT` is baked into the thin image.
+- **Output file + columns.** The predicted profile is `<prefix>_predictedindelsummary.txt`,
+  lines `<indel_label>\t-\t<count>` (label first, count last) — selected explicitly, counts
+  normalized to sum to 1.
+- **The `-` null is dropped.** `predictMutationsSingle` injects `p_predict['-'] = 1000` (a
+  fixed, input-independent wild-type reference read for plotting — `_predictedreads.txt` shows
+  `-` = the full WT sequence), ~51% of the raw mass. It is NOT a model prediction, so the
+  wrapper excludes it; the emitted distribution is over real indels only.
+- **Parity:** a gRNA reproduces FORECasT's profile through the wrapper (top `I1_L-3C2R0`
+  ≈ 0.237 = 228/961, `D3_L-8C7R3` ≈ 0.116, ...); 227 indels sum to 1.0; stdout is pure JSON.
+
+`edit_outcome(model="forecast")` degrades gracefully to `rule_of_thumb` when the env is absent.

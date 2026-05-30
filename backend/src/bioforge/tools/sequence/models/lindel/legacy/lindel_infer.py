@@ -10,11 +10,13 @@ It uses Lindel's OWN `gen_prediction` and bundled weights, and emits the label->
 map verbatim (no remapping). Excluded from the repo's ruff config — it targets the Lindel
 env, not the modern interpreter.
 
-VERIFY at numeric validation (these mirror Lindel_prediction.py and must be confirmed
-against the pinned upstream commit): the weight/prereq filenames + their location in the
-Lindel package dir, and how the rev_index (array-position -> outcome label) is stored inside
-`model_prereq.pkl`. If any differ, this wrapper raises loudly (a clean protocol error), it
-never emits a misdecoded distribution.
+VALIDATED 2026-05-29 against Lindel @ fdcad58 inside bioforge/lindel:legacy: weights load from
+`os.path.join(Lindel.__path__[0], "Model_weights.pkl")` / `model_prereq.pkl` (the EDITABLE
+install keeps __path__ on the source dir that actually holds the pkls); `prereq` is the 4-tuple
+(label, rev_index, features, frame_shift), so rev_index = prereq[1]; the emitted label map
+mirrors Lindel_prediction.py's `{rev_index[i]: y_hat[i] for i ... if y_hat[i] != 0}`. The
+wrapper still raises loudly on any structural surprise rather than emitting a misdecoded
+distribution.
 """
 
 from __future__ import print_function
@@ -43,22 +45,31 @@ def _fail(message):
 
 
 def _extract_rev_index(prereq):
-    """Locate Lindel's array-position -> outcome-label mapping inside the prereq object.
+    """Lindel's prereq is the 4-tuple (label, rev_index, features, frame_shift); the
+    array-position -> outcome-label map is element [1].
 
-    VERIFY against Lindel_prediction.py: the exact container/key may differ by commit.
+    VERIFIED against Lindel_prediction.py @ fdcad58: `rev_index = self.prerequesites[1]`,
+    and Predictor.gen_prediction unpacks `label,rev_index,features,frame_shift = prereq`.
+    The dict fallback is defensive belt-and-suspenders for a future commit that changes shape.
     """
+    if isinstance(prereq, (list, tuple)) and len(prereq) >= 2:
+        return prereq[1]
     if isinstance(prereq, dict) and "rev_index" in prereq:
         return prereq["rev_index"]
-    if isinstance(prereq, (list, tuple)):
-        for item in prereq:
-            if isinstance(item, dict) and item and all(isinstance(k, int) for k in item):
-                return item
-    raise ValueError("could not locate rev_index in model_prereq.pkl (verify the prereq structure)")
+    raise ValueError(
+        "could not locate rev_index in model_prereq.pkl "
+        "(expected Lindel's 4-tuple (label, rev_index, features, frame_shift))"
+    )
 
 
 def _to_label_map(y_hat, rev_index):
+    """Map Lindel's output array to {label: frequency}, mirroring Lindel_prediction.py's
+    `{rev_index[i]: y_hat[i] for i in range(len(y_hat)) if y_hat[i] != 0}` -- emitted verbatim,
+    zero-frequency classes dropped exactly as upstream does."""
     out = {}
     for i, freq in enumerate(list(y_hat)):
+        if not freq:
+            continue
         label = rev_index.get(i) if isinstance(rev_index, dict) else (rev_index[i] if i < len(rev_index) else None)
         if label is None:
             continue

@@ -18,11 +18,16 @@ RUN apt-get update \
 
 RUN pip install numpy scipy
 
-# Upstream Lindel (MIT), pinned to a commit; `setup.py install` bundles the weight pkls.
+# Upstream Lindel (MIT), pinned to a commit. An EDITABLE install (`pip install -e .`) is
+# required, NOT `setup.py install`: Lindel's setup.py declares package_data 'data/*.pkl', but
+# the weight pkls actually sit directly in the Lindel/ package dir (Model_weights.pkl,
+# model_prereq.pkl) -- the glob matches nothing, so a plain install drops them. Editable keeps
+# Lindel.__path__[0] pointed at the source dir that holds the pkls, exactly what
+# Lindel_prediction.py's loader (`os.path.join(Lindel.__path__[0], "Model_weights.pkl")`) expects.
 RUN git clone https://github.com/shendurelab/Lindel.git /opt/Lindel \
     && git -C /opt/Lindel checkout "${LINDEL_COMMIT}" \
     && cd /opt/Lindel \
-    && python setup.py install
+    && pip install -e .
 
 # BioForge's legacy inference entrypoint (the JSON-protocol wrapper).
 COPY lindel_infer.py /opt/lindel/lindel_infer.py
