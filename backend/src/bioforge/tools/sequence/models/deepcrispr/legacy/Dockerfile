@@ -7,9 +7,9 @@
 #   docker inspect --format '{{index .RepoDigests 0}}' bioforge/deepcrispr:legacy
 # then set BIOFORGE_DEEPCRISPR_DOCKER_IMAGE to that digest for §10 provenance.
 #
-# Validated base digest (2026-05-29):
-#   michaelchuai/deepcrispr@sha256:812deef95aac01ca1b3b07363613c6393bdb74460399c27108e2acfe5e559ad2
-FROM michaelchuai/deepcrispr:latest
+# Base image pinned by digest (rule 19 / section 10; resolved + validated 2026-05-29). NEVER
+# :latest. Re-resolve with: docker buildx imagetools inspect michaelchuai/deepcrispr:latest
+FROM michaelchuai/deepcrispr@sha256:812deef95aac01ca1b3b07363613c6393bdb74460399c27108e2acfe5e559ad2
 
 # In-image layout (used by the wrapper's defaults).
 ENV DEEPCRISPR_REPO_DIR=/root/DeepCRISPR \

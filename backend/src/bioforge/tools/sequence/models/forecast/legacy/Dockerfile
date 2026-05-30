@@ -8,9 +8,9 @@
 #   docker inspect --format '{{index .RepoDigests 0}}' bioforge/forecast:legacy   # for §10 pin
 # then set BIOFORGE_FORECAST_DOCKER_IMAGE to that digest.
 #
-# Validated base digest (2026-05-29):
-#   quay.io/felicityallen/selftarget@sha256:fa8aa329aa9c49b83cdbdb126e5d2796fa179075871c5ea5809ff860631a091a
-FROM quay.io/felicityallen/selftarget
+# Base image pinned by digest (rule 19 / section 10; resolved + validated 2026-05-29). NEVER
+# :latest. Re-resolve with: docker buildx imagetools inspect quay.io/felicityallen/selftarget
+FROM quay.io/felicityallen/selftarget@sha256:fa8aa329aa9c49b83cdbdb126e5d2796fa179075871c5ea5809ff860631a091a
 
 # FORECasT.py entrypoint inside the image. Its dir also holds FORECasT's RELATIVE theta model
 # file, so the wrapper runs the script from there.
