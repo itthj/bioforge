@@ -53,7 +53,7 @@ testpaths = ["backend/tests"]
 markers = [
     "online: tests that hit live external APIs (NCBI, Ensembl). Deselected by default; run with -m online.",
     "nextflow: tests that require a real `nextflow` binary on PATH (BIOFORGE_NEXTFLOW_ENABLED=true). Deselected by default; run with -m nextflow inside WSL2 or Linux.",
-    "docker: tests that run the real out-of-process model images (bioforge/lindel:legacy, bioforge/forecast:legacy) through Docker. Deselected by default; build the images (see each models/.../legacy/README.md) then run with -m docker.",
+    "docker: tests that run the real out-of-process model images (bioforge/lindel:legacy, bioforge/forecast:legacy, bioforge/azimuth:legacy) through Docker. Deselected by default; build the images (see each models/.../legacy/README.md) then run with -m docker.",
 ]
 addopts = "-m 'not online and not nextflow and not docker'"
 

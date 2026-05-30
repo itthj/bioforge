@@ -20,7 +20,11 @@ _EXTERNAL_BASE_DOCKERFILES = [
     _MODELS / "deepcrispr/legacy/Dockerfile",
     _MODELS / "forecast/legacy/Dockerfile",
 ]
-_ALL_MODEL_DOCKERFILES = [*_EXTERNAL_BASE_DOCKERFILES, _MODELS / "lindel/legacy/Dockerfile"]
+_ALL_MODEL_DOCKERFILES = [
+    *_EXTERNAL_BASE_DOCKERFILES,
+    _MODELS / "lindel/legacy/Dockerfile",
+    _MODELS / "azimuth/legacy/Dockerfile",
+]
 
 
 def _compose_image_refs() -> list[str]:

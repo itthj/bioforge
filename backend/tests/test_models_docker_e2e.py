@@ -9,6 +9,7 @@ Build the images first (see each models/.../legacy/README.md):
     docker build --build-arg LINDEL_COMMIT=fdcad580ba76bcfb7a98f58c3769b76f31693d63 \
         -t bioforge/lindel:legacy   backend/src/bioforge/tools/sequence/models/lindel/legacy
     docker build -t bioforge/forecast:legacy backend/src/bioforge/tools/sequence/models/forecast/legacy
+    docker build -t bioforge/azimuth:legacy  backend/src/bioforge/tools/sequence/models/azimuth/legacy
 
 Each test SKIPS (not fails) when Docker or the image is absent, so `-m docker` is safe to run
 anywhere. The edit_outcome window/strand/pam wiring is covered by the mocked tests; here we
@@ -27,6 +28,7 @@ pytestmark = pytest.mark.docker
 
 _LINDEL_IMAGE = "bioforge/lindel:legacy"
 _FORECAST_IMAGE = "bioforge/forecast:legacy"
+_AZIMUTH_IMAGE = "bioforge/azimuth:legacy"
 
 
 def _require_image(image: str) -> None:
@@ -91,3 +93,26 @@ def test_forecast_real_image_end_to_end() -> None:
     top_label, top_freq = max(dist.predictions.items(), key=lambda kv: kv[1])
     assert top_label == "I1_L-3C2R0"
     assert abs(top_freq - 0.2373) < 5e-3
+
+
+def test_azimuth_real_image_end_to_end() -> None:
+    """predict_on_target -> docker runner -> bioforge/azimuth:legacy -> typed AzimuthOnTargetResult.
+
+    Reference: Azimuth V3_model_nopos on the 30-mer GGGG+EMX1+AGG+TGG scores ~0.4889 (validated
+    2026-05-30 against the Biomatters/Azimuth py3 port @ dbd30b9, scikit-learn 0.23.2). The model
+    uses Azimuth's own featurizer + committed pickle, so this is the published RS2 output.
+    """
+    _require_image(_AZIMUTH_IMAGE)
+    from bioforge.tools.sequence.models.azimuth import AzimuthOnTargetResult, predict_on_target
+
+    s = settings.model_copy(
+        update={"azimuth_enabled": True, "azimuth_runner": "docker", "azimuth_docker_image": _AZIMUTH_IMAGE}
+    )
+    thirtymer = "GGGG" + "GAGTCCGAGCAGAAGAAGAA" + "AGG" + "TGG"  # 4 + 20 + 3 + 3 = 30 nt
+
+    result = predict_on_target([thirtymer], settings=s)
+    assert isinstance(result, AzimuthOnTargetResult)
+    assert len(result.scores) == 1
+    assert result.scores[0].thirtymer == thirtymer
+    assert 0.0 <= result.scores[0].score <= 1.0
+    assert abs(result.scores[0].score - 0.4889) < 5e-3

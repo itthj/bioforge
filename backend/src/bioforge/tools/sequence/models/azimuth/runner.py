@@ -12,7 +12,8 @@ Two backends via `settings.azimuth_runner`: **docker** (a pinned image with the 
 conda with Azimuth installed). `build_command` is pure + unit-testable; the launch goes through
 an injectable `run_fn` so tests never spawn a subprocess.
 
-SCAFFOLD: the legacy image is not yet built/validated end-to-end (see models/azimuth/legacy).
+Validated 2026-05-30 end-to-end against the built `bioforge/azimuth:legacy` image (see
+models/azimuth/legacy/README.md).
 """
 
 from __future__ import annotations

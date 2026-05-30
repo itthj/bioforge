@@ -15,8 +15,9 @@ moving ~89% → ~91% of the v4 vision. **Local `main` is 3 commits ahead of `ori
 3. **Doench RS2 (Azimuth) secondary on-target scorer** (`a0ea732`): `score_guide_on_target(model=
    "azimuth_rs2")`, out-of-process like DeepCRISPR/Lindel/FORECasT, **off by default**. Requires the
    real 30-nt `thirtymer` context (refuses to fabricate flanks; soundness-checks the protospacer
-   offset). **SCAFFOLD** — the legacy sklearn image is NOT yet built/validated (`models/azimuth/legacy`);
-   next is Docker build + numeric validation (the DeepCRISPR playbook), then pin the commit + digest.
+   offset). **VALIDATED end-to-end** (later same session): built `bioforge/azimuth:legacy` (Biomatters
+   py3 port @ `dbd30b9`, scikit-learn 0.23.2), `V3_model_nopos.pickle` loads, deterministic
+   (EMX1 30-mer → 0.4889), covered by `test_azimuth_real_image_end_to_end` (`-m docker`). Off by default.
 
 Everything below is the session-1 handoff, still accurate except where the above supersedes it
 (remainder #3 Doench RS2 is now scaffolded; #6 repro-determinism is done).
@@ -66,19 +67,16 @@ Scorecard rules now ✅: 1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 14, 15, 16, 17, 19, 20. 
 
 ## Next-step priority (recommended)
 - ~~Repro-determinism test + CI wiring~~ — **DONE 2026-05-30** (`7d72a63`).
-- ~~Doench RS2 out-of-process~~ — **SCAFFOLDED 2026-05-30** (`a0ea732`); see #1.
+- ~~Doench RS2 out-of-process~~ — **SCAFFOLDED + VALIDATED 2026-05-30** (`a0ea732` + the validate
+  commit): `bioforge/azimuth:legacy` runs end-to-end, off by default. Two-scorer on-target met.
 
-1. **Validate the Azimuth RS2 legacy image** — Docker build, VERIFY the scikit-learn pin + the
-   `azimuth.model_comparison.predict()` call, numeric check vs a few published RS2 scores, then pin
-   `azimuth_upstream_commit` + the image `@sha256`. Finishes the two-scorer on-target requirement.
-   **No external truth-set needed** — the cleanest next slice.
-2. **CFD off-target PAM verification** — the CFD *engine* already computes mismatch×PAM (`cfd_score`);
+1. **CFD off-target PAM verification** — the CFD *engine* already computes mismatch×PAM (`cfd_score`);
    what's missing is `find_offtargets` fetching each hit's 3' flank (Entrez efetch + strand logic) to
    supply the real PAM, then calling `cfd_score` instead of the mismatch-only component. **Design fork:**
    per-hit efetch adds network/latency to an already-`expensive` tool — decide batching/caching + whether
    to gate it. Prereq for the GUIDE-seq off-target-recall benchmark.
-3. **Variant-calling path** → unlocks §13 GIAB (needs a caller + the GIAB truth set + a reference download).
-4. Then calibration + the reliability-diagram frontend (need #2/#3 producing scored predictions first).
+2. **Variant-calling path** → unlocks §13 GIAB (needs a caller + the GIAB truth set + a reference download).
+3. Then calibration + the reliability-diagram frontend (need #1/#2 producing scored predictions first).
 
 ## Commands (Windows; venv at `bioforge\.venv`)
 ```

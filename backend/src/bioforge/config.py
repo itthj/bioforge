@@ -122,14 +122,15 @@ class Settings(BaseSettings):
     # score_guide_on_target(model="azimuth_rs2") degrades gracefully (the deterministic
     # rule-based score still returns) when the env is absent or `azimuth_enabled` is False, so
     # the default configuration is behaviorally identical to before.
-    # SCAFFOLD: the legacy image is not yet built/validated end-to-end (see models/azimuth/legacy).
+    # Validated 2026-05-30 end-to-end against bioforge/azimuth:legacy (V3_model_nopos loads under
+    # the pinned scikit-learn 0.23.2; deterministic). Still opt-in / off by default.
     azimuth_enabled: bool = Field(default=False, alias="BIOFORGE_AZIMUTH_ENABLED")
     azimuth_runner: str = Field(default="docker", alias="BIOFORGE_AZIMUTH_RUNNER")  # docker | local
     azimuth_docker_image: str = Field(default="", alias="BIOFORGE_AZIMUTH_DOCKER_IMAGE")
     azimuth_python: str = Field(default="", alias="BIOFORGE_AZIMUTH_PYTHON")
     azimuth_upstream_commit: str = Field(
-        # VERIFY: pin to a real Biomatters/Azimuth (py3 port) commit SHA before enabling + validating.
-        default="master",
+        # Biomatters/Azimuth (py3 port) master @ 2022-11-21; the image was built + validated from it.
+        default="dbd30b9d74f90f1846c0a31bcafcec8b36215af7",
         alias="BIOFORGE_AZIMUTH_UPSTREAM_COMMIT",
     )
     azimuth_timeout_seconds: float = Field(default=300.0, alias="BIOFORGE_AZIMUTH_TIMEOUT_SECONDS")

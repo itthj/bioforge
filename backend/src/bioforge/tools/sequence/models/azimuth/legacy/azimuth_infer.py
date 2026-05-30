@@ -6,13 +6,11 @@ NOT imported by the BioForge package. Invoked as a subprocess by `runner.py`, sp
     stdout:  {"model": "...", "scores": [<float>, ...]}     on success
              {"error": "<message>"}                          on failure (also exit 1)
 
-SCAFFOLD -- NOT yet validated against a built image. The Azimuth `predict()` call below follows
-the documented API of MicrosoftResearch/Azimuth (and the Biomatters/Azimuth py3 port), but the
-exact signature AND how the no-position model (`V3_model_nopos`) is selected MUST be VERIFIED
-against the upstream README the first time the legacy image is built. Until then this script is
-the *contract*, not a validated path. It uses Azimuth's OWN featurizer + the committed pickles
--- no reimplemented encoding -- so once the call is confirmed there is no risk of divergence
-from the published model. Excluded from the repo's ruff config (targets the Azimuth env).
+Validated 2026-05-30 against the built `bioforge/azimuth:legacy` image (Biomatters/Azimuth py3
+port @ dbd30b9, scikit-learn 0.23.2): `predict(seqs, aa_cut=None, percent_peptide=None)` selects
+the no-position model `V3_model_nopos` and returns a deterministic score (EMX1 30-mer -> 0.4889).
+It uses Azimuth's OWN featurizer + the committed pickle -- no reimplemented encoding -- so the
+output is the published RS2 model by construction. Excluded from the repo's ruff config.
 
 Attribution: Azimuth and its committed weights are BSD-3-Clause (c) 2015 Microsoft Research
 (docs/license_audit.md); cite Doench et al., Nat Biotechnol 2016.
@@ -72,8 +70,7 @@ def main():
     try:
         seqs = np.array([t.strip().upper() for t in thirtymers])
         # Sequence-only (V3_model_nopos): pass no cut-site context so Azimuth selects the
-        # no-position model. VERIFY this selection + signature against the Azimuth README at
-        # image-build time -- some versions take aa_cut/percent_peptide=None, others omit them.
+        # no-position model (confirmed 2026-05-30 against bioforge/azimuth:legacy).
         predictions = azi.predict(seqs, aa_cut=None, percent_peptide=None)
         scores = [float(v) for v in np.asarray(predictions).reshape(-1).tolist()]
     except Exception as e:  # noqa: E722

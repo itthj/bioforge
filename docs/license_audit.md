@@ -109,6 +109,8 @@ two-scorer design's secondary slot (DeepCRISPR primary + Doench RS2 secondary, s
 5. **Attribution:** retain `Copyright (c) 2015, Microsoft Research` + the BSD-3-Clause text, and cite
    Doench et al., *Nat Biotechnol* 2016.
 
-**Net:** Doench RS2 (Azimuth) is license-cleared. Remaining work is the out-of-process legacy-sklearn
-integration (scaffold next), mirroring the existing model-runner pattern — no new license risk.
+**Net:** Doench RS2 (Azimuth) is license-cleared and now **integrated + validated** (2026-05-30):
+`score_guide_on_target(model="azimuth_rs2")`, out-of-process via `bioforge/azimuth:legacy`
+(scikit-learn 0.23.2 deserializes the committed `V3_model_nopos.pickle`; deterministic), off by
+default. No new license risk.
 
