@@ -1,4 +1,27 @@
-# BioForge — Session handoff (v4 finalization + usability push, 2026-05-29/30)
+# BioForge — Session handoff (v4 finalization, 2026-05-30)
+
+## Update 2026-05-30 (session 2): repro-determinism + Doench Rule Set 2
+
+Three slices landed on `main` (each its own branch, FF-merged, suite green, ruff/tsc clean),
+moving ~89% → ~91% of the v4 vision. **Local `main` is 3 commits ahead of `origin` — NOT yet pushed.**
+
+1. **Repro-determinism guard** (`7d72a63`, rule 19 / §10): a cross-process / cross-`PYTHONHASHSEED`
+   test that the run-manifest `content_hash` is byte-identical across re-runs, plus a named CI step.
+   Closes remainder item #6 below. (Found + fixed a latent leak: `test_migrations` sets a sync
+   `BIOFORGE_DB_URL` in `os.environ`; the determinism subprocess now pins its own in-memory async URL.)
+2. **Doench RS2 license audit** (`cd9c3a1`): Azimuth is **BSD-3-Clause** (verified — the file is
+   `LICENSE.txt`, not `/LICENSE`, which is why the prior pass marked it unverified). Cleared; weights
+   are vendorable with attribution, no consent gate. See `docs/license_audit.md`.
+3. **Doench RS2 (Azimuth) secondary on-target scorer** (`a0ea732`): `score_guide_on_target(model=
+   "azimuth_rs2")`, out-of-process like DeepCRISPR/Lindel/FORECasT, **off by default**. Requires the
+   real 30-nt `thirtymer` context (refuses to fabricate flanks; soundness-checks the protospacer
+   offset). **SCAFFOLD** — the legacy sklearn image is NOT yet built/validated (`models/azimuth/legacy`);
+   next is Docker build + numeric validation (the DeepCRISPR playbook), then pin the commit + digest.
+
+Everything below is the session-1 handoff, still accurate except where the above supersedes it
+(remainder #3 Doench RS2 is now scaffolded; #6 repro-determinism is done).
+
+---
 
 Pick up cold from here. Read `docs/grounding.md`, `docs/license_audit.md`, and the v4 blueprint
 (the user has it; **it is NOT committed** — ask for it / re-paste it. Until then assess against
@@ -7,8 +30,8 @@ its in-repo footprint: `grounding.md` + the §-references in code).
 ## Repo state
 - **GitHub:** https://github.com/itthj/bioforge — everything on **`main`**, pushed.
 - **Local:** `C:\Users\james\OneDrive\Documents\BIOTECH 101\bioforge` (Windows; Docker Desktop + WSL2).
-- **HEAD = the `feat(benchmarks): … ClinVar live fidelity + handoff` commit** (run `git log --oneline -14`). Working tree clean, in sync with origin.
-- **Suite:** ~873 passed, 2 skipped, ~14 deselected (online+nextflow+docker). Lint + format clean. Frontend: 81 vitest passed, `tsc --strict` clean.
+- **HEAD = the `feat(benchmarks): … ClinVar live fidelity + handoff` commit** (run `git log --oneline -14`). Working tree clean. (Session 2 advanced HEAD to `a0ea732`, 3 commits ahead of `origin` — see the Update at the top.)
+- **Suite:** ~891 passed, 2 skipped, ~14 deselected (online+nextflow+docker). Lint + format clean. Frontend untouched in session 2 (81 vitest, `tsc --strict` clean as of session 1).
 - **Stale prior-session branches** still exist (local+origin): `chore/license-audit`, `feat/clinvar-fidelity-benchmark`, `feat/grounding-validator`, `feat/registry-metadata` — safe to delete.
 
 ## What this session built (all on `main`, oldest→newest; ~74%→~89% of the v4 vision)
@@ -42,9 +65,19 @@ Scorecard rules now ✅: 1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 14, 15, 16, 17, 19, 20. 
 6. **Repro-determinism CI test** (§10/rule 19) — a CI test asserting `build_run_manifest` content_hash is byte-stable for a fixed run; wire into `.github/workflows/ci.yml`. **Small, buildable now — good first pick next session.**
 
 ## Next-step priority (recommended)
-1. **Repro-determinism test + CI wiring** (small, closes rule 19's "re-run" clause, no external data).
-2. **Variant-calling path** → unlocks §13 GIAB.
-3. **Doench RS2** out-of-process (DeepCRISPR playbook) → completes the two-scorer requirement.
+- ~~Repro-determinism test + CI wiring~~ — **DONE 2026-05-30** (`7d72a63`).
+- ~~Doench RS2 out-of-process~~ — **SCAFFOLDED 2026-05-30** (`a0ea732`); see #1.
+
+1. **Validate the Azimuth RS2 legacy image** — Docker build, VERIFY the scikit-learn pin + the
+   `azimuth.model_comparison.predict()` call, numeric check vs a few published RS2 scores, then pin
+   `azimuth_upstream_commit` + the image `@sha256`. Finishes the two-scorer on-target requirement.
+   **No external truth-set needed** — the cleanest next slice.
+2. **CFD off-target PAM verification** — the CFD *engine* already computes mismatch×PAM (`cfd_score`);
+   what's missing is `find_offtargets` fetching each hit's 3' flank (Entrez efetch + strand logic) to
+   supply the real PAM, then calling `cfd_score` instead of the mismatch-only component. **Design fork:**
+   per-hit efetch adds network/latency to an already-`expensive` tool — decide batching/caching + whether
+   to gate it. Prereq for the GUIDE-seq off-target-recall benchmark.
+3. **Variant-calling path** → unlocks §13 GIAB (needs a caller + the GIAB truth set + a reference download).
 4. Then calibration + the reliability-diagram frontend (need #2/#3 producing scored predictions first).
 
 ## Commands (Windows; venv at `bioforge\.venv`)
