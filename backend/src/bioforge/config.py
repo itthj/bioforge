@@ -118,5 +118,10 @@ class Settings(BaseSettings):
     # outside an involved model's validated envelope BEFORE it runs (the §0 inputs boundary).
     ood_gate: str = Field(default="off", alias="BIOFORGE_OOD_GATE")  # off | block
 
+    # (v4 §0/§4.1) Execution-time soundness gate. "off" (default) records bound violations
+    # post-response only. "block" rejects a tool output that violates a known physical bound
+    # (an impossible value) before it feeds downstream steps -- the §0 execution boundary acting.
+    soundness_gate: str = Field(default="off", alias="BIOFORGE_SOUNDNESS_GATE")  # off | block
+
 
 settings = Settings()

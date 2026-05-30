@@ -10,9 +10,10 @@ Precision-first: we only check fields whose bounds we are certain of. An unknown
 left alone — we never invent a bound (that would be its own unsourced-constant sin).
 Extend `_BOUNDS` / `_NON_NEGATIVE` as tools are added.
 
-Scope of this slice: the deterministic *detector* + its report. Acting on a violation
-(failing the step and replanning at execution time, per the §4.1 loop) is a deeper
-executor change tracked separately; here the violation is detected and recorded.
+This module ships the deterministic *detector* (`check_soundness`) AND `soundness_refusal`,
+the §4.1 execution-time gate the loop acts on: when `BIOFORGE_SOUNDNESS_GATE=block`, a tool
+output that violates a known bound is rejected before it feeds downstream steps. Off by
+default -> detect-and-record only (the post-response validator still reports violations).
 """
 
 from __future__ import annotations
@@ -102,3 +103,18 @@ def check_soundness(tool_outputs: Iterable[dict]) -> SoundnessReport:
     for output in tool_outputs:
         _walk(output, "", visit)
     return SoundnessReport(ok=not violations, checked=counter["checked"], violations=violations)
+
+
+def soundness_refusal(output: dict, *, mode: str) -> SoundnessReport | None:
+    """The §0/§4.1 execution-time soundness gate, as a pure decision the loop acts on.
+
+    When `mode == "block"` and a tool's structured output violates a known physical/biological
+    bound (an impossible value -- a GC% of 150, a CFD of 1.4), return the SoundnessReport to
+    reject on; the loop turns it into an error tool_result so the agent reacts/replans BEFORE
+    the value feeds downstream steps. Otherwise None. `mode` is `settings.soundness_gate`; the
+    default "off" disables the gate (the post-response detector still records violations).
+    """
+    if mode != "block":
+        return None
+    report = check_soundness([output])
+    return report if report.violations else None

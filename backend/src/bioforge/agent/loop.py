@@ -46,6 +46,7 @@ from bioforge.agent.grounding import (
     ground_response,
     judge_claims,
     ood_refusal,
+    soundness_refusal,
     summarize_grounding,
     summarize_ood,
 )
@@ -492,6 +493,30 @@ async def _execute(
                 try:
                     output = await execute_tool(tool_name, tool_input)
                     output_dict = output.model_dump()
+                    # (v4 §0/§4.1) Execution-time soundness gate: reject an impossible value
+                    # BEFORE it feeds downstream steps, when BIOFORGE_SOUNDNESS_GATE=block.
+                    sound_block = soundness_refusal(output_dict, mode=settings.soundness_gate)
+                    if sound_block is not None:
+                        msg = "[soundness] {} returned an out-of-bounds value -- rejected before use: {}".format(
+                            tool_name,
+                            "; ".join(f"{v.field}={v.value:g} not in {v.bound}" for v in sound_block.violations),
+                        )
+                        await _append(
+                            AgentStep(
+                                idx=step_idx,
+                                type="tool_error",
+                                duration_ms=int((time.monotonic() - t_tool) * 1000),
+                                tool_name=tool_name,
+                                tool_input=tool_input,
+                                error=msg,
+                                verdict={"soundness": sound_block.model_dump()},
+                            )
+                        )
+                        step_idx += 1
+                        tool_results.append(
+                            {"type": "tool_result", "tool_use_id": block.id, "content": msg, "is_error": True}
+                        )
+                        continue
                     await _append(
                         AgentStep(
                             idx=step_idx,

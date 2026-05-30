@@ -50,6 +50,7 @@ from bioforge.agent.grounding.soundness import (
     SoundnessReport,
     SoundnessViolation,
     check_soundness,
+    soundness_refusal,
 )
 
 __all__ = [
@@ -81,6 +82,7 @@ __all__ = [
     "judge_claims",
     "load_numeric_corpus",
     "ood_refusal",
+    "soundness_refusal",
     "summarize_grounding",
     "summarize_ood",
 ]
