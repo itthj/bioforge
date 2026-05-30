@@ -31,13 +31,25 @@ gives us:
 
 from __future__ import annotations
 
+import asyncio
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from bioforge.config import settings
 from bioforge.tools.base import ToolError, ToolInput, ToolOutput
 from bioforge.tools.registry import execute_tool, register_tool
-from bioforge.tools.sequence.offtarget_scoring import cfd_mismatch_component, score_offtarget
+from bioforge.tools.sequence.offtarget_pam import (
+    FLANK_MARGIN,
+    OfftargetPamError,
+    efetch_flank,
+    extract_pam,
+)
+from bioforge.tools.sequence.offtarget_scoring import (
+    cfd_mismatch_component,
+    cfd_score,
+    score_offtarget,
+)
 
 _DNA_CHARS = set("ACGTNacgtn")
 _ACGT = set("ACGT")
@@ -94,6 +106,16 @@ class FindOfftargetsInput(ToolInput):
             "target analysis."
         ),
     )
+    verify_pam: bool = Field(
+        default=False,
+        description=(
+            "When true, fetch each clean off-target's flanking genome (NCBI Entrez efetch) to read "
+            "and verify its PAM, then report the FULL CFD score (mismatch × PAM-activity) in "
+            "`cfd_full_score`. Adds one network fetch per clean hit (slower). Off by default — "
+            "without it only the PAM-free CFD mismatch component is reported. A PAM that cannot be "
+            "soundly reconstructed from the genome is left unverified, never guessed."
+        ),
+    )
 
     @field_validator("guide")
     @classmethod
@@ -142,7 +164,24 @@ class OfftargetHit(BaseModel):
             "field-standard off-target metric, slightly outperforms MIT). Higher = more likely "
             "cleaved. NOTE: this is the MISMATCH component only -- the off-target PAM is not "
             "verified, so CFD's PAM-activity factor is not applied (treat as an upper bound). "
-            "null for gapped / partial / non-ACGT alignments."
+            "null for gapped / partial / non-ACGT alignments. See cfd_full_score when verify_pam=true."
+        ),
+    )
+    pam: str | None = Field(
+        default=None,
+        description=(
+            "The off-target's 3-nt PAM (NGG) read from the genome 3' of the protospacer on the "
+            "matching strand and verified by reconstruction. Populated only when verify_pam=true and "
+            "the locus reconstructed soundly; null otherwise (never a guessed PAM)."
+        ),
+    )
+    cfd_full_score: float | None = Field(
+        default=None,
+        description=(
+            "FULL Doench-2016 CFD score in [0,1] = the mismatch component × the PAM-activity weight "
+            "for the VERIFIED off-target PAM. Populated only when verify_pam=true and the PAM was "
+            "verified; null otherwise (fall back to cfd_mismatch_score, the upper bound). A low value "
+            "on a strong-mismatch hit often means a weak/non-canonical PAM → unlikely to be cleaved."
         ),
     )
     alignment_length: int
@@ -257,6 +296,51 @@ def _classify_risk(
     )
 
 
+async def _verify_pam_for_hit(
+    *,
+    accession: str,
+    subject_start: int,
+    subject_end: int,
+    on_target: str,
+    off_target: str,
+    email: str,
+) -> tuple[str | None, float | None]:
+    """Fetch the off-target flank, verify its PAM, and compute the FULL CFD score.
+
+    Returns `(pam3, cfd_full_score)`, or `(None, None)` on a missing accession, a fetch failure, an
+    unsound reconstruction (the §0 soundness gate in `extract_pam`), or an unscorable input — in
+    every such case the caller keeps the mismatch-only component rather than emit a guessed PAM.
+    The efetch runs in a worker thread so the event loop stays free (mirrors the blast call).
+    """
+    if not accession:
+        return None, None
+    lo = min(subject_start, subject_end)
+    hi = max(subject_start, subject_end)
+    win_lo = max(1, lo - FLANK_MARGIN)
+    win_hi = hi + FLANK_MARGIN
+    try:
+        window = await asyncio.to_thread(
+            efetch_flank, accession=accession, seq_start=win_lo, seq_stop=win_hi, email=email
+        )
+    except OfftargetPamError:
+        return None, None
+    ext = extract_pam(
+        window_plus=window,
+        window_start=win_lo,
+        subject_start=subject_start,
+        subject_end=subject_end,
+        guide_len=len(off_target),
+        expected_protospacer=off_target,
+    )
+    if ext is None:
+        return None, None
+    try:
+        full = cfd_score(on_target, off_target, ext.pam2)
+    except ValueError:
+        return None, None
+    return ext.pam3, round(full, 4)
+
+
 @register_tool(
     name="find_offtargets",
     description=(
@@ -265,8 +349,10 @@ def _classify_risk(
         "count, query coverage, and a simple risk label (high/medium/low). Use after "
         "selecting a guide with `design_guides` to assess specificity, or whenever the "
         "user asks 'what else does this guide cut?' / 'where else does this sequence "
-        "match?'. EXPENSIVE: this tool internally calls `blast` against NCBI's public "
-        "service, which takes 30 seconds to several minutes. The user will be prompted "
+        "match?'. Set verify_pam=true to additionally fetch each clean off-target's genomic flank, "
+        "verify its PAM, and report the FULL CFD score (mismatch × PAM) in cfd_full_score (one extra "
+        "network fetch per clean hit). EXPENSIVE: this tool internally calls `blast` against NCBI's "
+        "public service, which takes 30 seconds to several minutes. The user will be prompted "
         "for approval before the search runs."
     ),
     input_model=FindOfftargetsInput,
@@ -290,8 +376,9 @@ def _classify_risk(
         ),
         "cfd_offtarget": (
             "CFD (Doench 2016) base-identity mismatch weighting, sourced verbatim from CRISPOR's "
-            "CFD_Scoring. Deterministic published weights; reported as the mismatch component "
-            "(PAM-activity factor omitted when the off-target PAM is unverified)."
+            "CFD_Scoring. Deterministic published weights. Reported as the mismatch component by "
+            "default; with verify_pam=true the off-target PAM is fetched + verified and the FULL CFD "
+            "(mismatch × PAM-activity) is reported in cfd_full_score."
         ),
     },
     training_distribution={
@@ -370,6 +457,20 @@ async def find_offtargets(inp: FindOfftargetsInput) -> FindOfftargetsOutput:
             except ValueError:
                 cfd_mm = None
 
+        # Full CFD needs the off-target PAM, which BLAST doesn't return. When asked, fetch + verify
+        # it from the genome for clean (CFD-scorable) hits; failures degrade to mismatch-only.
+        pam_verified: str | None = None
+        cfd_full: float | None = None
+        if inp.verify_pam and cfd_mm is not None:
+            pam_verified, cfd_full = await _verify_pam_for_hit(
+                accession=h.get("accession", ""),
+                subject_start=int(h.get("subject_start", 0) or 0),
+                subject_end=int(h.get("subject_end", 0) or 0),
+                on_target=q_aln,
+                off_target=s_aln,
+                email=settings.entrez_email,
+            )
+
         risk, reason = _classify_risk(
             mismatch_count=mismatches,
             mit_score=score.score,
@@ -387,6 +488,8 @@ async def find_offtargets(inp: FindOfftargetsInput) -> FindOfftargetsOutput:
                 mismatch_positions=score.mismatch_positions,
                 mit_score=round(score.score, 4),
                 cfd_mismatch_score=cfd_mm,
+                pam=pam_verified,
+                cfd_full_score=cfd_full,
                 used_full_alignment=score.used_full_alignment,
                 alignment_length=align_len,
                 query_coverage_percent=coverage,
@@ -409,16 +512,32 @@ async def find_offtargets(inp: FindOfftargetsInput) -> FindOfftargetsOutput:
     medium = sum(1 for c in candidates if c.risk_label == "medium")
     low = sum(1 for c in candidates if c.risk_label == "low")
 
+    if inp.verify_pam:
+        n_verified = sum(1 for c in candidates if c.pam is not None)
+        pam_caveats = [
+            f"PAM verification was ON: for {n_verified} of {len(candidates)} returned hit(s) the "
+            "off-target PAM was fetched from the genome (Entrez efetch) and verified by reconstructing "
+            "the protospacer at that locus, and cfd_full_score (mismatch × PAM-activity) is reported. "
+            "Hits without a verified PAM (contig edge, fetch failure, or a reconstruction that did not "
+            "match) keep only cfd_mismatch_score and a null pam — a PAM is never guessed. SpCas9 needs "
+            "a canonical NGG PAM to cleave.",
+            "Two off-target metrics: the Hsu-2013 MIT score (position-weighted) and the Doench-2016 CFD "
+            "score. With a verified PAM, cfd_full_score is the FULL CFD; otherwise cfd_mismatch_score is "
+            "the mismatch component only (an upper bound). Both are null for gapped/partial/non-ACGT alignments.",
+        ]
+    else:
+        pam_caveats = [
+            "PAM at each off-target site is NOT verified. BLAST matches the guide sequence but does not "
+            "confirm a downstream NGG PAM exists in the genome; a match without a PAM cannot be cleaved "
+            "by Cas9. Set verify_pam=true to fetch + verify each PAM and get the full CFD score.",
+            "Two off-target metrics are reported: the Hsu-2013 MIT score (position-weighted) and the "
+            "Doench-2016 CFD mismatch component (base-identity-weighted; field standard). The CFD value "
+            "is the MISMATCH component only -- the off-target PAM is NOT verified, so CFD's PAM-activity "
+            "factor is not applied; treat it as an upper bound. cfd_mismatch_score is null for "
+            "gapped / partial / non-ACGT alignments.",
+        ]
     caveats = [
-        "PAM at each off-target site is NOT verified. BLAST matches the guide "
-        "sequence but does not confirm a downstream PAM exists in the genome. A "
-        "match without a PAM cannot be cleaved by Cas9. Future enhancement: "
-        "fetch flanking context via Entrez efetch to verify PAMs.",
-        "Two off-target metrics are reported: the Hsu-2013 MIT score (position-weighted) and "
-        "the Doench-2016 CFD mismatch component (base-identity-weighted; field standard). The "
-        "CFD value is the MISMATCH component only -- the off-target PAM is NOT verified (see the "
-        "PAM caveat), so CFD's PAM-activity factor is not applied; treat it as an upper bound. "
-        "cfd_mismatch_score is null for gapped / partial / non-ACGT alignments.",
+        *pam_caveats,
         "Bulges / insertions / deletions in the off-target alignment are treated "
         "as position-aligned mismatches, NOT as separate indel events.",
         "BLAST coverage is sensitive to the database choice. Searching 'nt' "

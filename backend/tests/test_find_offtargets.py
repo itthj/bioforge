@@ -338,6 +338,79 @@ async def test_caveats_mention_missing_pam_verification(patch_ncbi) -> None:
     assert "bulge" in text or "indel" in text  # mentions bulge/indel limitation
 
 
+# --- PAM verification (full CFD) -----------------------------------------------------
+
+
+async def test_verify_pam_computes_full_cfd(patch_ncbi, monkeypatch) -> None:
+    from bioforge.tools.sequence import find_offtargets as fo
+    from bioforge.tools.sequence.offtarget_scoring import cfd_score
+
+    sbjct = _mutate_at(_GUIDE, [3, 15])  # 2-mismatch off-target -> full-alignment path -> CFD applies
+    record = _fake_record(
+        [
+            _fake_alignment(
+                accession="NC_000001.11", hit_def="chr1 [Homo sapiens]", identities=18, query=_GUIDE, sbjct=sbjct
+            )
+        ]
+    )
+    patch_ncbi((record, "RID"))
+
+    # sbjct coords default to 1001..1020 (plus). PAM "AGG" at 1021..1023; window starts at 995.
+    window = "T" * 6 + sbjct + "AGG" + "C" * 3  # plus-strand window for coords 995..1026
+    captured: dict = {}
+
+    def fake_efetch(*, accession, seq_start, seq_stop, email):
+        captured["args"] = (accession, seq_start, seq_stop)
+        return window
+
+    monkeypatch.setattr(fo, "efetch_flank", fake_efetch)
+
+    out = await find_offtargets(FindOfftargetsInput(guide=_GUIDE, verify_pam=True))
+    hit = out.hits[0]
+    assert hit.pam == "AGG"
+    assert hit.cfd_full_score == round(cfd_score(_GUIDE, sbjct, "GG"), 4)
+    assert hit.cfd_mismatch_score is not None
+    assert captured["args"] == ("NC_000001.11", 995, 1026)  # flank fetched with the right coords
+    assert any("pam verification was on" in c.lower() for c in out.caveats)
+
+
+async def test_verify_pam_soundness_failure_falls_back(patch_ncbi, monkeypatch) -> None:
+    # efetch returns a locus whose bases disagree with the BLAST subject -> the reconstruction
+    # fails the soundness gate -> no PAM, no full CFD, but the mismatch component is kept.
+    from bioforge.tools.sequence import find_offtargets as fo
+
+    sbjct = _mutate_at(_GUIDE, [3, 15])  # 2-mismatch off-target -> CFD-scorable (full-alignment path)
+    record = _fake_record([_fake_alignment(accession="ACC", hit_def="x", identities=18, query=_GUIDE, sbjct=sbjct)])
+    patch_ncbi((record, "RID"))
+    wrong_window = "T" * 6 + "A" * 20 + "AGG" + "C" * 3  # locus is poly-A, disagrees with sbjct
+    monkeypatch.setattr(fo, "efetch_flank", lambda **_kw: wrong_window)
+
+    out = await find_offtargets(FindOfftargetsInput(guide=_GUIDE, verify_pam=True))
+    hit = out.hits[0]
+    assert hit.pam is None
+    assert hit.cfd_full_score is None
+    assert hit.cfd_mismatch_score is not None  # mismatch component (upper bound) still reported
+
+
+async def test_verify_pam_off_by_default_does_not_fetch(patch_ncbi, monkeypatch) -> None:
+    from bioforge.tools.sequence import find_offtargets as fo
+
+    sbjct = _mutate_at(_GUIDE, [3, 15])  # 2-mismatch off-target -> CFD-scorable (full-alignment path)
+    record = _fake_record([_fake_alignment(accession="ACC", hit_def="x", identities=18, query=_GUIDE, sbjct=sbjct)])
+    patch_ncbi((record, "RID"))
+
+    def boom(**_kw):
+        raise AssertionError("efetch must not be called when verify_pam is off")
+
+    monkeypatch.setattr(fo, "efetch_flank", boom)
+
+    out = await find_offtargets(FindOfftargetsInput(guide=_GUIDE))  # verify_pam defaults to False
+    hit = out.hits[0]
+    assert hit.pam is None
+    assert hit.cfd_full_score is None
+    assert hit.cfd_mismatch_score is not None
+
+
 # --- Adversarial validation ----------------------------------------------------------
 
 
