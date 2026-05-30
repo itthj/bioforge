@@ -13,6 +13,7 @@ export default defineConfig({
     proxy: {
       "/agent": { target: "http://localhost:8000", changeOrigin: true },
       "/projects": { target: "http://localhost:8000", changeOrigin: true },
+      "/benchmarks": { target: "http://localhost:8000", changeOrigin: true },
       "/traces": { target: "http://localhost:8000", changeOrigin: true },
       "/health": { target: "http://localhost:8000", changeOrigin: true },
     },

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { AccuracyReport } from "./components/AccuracyReport";
 import { ApprovalCard } from "./components/ApprovalCard";
 import { ChatInput } from "./components/ChatInput";
 import { FinalCard } from "./components/FinalCard";
@@ -9,7 +10,7 @@ import { streamAgentApprove, streamAgentRun } from "./api/agent";
 import type { AgentDoneEvent, AgentStep, SseEvent } from "./types/agent";
 
 type RunState = "idle" | "running" | "done" | "pending_approval" | "error";
-type Tab = "chat" | "memory";
+type Tab = "chat" | "memory" | "accuracy";
 
 const DEFAULT_PROJECT_ID = "default-project";
 
@@ -123,9 +124,12 @@ export function App() {
         <TabButton active={tab === "memory"} onClick={() => setTab("memory")}>
           Memory
         </TabButton>
+        <TabButton active={tab === "accuracy"} onClick={() => setTab("accuracy")}>
+          Accuracy
+        </TabButton>
       </nav>
 
-      {tab === "chat" ? (
+      {tab === "chat" && (
         <ChatPanel
           steps={steps}
           done={done}
@@ -135,9 +139,9 @@ export function App() {
           onSubmit={handleSubmit}
           onApproval={handleApproval}
         />
-      ) : (
-        <MemoryInspector projectId={projectId} />
       )}
+      {tab === "memory" && <MemoryInspector projectId={projectId} />}
+      {tab === "accuracy" && <AccuracyReport />}
     </div>
   );
 }

@@ -8,6 +8,7 @@ from sqlalchemy import select
 
 from bioforge import __version__
 from bioforge.api.agent import router as agent_router
+from bioforge.api.benchmarks import router as benchmarks_router
 from bioforge.api.projects import router as projects_router
 from bioforge.constants import DEFAULT_PROJECT_ID
 from bioforge.db.engine import init_db, session_factory
@@ -68,6 +69,7 @@ def create_app() -> FastAPI:
 
     app.include_router(agent_router)
     app.include_router(projects_router)
+    app.include_router(benchmarks_router)
 
     @app.get("/health")
     async def health() -> dict:
