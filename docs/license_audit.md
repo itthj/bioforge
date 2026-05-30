@@ -45,7 +45,7 @@ their *current upstream* licenses:
 | **DeepCRISPR** (Chuai et al., *Genome Biol* 2018) | `bm2-lab/DeepCRISPR` | **Apache-2.0** (verified) | ✅ Yes | **🟢 Recommended new primary** |
 | CRISPRon (Xiang et al., *Nat Commun* 2021) | `RTH-tools/crispron` | **AGPL-3.0** | ⚠ Copyleft | 🔴 Unsuitable — network-copyleft can force open-sourcing a hosted BioForge |
 | DeepHF (Wang et al., *Nat Commun* 2019) | `izhangcd/DeepHF` | **No LICENSE file** → all-rights-reserved | ❌ No grant | 🔴 Not usable without author permission |
-| Azimuth / Rule Set 2 (Doench et al. 2016) | `MicrosoftResearch/Azimuth` | not at expected path (unverified) | — | This is the *secondary* slot (Doench RS2); verify separately |
+| Azimuth / Rule Set 2 (Doench et al. 2016) | `MicrosoftResearch/Azimuth` | **BSD-3-Clause** (verified 2026-05-30) | ✅ Yes | 🟢 *Secondary* slot — cleared to build; see RS2 detail below |
 
 **Sources:** [DeepCRISPR](https://github.com/bm2-lab/DeepCRISPR) ([paper](https://doi.org/10.1186/s13059-018-1459-4)) · [CRISPRon](https://github.com/RTH-tools/crispron) ([paper](https://www.nature.com/articles/s41467-021-23576-0)) · [DeepHF](https://github.com/izhangcd/DeepHF) ([paper](https://www.nature.com/articles/s41467-019-12281-8)) · [Azimuth](https://github.com/MicrosoftResearch/Azimuth)
 
@@ -55,8 +55,9 @@ their *current upstream* licenses:
   unambiguously commercial-safe (and redistributable with attribution).
 - **Optional: DeepSpCas9** — kept behind a non-commercial consent gate (like inDelphi), for
   users who want it and accept the terms.
-- **Secondary: Doench Rule Set 2** (verify the Azimuth license first) or the existing
-  transparent rule-based heuristic, shown side-by-side per the two-scorer design.
+- **Secondary: Doench Rule Set 2** (Azimuth) — **license verified BSD-3-Clause (2026-05-30); cleared
+  to build** (detail section below), or the existing transparent rule-based heuristic, shown
+  side-by-side per the two-scorer design.
 
 ### Honest integration caveats (decide before building)
 
@@ -66,4 +67,48 @@ their *current upstream* licenses:
    - *On-target, classification schema:* best **ROC-AUC 0.857** (full model: pretraining + data augmentation), a reported ~157% gain over sgRNA Designer (Fig. 2a,b). Leave-one-cell-type-out generalization averaged **ROC-AUC 0.722** across the four human cell lines (Fig. 2d).
    - *On-target, regression schema:* on an independent HEL dataset (425 sgRNAs) DeepCRISPR reported a "nearly twofold improvement" in Spearman correlation over sgRNA Designer, and outperformed SSC, sgRNA Scorer, and CRISPRator (Fig. 2g). The **exact Spearman ρ lives in Additional file 3**, not the main text — pull it from the supplement before displaying a numeric value; cite ROC-AUC 0.857 as the headline on-target figure until then.
    - *Off-target* (relevant only if the optional DeepCRISPR off-target path is also adopted): **ROC-AUC 0.981 / PR-AUC 0.497** at ≤6 mismatches, exceeding the CFD score (Fig. 3a–c).
+
+---
+
+## Doench Rule Set 2 (Azimuth) — secondary on-target slot, verified 2026-05-30
+
+Resolves the "unverified" Azimuth row above. The earlier pass looked for `/LICENSE` at the repo root
+and found none; the license file is actually **`LICENSE.txt`**, which is why it read as "not at
+expected path." Verified directly this session:
+
+| Item | Finding | Source |
+|---|---|---|
+| Code license | **BSD-3-Clause**, `Copyright (c) 2015, Microsoft Research` — standard three clauses, **no** non-commercial / research-only / field-of-use rider (full text read) | [LICENSE.txt](https://github.com/MicrosoftResearch/Azimuth/blob/master/LICENSE.txt); SPDX `BSD-3-Clause` via the [GitHub license API](https://api.github.com/repos/MicrosoftResearch/Azimuth/license) |
+| Weights | Pretrained scikit-learn models committed in-repo (`saved_models/V3_model_full.pickle`, `V3_model_nopos.pickle`) under that same BSD-3-Clause — **redistributable with attribution** | [setup.py](https://github.com/MicrosoftResearch/Azimuth/blob/master/setup.py) declares `license="BSD"` |
+| Python-3 port | **`Biomatters/Azimuth`** (for Geneious Prime) — GitHub-detected BSD-3-Clause, ships the same pickles, targets Python 3 | [Biomatters/Azimuth](https://github.com/Biomatters/Azimuth) |
+
+**Verdict: 🟢 clear to build.** BSD-3-Clause permits commercial use **and** redistribution (retain the
+copyright notice + license text + disclaimer). Unlike inDelphi, **no consent gate and no
+fetch-on-first-use is required** — the pickles may be vendored with attribution. This unblocks the
+two-scorer design's secondary slot (DeepCRISPR primary + Doench RS2 secondary, side-by-side).
+
+### Honest integration caveats (decide before building)
+
+1. **scikit-learn pickle version-fragility.** The upstream README warns the `saved_models/*.pickle`
+   files are incompatible across scikit-learn versions. Run RS2 the **DeepCRISPR / Lindel / FORECasT
+   way**: a pinned legacy environment invoked **out-of-process**, loading the committed pickles
+   **as-is**. Do **not** retrain — that is banned ML-training code *and* would no longer be the
+   published RS2 model. Pin the scikit-learn version that deserializes the pickles, and pin the
+   upstream commit (add `azimuth_upstream_commit` to settings + the §10 reference-pin map, mirroring
+   `lindel_upstream_commit`).
+2. **Use the Python-3 port out-of-process** (`Biomatters/Azimuth`), or a pinned Python-2 container —
+   the original MSR repo is Python-2-era and archived. The Py3 port is the lower-friction target for
+   the 3.11 stack. Re-verify the port's license and that its pickles are byte-identical to upstream
+   before adopting it specifically.
+3. **Two models, different feature requirements — choose honestly.** `V3_model_full` needs positional
+   context (cut position + percent-peptide of the target site); `V3_model_nopos` is sequence-only. For
+   a guide-only request with no gene context, **the nopos model is the correct choice** — feeding the
+   full model fabricated positional values would violate *"AI never fabricates biology."* Stamp which
+   model produced each score.
+4. **Declare the OOD envelope (§6)** and flag out-of-envelope inputs, like the other ML scorers.
+5. **Attribution:** retain `Copyright (c) 2015, Microsoft Research` + the BSD-3-Clause text, and cite
+   Doench et al., *Nat Biotechnol* 2016.
+
+**Net:** Doench RS2 (Azimuth) is license-cleared. Remaining work is the out-of-process legacy-sklearn
+integration (scaffold next), mirroring the existing model-runner pattern — no new license risk.
 
