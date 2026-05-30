@@ -9,10 +9,11 @@ controls them), and citations. A `content_hash` over the reproducible fields (ev
 except volatile wall-clock / usage data) gives one fingerprint: the same logical run hashes
 identically; a changed input, tool version, or reference pin hashes differently.
 
-This is the detector/recorder slice — building + exporting the research object. Digest-pinned
-execution containers and a full JSON-LD RO-Crate serialization are deeper infra tracked
-separately. Nothing here changes run behavior: it is a pure read over a finished result and
-is never invoked automatically.
+Building + exporting the research object: a plain content-addressed JSON manifest AND an
+RO-Crate 1.1 JSON-LD crate (`to_ro_crate` / `export_ro_crate`) — the community-standard
+package a scientist attaches to a paper's methods section. Digest-pinned execution containers
+are deeper infra tracked separately. Nothing here changes run behavior: it is a pure read over
+a finished result and is never invoked automatically.
 """
 
 from __future__ import annotations
@@ -33,6 +34,11 @@ if TYPE_CHECKING:
     from bioforge.agent.loop import AgentResult
 
 _SCHEMA_VERSION = "bioforge-research-object/1"
+
+# RO-Crate 1.1 (community standard for packaging research data + provenance as JSON-LD).
+_RO_CRATE_CONTEXT = "https://w3id.org/ro/crate/1.1/context"
+_RO_CRATE_CONFORMS = "https://w3id.org/ro/crate/1.1"
+_BIOFORGE_NS = "https://github.com/itthj/bioforge#"
 
 # Provenance-relevant settings recorded in the fingerprint. Deliberately an ALLOWLIST so
 # secrets (API keys, DB URLs) and PII (operator email) are never written into a research
@@ -220,4 +226,95 @@ def export_research_object(manifest: RunManifest, out_dir: str | Path) -> Path:
     out.mkdir(parents=True, exist_ok=True)
     path = out / f"bioforge-run-{manifest.content_hash[:12]}.json"
     path.write_text(manifest.model_dump_json(indent=2), encoding="utf-8")
+    return path
+
+
+def to_ro_crate(manifest: RunManifest) -> dict[str, Any]:
+    """Serialize a RunManifest as an RO-Crate 1.1 metadata document (JSON-LD, §10).
+
+    RO-Crate is the community standard for packaging research data + provenance, so emitting it
+    lets a scientist attach a BioForge run to a paper's methods in a tool-readable form. A
+    faithful-but-minimal crate: the metadata descriptor + root Dataset, a CreateAction for the
+    run, one SoftwareApplication per tool invocation (with version + input/output sha256 +
+    citations), and one entity per reference build. BioForge-specific properties use the
+    `bioforge:` namespace so the document stays valid JSON-LD. Deterministic.
+    """
+    graph: list[dict[str, Any]] = [
+        {
+            "@type": "CreativeWork",
+            "@id": "ro-crate-metadata.json",
+            "conformsTo": {"@id": _RO_CRATE_CONFORMS},
+            "about": {"@id": "./"},
+        },
+        {
+            "@id": "./",
+            "@type": "Dataset",
+            "name": f"BioForge run ({manifest.content_hash[:12]})",
+            "description": manifest.goal,
+            "identifier": manifest.content_hash,
+            "dateCreated": manifest.created_at,
+            "mainEntity": {"@id": "#run"},
+            "hasPart": (
+                [{"@id": f"#tool-{i}"} for i in range(len(manifest.tools))]
+                + [{"@id": f"#ref-{rb.key}"} for rb in manifest.reference_builds]
+            ),
+        },
+        {
+            "@id": "#run",
+            "@type": "CreateAction",
+            "name": "BioForge agent run",
+            "actionStatus": manifest.status,
+            "object": manifest.goal,
+            "instrument": {"@id": "#bioforge"},
+            "result": {"@id": "#response"},
+            "bioforge:model": manifest.model,
+            "bioforge:schema_version": manifest.schema_version,
+            "bioforge:content_hash": manifest.content_hash,
+            "bioforge:settings_fingerprint": manifest.settings_fingerprint,
+            "bioforge:grounding": manifest.grounding,
+        },
+        {"@id": "#bioforge", "@type": "SoftwareApplication", "name": "BioForge"},
+        {
+            "@id": "#response",
+            "@type": "CreativeWork",
+            "name": "Final response",
+            "bioforge:sha256": manifest.response_sha256,
+        },
+    ]
+    for i, inv in enumerate(manifest.tools):
+        graph.append(
+            {
+                "@id": f"#tool-{i}",
+                "@type": "SoftwareApplication",
+                "name": inv.tool,
+                "version": inv.version,
+                "citation": inv.citations,
+                "bioforge:input_sha256": inv.input_sha256,
+                "bioforge:output_sha256": inv.output_sha256,
+                "bioforge:reference_data_keys": inv.reference_data_keys,
+            }
+        )
+    for rb in manifest.reference_builds:
+        graph.append(
+            {
+                "@id": f"#ref-{rb.key}",
+                "@type": "Dataset",
+                "name": rb.key,
+                "version": rb.pin,
+                "bioforge:pinned": rb.pinned,
+            }
+        )
+    return {"@context": [_RO_CRATE_CONTEXT, {"bioforge": _BIOFORGE_NS}], "@graph": graph}
+
+
+def export_ro_crate(manifest: RunManifest, out_dir: str | Path) -> Path:
+    """Write the RO-Crate metadata document into a content-addressed crate dir; return its path.
+
+    Per the RO-Crate spec the metadata file is always named `ro-crate-metadata.json` at the
+    crate root, so distinct runs go in distinct `bioforge-run-<hash12>/` dirs to avoid collision.
+    """
+    crate_dir = Path(out_dir) / f"bioforge-run-{manifest.content_hash[:12]}"
+    crate_dir.mkdir(parents=True, exist_ok=True)
+    path = crate_dir / "ro-crate-metadata.json"
+    path.write_text(json.dumps(to_ro_crate(manifest), indent=2, ensure_ascii=False), encoding="utf-8")
     return path
