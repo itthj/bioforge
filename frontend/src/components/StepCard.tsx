@@ -1,6 +1,8 @@
 import type { AgentStep, PlanStep, ValidationVerdict, VerdictPayload } from "../types/agent";
 import type { CrisprEditReportOutput } from "../types/crispr";
 import { isCrisprEditReport } from "../types/crispr";
+import type { ScoreGuideOnTargetOutput } from "../types/on_target";
+import { isScoreGuideOnTarget } from "../types/on_target";
 import type { DesignPrimersOutput } from "../types/primers";
 import { isDesignPrimersOutput } from "../types/primers";
 import type { CompareStructuresOutput } from "../types/compare_structures";
@@ -15,6 +17,7 @@ import type { FetchAlphaFoldOutput } from "../types/structure";
 import { isAlphaFoldOutput } from "../types/structure";
 import { CompareStructuresCard } from "./CompareStructuresCard";
 import { CrisprReportCard } from "./CrisprReportCard";
+import { OnTargetScoreCard } from "./OnTargetScoreCard";
 import { FindBestStructureCard } from "./FindBestStructureCard";
 import { InterproCard } from "./InterproCard";
 import { PdbStructureCard } from "./PdbStructureCard";
@@ -218,6 +221,10 @@ function ToolCallBody({ step }: { step: AgentStep }) {
     step.tool_name === "crispr_edit_report" &&
     step.tool_output &&
     isCrisprEditReport(step.tool_output);
+  const isOnTarget =
+    step.tool_name === "score_guide_on_target" &&
+    step.tool_output &&
+    isScoreGuideOnTarget(step.tool_output);
   const isPrimers =
     step.tool_name === "design_primers" &&
     step.tool_output &&
@@ -261,6 +268,9 @@ function ToolCallBody({ step }: { step: AgentStep }) {
       {isCrispr && step.tool_output && (
         <CrisprReportCard report={step.tool_output as unknown as CrisprEditReportOutput} />
       )}
+      {isOnTarget && step.tool_output && (
+        <OnTargetScoreCard output={step.tool_output as unknown as ScoreGuideOnTargetOutput} />
+      )}
       {isPrimers && step.tool_output && (
         <PrimerPairsCard output={step.tool_output as unknown as DesignPrimersOutput} />
       )}
@@ -281,6 +291,7 @@ function ToolCallBody({ step }: { step: AgentStep }) {
       )}
       {step.tool_output &&
         !isCrispr &&
+        !isOnTarget &&
         !isPrimers &&
         !isStructure &&
         !isPdbStructure &&
