@@ -2,8 +2,9 @@
 
 ## Update 2026-05-30 (session 2): repro-determinism + Doench Rule Set 2
 
-Three slices landed on `main` (each its own branch, FF-merged, suite green, ruff/tsc clean),
-moving ~89% → ~91% of the v4 vision. **Local `main` is 3 commits ahead of `origin` — NOT yet pushed.**
+Five slices landed on `main` (each its own branch, FF-merged, suite green, ruff/tsc clean),
+moving ~89% → ~92% of the v4 vision; **all pushed to `origin`**. Backend ~905 tests + 3 docker e2e;
+frontend 85 vitest (`tsc --strict` clean).
 
 1. **Repro-determinism guard** (`7d72a63`, rule 19 / §10): a cross-process / cross-`PYTHONHASHSEED`
    test that the run-manifest `content_hash` is byte-identical across re-runs, plus a named CI step.
@@ -18,9 +19,18 @@ moving ~89% → ~91% of the v4 vision. **Local `main` is 3 commits ahead of `ori
    offset). **VALIDATED end-to-end** (later same session): built `bioforge/azimuth:legacy` (Biomatters
    py3 port @ `dbd30b9`, scikit-learn 0.23.2), `V3_model_nopos.pickle` loads, deterministic
    (EMX1 30-mer → 0.4889), covered by `test_azimuth_real_image_end_to_end` (`-m docker`). Off by default.
+4. **Full CFD off-target via verified PAM** (`99af6a1`): `find_offtargets(verify_pam=true)` fetches each
+   clean hit's genomic flank (Entrez efetch), reads + verifies the PAM (plus/minus strand), and reports
+   the FULL CFD in `cfd_full_score`. New `offtarget_pam.py` with a SOUNDNESS GATE — the off-target
+   protospacer is reconstructed from the window and must match the BLAST subject, so a strand bug
+   degrades to mismatch-only rather than a wrong PAM (§0). Off by default. 14 tests.
+5. **Frontend on-target uncertainty** (`f46a9cf`): `OnTargetScoreCard` renders the rule-based + opt-in
+   DeepCRISPR + RS2 scorers SIDE BY SIDE with rule-10/§6 framing (point estimates, not per-guide
+   intervals; disagreement = signal). Renders only existing backend output; nothing fabricated. +4 vitest.
 
 Everything below is the session-1 handoff, still accurate except where the above supersedes it
-(remainder #3 Doench RS2 is now scaffolded; #6 repro-determinism is done).
+(remainder #3 Doench RS2 is done + validated; #6 repro-determinism is done; the Phase-2 off-target
+PAM/full-CFD item is done; the "render existing on-target signals" half of the deeper-frontend item is done).
 
 ---
 
@@ -31,8 +41,8 @@ its in-repo footprint: `grounding.md` + the §-references in code).
 ## Repo state
 - **GitHub:** https://github.com/itthj/bioforge — everything on **`main`**, pushed.
 - **Local:** `C:\Users\james\OneDrive\Documents\BIOTECH 101\bioforge` (Windows; Docker Desktop + WSL2).
-- **HEAD = the `feat(benchmarks): … ClinVar live fidelity + handoff` commit** (run `git log --oneline -14`). Working tree clean. (Session 2 advanced HEAD to `a0ea732`, 3 commits ahead of `origin` — see the Update at the top.)
-- **Suite:** ~891 passed, 2 skipped, ~14 deselected (online+nextflow+docker). Lint + format clean. Frontend untouched in session 2 (81 vitest, `tsc --strict` clean as of session 1).
+- **HEAD = the `feat(benchmarks): … ClinVar live fidelity + handoff` commit** (run `git log --oneline -14`). Working tree clean. (Session 2 advanced HEAD to `f46a9cf` — all session-2 commits pushed to `origin`; see the Update at the top.)
+- **Suite:** ~905 passed, 2 skipped, ~15 deselected (online+nextflow+docker; +1 azimuth docker e2e). Lint + format clean. Frontend 85 vitest, `tsc --strict` clean.
 - **Stale prior-session branches** still exist (local+origin): `chore/license-audit`, `feat/clinvar-fidelity-benchmark`, `feat/grounding-validator`, `feat/registry-metadata` — safe to delete.
 
 ## What this session built (all on `main`, oldest→newest; ~74%→~89% of the v4 vision)
@@ -66,17 +76,20 @@ Scorecard rules now ✅: 1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 14, 15, 16, 17, 19, 20. 
 6. **Repro-determinism CI test** (§10/rule 19) — a CI test asserting `build_run_manifest` content_hash is byte-stable for a fixed run; wire into `.github/workflows/ci.yml`. **Small, buildable now — good first pick next session.**
 
 ## Next-step priority (recommended)
-- ~~Repro-determinism test + CI wiring~~ — **DONE 2026-05-30** (`7d72a63`).
-- ~~Doench RS2 out-of-process~~ — **SCAFFOLDED + VALIDATED 2026-05-30** (`a0ea732` + the validate
-  commit): `bioforge/azimuth:legacy` runs end-to-end, off by default. Two-scorer on-target met.
+Session 2 finished everything that was buildable WITHOUT new external data:
+- ~~Repro-determinism test + CI wiring~~ — **DONE** (`7d72a63`).
+- ~~Doench RS2 (scaffold + validate end-to-end)~~ — **DONE** (`a0ea732`, `c77cdc2`).
+- ~~CFD off-target PAM verification~~ — **DONE** (`99af6a1`): `verify_pam`, soundness-gated, off by default.
+- ~~Frontend "render existing on-target signals"~~ — **DONE** (`f46a9cf`): `OnTargetScoreCard`.
 
-1. **CFD off-target PAM verification** — the CFD *engine* already computes mismatch×PAM (`cfd_score`);
-   what's missing is `find_offtargets` fetching each hit's 3' flank (Entrez efetch + strand logic) to
-   supply the real PAM, then calling `cfd_score` instead of the mismatch-only component. **Design fork:**
-   per-hit efetch adds network/latency to an already-`expensive` tool — decide batching/caching + whether
-   to gate it. Prereq for the GUIDE-seq off-target-recall benchmark.
-2. **Variant-calling path** → unlocks §13 GIAB (needs a caller + the GIAB truth set + a reference download).
-3. Then calibration + the reliability-diagram frontend (need #1/#2 producing scored predictions first).
+**Every remaining item needs REAL external data (or is downstream of it) — none may be faked (§0/rule 18):**
+1. **Variant-calling path** → unlocks §13 GIAB. Needs a caller (bcftools/DeepVariant, digest-pinned) +
+   GRCh38 (~3 GB) + a GIAB truth set (HG002 VCF + high-conf BED) + hap.py/vcfeval. The biggest rock,
+   ~half the remaining work, license-audit first.
+2. **GUIDE-seq/CIRCLE-seq off-target recall** — needs published validated off-target site tables + a
+   genome-wide search (e.g. Cas-OFFinder) on GRCh38 (shared with #1). Reuses the `verify_pam` CFD path.
+3. **Calibration + reliability diagrams** (rule 11) — needs (prediction, observed-outcome) pairs that
+   only exist once #1/#2 produce scored predictions; the reliability-diagram frontend follows it.
 
 ## Commands (Windows; venv at `bioforge\.venv`)
 ```
