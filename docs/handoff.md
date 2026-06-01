@@ -32,6 +32,42 @@ Everything below is the session-1 handoff, still accurate except where the above
 (remainder #3 Doench RS2 is done + validated; #6 repro-determinism is done; the Phase-2 off-target
 PAM/full-CFD item is done; the "render existing on-target signals" half of the deeper-frontend item is done).
 
+## RESUME HERE — benchmark data IS sourceable (investigated 2026-05-30, NOT yet built)
+
+Correction to the "Next-step priority" below: the on-target and off-target **benchmark arms are NOT
+blocked on a big download** — only GIAB variant-calling is. Proven live this session (no code committed
+yet — this section is the only record):
+
+- **Source:** `https://raw.githubusercontent.com/maximilianh/crisporPaper/master/effData/<file>.tab`
+  (same author as the CRISPOR repo the CFD matrices came from). `chari2015Train.tab` = 1234 rows,
+  tab-separated `guide \t seq \t modFreq`, where `seq` is the **23-mer** (20-nt protospacer + 3-nt PAM,
+  ends in NGG) and `modFreq` is measured efficiency. Other datasets present: doench2014-*, concordet2,
+  chari2015Train293T/K562, alena*. The repo also has GUIDE-seq off-target sites (354 sites / 9 sgRNAs).
+- **Proven live:** downloaded chari2015Train.tab in the venv (`urllib`, network OK), ran
+  `bioforge/deepcrispr:legacy` over all 1234 via `predict_on_target`, computed **Spearman ρ = 0.130**
+  (n=1234) vs `modFreq` with a tie-aware **numpy** rank (scipy is NOT installed — don't add it, use numpy).
+- **LICENSE CATCH (rule 15):** `crisporPaper` has **no LICENSE file** (`api.github.com/.../license` → 404)
+  → all-rights-reserved → **do NOT vendor** these files. Use **fetch-on-first-use** (download at runtime,
+  record source URL + sha256 + provenance, never commit) — the inDelphi-weights pattern already in the repo.
+  **OPEN DECISION (user owns this — product license posture):** (a) fetch-on-first-use [recommended],
+  (b) require the user to supply the file, or (c) find a cleanly-licensed mirror. Do NOT build until chosen.
+- **Before any ρ ships (rule 18 diligence):** (1) leakage — was Chari-2015 in DeepCRISPR's training? verify
+  against Chuai 2018 before calling it "held-out". (2) ρ=0.13 is plausibly REAL — cross-dataset on-target
+  correlation is known to be low (Haeussler 2016); label it cross-dataset, don't over-sell. (3) PAM
+  convention looked right (seqs end AGG/TGG).
+- **RS2 (Azimuth) benchmark** needs the **30-mer** (4+20+3+3); effData has only the 23-mer. The guide
+  *names* carry genomic coords (e.g. `ABCC8_chr11_17483303`) → use the new `offtarget_pam.efetch_flank`
+  to fetch 4-nt-up + 3-nt-down flanks (VERIFY the coords' genome build first — hg19 vs hg38).
+
+**Exact next build (once the license decision is made):** `benchmarks/on_target_efficiency.py` — a
+fetch-on-first-use loader (per-dataset URL + sha256 + provenance + leakage label), tie-aware numpy
+Spearman/Pearson, run DeepCRISPR (+ RS2 via efetch flanks), return a typed result; unit tests (mock the
+fetch + the model), a `-m docker` e2e for the real run; then wire into `benchmarks/accuracy_report.py` +
+`AccuracyReport.tsx`. **This also produces the (prediction, observed) pairs that unblock calibration
+(rule 11)** — so it knocks down §13-on-target AND sets up the calibration/reliability-diagram arm. The
+off-target arm (GUIDE-seq sites, same repo) is the same pattern + the `verify_pam` CFD path. **GIAB
+variant-calling remains the one genuinely heavy item** (a caller + GRCh38 ~3 GB + truth set) — not tried.
+
 ---
 
 Pick up cold from here. Read `docs/grounding.md`, `docs/license_audit.md`, and the v4 blueprint
