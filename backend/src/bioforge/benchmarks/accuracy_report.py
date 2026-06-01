@@ -149,10 +149,19 @@ _BENCHMARKS: list[BenchmarkStatus] = [
         ),
     ),
     BenchmarkStatus(
-        name="CRISPR on-target — held-out guide efficiency (Spearman)",
+        name="CRISPR on-target — cross-dataset guide-efficiency (Spearman)",
         blueprint_section="§13 / Phase 2",
-        status="not_yet_wired",
-        detail="DeepCRISPR on-target is validated for parity against the authors' image; a held-out efficiency correlation is not yet wired.",
+        status="guard_only",
+        detail=(
+            "benchmarks.on_target_efficiency correlates DeepCRISPR predictions against measured "
+            "Chari-2015 editing efficiency. The fetch-on-first-use loader (sha256-pinned, unlicensed "
+            "data never vendored) and the tie-aware numpy Spearman are unit-tested; the real "
+            "1234-guide run is a -m docker e2e (live Spearman 0.130, 2026-05-30). Reported guard_only, "
+            "not live: it needs a network fetch + an out-of-process DeepCRISPR call, so it is not "
+            "computed on page load. It is labeled CROSS-DATASET (the model trained on a different "
+            "screen; modest rho expected, Haeussler 2016) with leakage UNVERIFIED -- so it is NOT yet "
+            "presented as a held-out accuracy claim (that needs a Chuai-2018 training-set check)."
+        ),
     ),
     BenchmarkStatus(
         name="CRISPR off-target — GUIDE-seq / CIRCLE-seq recall",

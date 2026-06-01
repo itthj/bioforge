@@ -18,6 +18,7 @@ validate the actual model inference end-to-end.
 
 from __future__ import annotations
 
+import math
 import shutil
 import subprocess
 
@@ -29,6 +30,7 @@ pytestmark = pytest.mark.docker
 _LINDEL_IMAGE = "bioforge/lindel:legacy"
 _FORECAST_IMAGE = "bioforge/forecast:legacy"
 _AZIMUTH_IMAGE = "bioforge/azimuth:legacy"
+_DEEPCRISPR_IMAGE = "bioforge/deepcrispr:legacy"
 
 
 def _require_image(image: str) -> None:
@@ -116,3 +118,41 @@ def test_azimuth_real_image_end_to_end() -> None:
     assert result.scores[0].thirtymer == thirtymer
     assert 0.0 <= result.scores[0].score <= 1.0
     assert abs(result.scores[0].score - 0.4889) < 5e-3
+
+
+@pytest.mark.online  # also needs the network (fetches the Chari-2015 eval set on first use)
+def test_deepcrispr_chari2015_on_target_efficiency_e2e(tmp_path) -> None:
+    """benchmarks.run_on_target_efficiency -> real DeepCRISPR image over all 1234 Chari-2015 guides.
+
+    The §13 on-target accuracy benchmark end-to-end: fetch-on-first-use eval set (sha256-verified)
+    -> one DeepCRISPR Docker call over the 1234 23-mers -> tie-aware numpy Spearman. Build the
+    thin image first (FROM michaelchuai/deepcrispr:latest -- see models/deepcrispr/legacy/). The
+    correlation is a CROSS-DATASET, leakage-UNVERIFIED rho; live value was 0.130 (2026-05-30), so
+    the band brackets it without over-pinning a number this code path has not re-reproduced here.
+    """
+    _require_image(_DEEPCRISPR_IMAGE)
+    from bioforge.benchmarks.effdata import EffDataFetchError
+    from bioforge.benchmarks.on_target_efficiency import run_on_target_efficiency
+
+    s = settings.model_copy(
+        update={
+            "deepcrispr_enabled": True,
+            "deepcrispr_runner": "docker",
+            "deepcrispr_docker_image": _DEEPCRISPR_IMAGE,
+            "crispor_effdata_consent": True,
+            "crispor_effdata_dir": str(tmp_path),
+        }
+    )
+    try:
+        result = run_on_target_efficiency("chari2015Train", model="deepcrispr", settings=s)
+    except EffDataFetchError as e:  # network unreachable under bare -m docker -- skip, don't fail
+        pytest.skip(f"could not fetch the Chari-2015 eval set: {e}")
+
+    assert result.n == 1234
+    assert len(result.pairs) == 1234
+    # Honest labels travel with the number -- never a held-out claim, always cross-dataset framed.
+    assert result.leakage_status == "unknown"
+    assert result.dataset_relationship == "cross_dataset"
+    # Deterministic scorer + pinned data: a finite, modest cross-dataset rho bracketing the live 0.130.
+    assert not math.isnan(result.spearman_rho)
+    assert 0.05 <= result.spearman_rho <= 0.25

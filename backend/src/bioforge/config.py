@@ -135,6 +135,25 @@ class Settings(BaseSettings):
     )
     azimuth_timeout_seconds: float = Field(default=300.0, alias="BIOFORGE_AZIMUTH_TIMEOUT_SECONDS")
 
+    # crisporPaper effData -- held-out guide-efficiency datasets (Haeussler/Concordet, the same
+    # source the CFD matrices came from) used ONLY by the §13 on-target accuracy benchmark, never
+    # at request time. The repo carries NO license file (all-rights-reserved), so its data is NEVER
+    # vendored into our git history. The loader fetches a dataset on first use into
+    # `crispor_effdata_dir` (default ~/.bioforge/data/crispor_effdata/), pinned to
+    # `crispor_effdata_commit` for reproducibility + sha256-verified -- but ONLY if
+    # `crispor_effdata_consent=True`. The flag is the sole consent signal: it acknowledges the
+    # data is unlicensed and fetched transiently for benchmarking, not redistributed. No silent
+    # network (mirrors the inDelphi consent gate). The same loader also accepts a user-supplied
+    # local file or an alternate mirror URL, so this posture is not a one-way door.
+    crispor_effdata_dir: str = Field(default="", alias="BIOFORGE_CRISPOR_EFFDATA_DIR")
+    crispor_effdata_consent: bool = Field(default=False, alias="BIOFORGE_CRISPOR_EFFDATA_CONSENT")
+    crispor_effdata_commit: str = Field(
+        # crisporPaper master @ 2026-05-30 (immutable pin; verified live: chari2015Train.tab =
+        # 1234 guides, sha256 6a6254a3...485e576). Flip to re-bootstrap from a different snapshot.
+        default="33a8225c7bc3be7f937786f6b151ffa7d7e29e84",
+        alias="BIOFORGE_CRISPOR_EFFDATA_COMMIT",
+    )
+
     # (v4 §0/§4.1/§4.3) OOD input gate. "off" (default) = the OOD detector records flags
     # post-response only (behavior unchanged). "block" = refuse a tool call whose input falls
     # outside an involved model's validated envelope BEFORE it runs (the §0 inputs boundary).

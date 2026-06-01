@@ -1,5 +1,42 @@
 # BioForge — Session handoff (v4 finalization, 2026-05-30)
 
+## Update 2026-06-01 (session 3): on-target efficiency benchmark — slice 1 (DeepCRISPR × Chari-2015)
+
+Built the first arm of the §13 on-target accuracy benchmark. Suite now **920 passed, 2 skipped,
+16 deselected** (+15 new); ruff check + format clean. NOT yet committed — on the working tree only.
+
+- **Decision made (user, this session): fetch-on-first-use** for the unlicensed crisporPaper effData.
+  Implemented so it's **not a one-way door**: the loader is source-agnostic + sha256-verified, so a
+  user-supplied `local_path` (option b) or an alternate mirror URL (option c) drop in with no code
+  change, and a network fetch is still consent-gated (no silent fetch of unlicensed data).
+- **New files:** `benchmarks/effdata.py` (loader: consent gate `BIOFORGE_CRISPOR_EFFDATA_CONSENT`,
+  commit-pin + committed `expected_sha256`, `local_path` bypass, `.tab` parser) and
+  `benchmarks/on_target_efficiency.py` (tie-aware **numpy** Spearman/Pearson — no scipy; typed
+  `OnTargetEfficiencyResult` carrying honesty labels + the per-guide `(predicted, observed)` pairs
+  that unblock calibration). Config: 3 `crispor_effdata_*` settings. `benchmarks/__init__.py` exports.
+- **Provenance pinned (verified live this session):** crisporPaper commit
+  `33a8225c7bc3be7f937786f6b151ffa7d7e29e84`, `chari2015Train.tab` sha256
+  `6a6254a3966c53aa5eceb46cddf57e940466632ebee277d7b0450b662485e576` (1234 rows). The data is
+  **never vendored** — fetched into `~/.bioforge/data/crispor_effdata/<commit>/` on first use.
+- **Tests:** `test_on_target_efficiency.py` (15, hermetic: consent gate, fetch/verify/cache,
+  local-path bypass, sha256 + row-count guards, tie-aware ranks, known Pearson=0.6, honesty labels,
+  a guard that the registry never says `held_out`). Real run = `test_deepcrispr_chari2015_on_target_efficiency_e2e`
+  in `test_models_docker_e2e.py` (`-m docker` + `-m online`, skips if image/network absent; asserts
+  n=1234, leakage `unknown`, cross-dataset, ρ in [0.05, 0.25] bracketing the live 0.130).
+- **Accuracy Report:** the on-target row flipped `not_yet_wired` → **`guard_only`** (NOT `live`:
+  needs fetch + Docker, must not run on page load — same honest reasoning as ClinVar fidelity) and
+  renamed off "held-out" → "cross-dataset guide-efficiency". Frontend renders it unchanged (data-driven).
+- **STILL OPEN — the leakage gate (do before any `held_out`/`live` promotion):** the result labels
+  `leakage_status="unknown"` because it's not verified whether Chari-2015 was in DeepCRISPR's
+  (Chuai 2018) training data. Verify against the Chuai 2018 training-set description, then update
+  `_LEAKAGE[("chari2015Train","deepcrispr")]` in `on_target_efficiency.py`. Until then it is honestly
+  a cross-dataset correlation, never a held-out accuracy claim.
+- **Next (in order):** (1) leakage verification gate above; (2) **slice 2 = RS2/Azimuth arm** — same
+  rails, but needs the 30-mer (efetch 4-up/3-down flanks via the guide-name coords, e.g.
+  `ABCC8_chr11_17483303`) AND an hg19-vs-hg38 build check before trusting the flanks; (3) off-target
+  recall (GUIDE-seq sites, same repo + `verify_pam` CFD path); (4) GIAB variant-calling (still the
+  one genuinely heavy item).
+
 ## Update 2026-05-30 (session 2): repro-determinism + Doench Rule Set 2
 
 Five slices landed on `main` (each its own branch, FF-merged, suite green, ruff/tsc clean),
@@ -33,6 +70,10 @@ Everything below is the session-1 handoff, still accurate except where the above
 PAM/full-CFD item is done; the "render existing on-target signals" half of the deeper-frontend item is done).
 
 ## RESUME HERE — benchmark data IS sourceable (investigated 2026-05-30, NOT yet built)
+
+> **Superseded for the on-target arm by the 2026-06-01 (session 3) update at the top:** the decision
+> is made (fetch-on-first-use) and slice 1 (DeepCRISPR × Chari-2015) is BUILT + green. The detail
+> below remains the accurate record of the off-target arm and the RS2 30-mer flank approach.
 
 Correction to the "Next-step priority" below: the on-target and off-target **benchmark arms are NOT
 blocked on a big download** — only GIAB variant-calling is. Proven live this session (no code committed
