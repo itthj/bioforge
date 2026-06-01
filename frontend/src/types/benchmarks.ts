@@ -39,10 +39,37 @@ export interface BenchmarkStatus {
   detail: string;
 }
 
+// Reliability (calibration) curve — mirror of bioforge.benchmarks.reliability.
+// kind="regression_ranking" means the score is NOT a probability: read it for monotonicity
+// (do higher scores track higher measured outcomes), not for absolute y=x agreement.
+export interface ReliabilityBin {
+  bin_index: number;
+  n: number;
+  predicted_mean: number;
+  observed_mean: number;
+  observed_sem: number;
+  predicted_low: number;
+  predicted_high: number;
+}
+
+export interface ReliabilityCurve {
+  n: number;
+  n_bins: number;
+  bins: ReliabilityBin[];
+  monotonicity_rho: number;
+  kind: "regression_ranking" | "probability_calibration";
+  predicted_label: string;
+  observed_label: string;
+  caveat: string;
+}
+
 export interface AccuracyReport {
   generated_at: string;
   bioforge_version: string;
   validator: ValidatorGate;
   models: ModelAccuracyEntry[];
   benchmarks: BenchmarkStatus[];
+  // Produced offline by the on-target benchmark run (guard_only) — absent on a live page load,
+  // which never triggers a model fetch + Docker call. Rendered when present.
+  reliability?: ReliabilityCurve | null;
 }

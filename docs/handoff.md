@@ -31,6 +31,12 @@ Built the first arm of the §13 on-target accuracy benchmark. Suite now **920 pa
   (Chuai 2018) training data. Verify against the Chuai 2018 training-set description, then update
   `_LEAKAGE[("chari2015Train","deepcrispr")]` in `on_target_efficiency.py`. Until then it is honestly
   a cross-dataset correlation, never a held-out accuracy claim.
+- **Calibration shipped (2026-06-01, session 3):** `benchmarks/reliability.py` turns the on-target
+  `(predicted, observed)` pairs into a typed `ReliabilityCurve` (numpy quantile bins + Spearman
+  monotonicity_rho; honest `kind="regression_ranking"` — NOT probability calibration, y=x is not the
+  target). Frontend `ReliabilityDiagram` (inline SVG + accessible bin table, no chart dependency)
+  renders it in the Accuracy Report's new Calibration section; populated offline (guard_only), with an
+  honest note when no curve is attached. 8 backend + 6 frontend tests. Closes the §6/rule-11 gap.
 - **Next (in order):** (1) leakage verification gate above; (2) **slice 2 = RS2/Azimuth arm** — same
   rails, but needs the 30-mer (efetch 4-up/3-down flanks via the guide-name coords, e.g.
   `ABCC8_chr11_17483303`) AND an hg19-vs-hg38 build check before trusting the flanks; (3) off-target

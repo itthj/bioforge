@@ -106,4 +106,30 @@ describe("AccuracyReportView", () => {
     // The point of the report: it admits what it has NOT measured.
     expect(screen.getByText("not yet wired")).toBeInTheDocument();
   });
+
+  it("shows the honest calibration note when no reliability curve is attached", () => {
+    render(<AccuracyReportView report={makeReport()} />);
+    expect(screen.getByText(/Produced offline by the on-target efficiency benchmark/i)).toBeInTheDocument();
+  });
+
+  it("renders the reliability diagram when a curve is attached", () => {
+    const withCurve = makeReport({
+      reliability: {
+        n: 4,
+        n_bins: 2,
+        bins: [
+          { bin_index: 0, n: 2, predicted_mean: 0.2, observed_mean: 0.1, observed_sem: 0, predicted_low: 0.1, predicted_high: 0.3 },
+          { bin_index: 1, n: 2, predicted_mean: 0.8, observed_mean: 0.5, observed_sem: 0.05, predicted_low: 0.7, predicted_high: 0.9 },
+        ],
+        monotonicity_rho: 1.0,
+        kind: "regression_ranking",
+        predicted_label: "DeepCRISPR score",
+        observed_label: "measured efficiency",
+        caveat: "the score is not a probability calibration",
+      },
+    });
+    render(<AccuracyReportView report={withCurve} />);
+    expect(screen.getByRole("img", { name: /reliability curve/i })).toBeInTheDocument();
+    expect(screen.getByText(/monotonicity/i)).toBeInTheDocument();
+  });
 });

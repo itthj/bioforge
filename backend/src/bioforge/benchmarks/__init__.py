@@ -26,6 +26,12 @@ from bioforge.benchmarks.on_target_efficiency import (
     run_on_target_efficiency,
     spearman_rho,
 )
+from bioforge.benchmarks.reliability import (
+    ReliabilityBin,
+    ReliabilityCurve,
+    reliability_curve,
+    reliability_from_pairs,
+)
 
 __all__ = [
     "EffDataConsentRequired",
@@ -35,8 +41,12 @@ __all__ = [
     "FidelityReport",
     "FidelityViolation",
     "OnTargetEfficiencyResult",
+    "ReliabilityBin",
+    "ReliabilityCurve",
     "load_dataset",
     "pearson_r",
+    "reliability_curve",
+    "reliability_from_pairs",
     "run_on_target_efficiency",
     "score_clinvar_fidelity",
     "spearman_rho",

@@ -4,8 +4,10 @@ import { ApiError } from "../api/projects";
 import type {
   AccuracyReport as AccuracyReportData,
   BenchmarkWiring,
+  ReliabilityCurve,
   ValidatorGate,
 } from "../types/benchmarks";
+import { ReliabilityDiagram } from "./ReliabilityDiagram";
 
 /** Container: fetches the live report on mount, handles loading/error. */
 export function AccuracyReport() {
@@ -70,7 +72,28 @@ export function AccuracyReportView({ report }: { report: AccuracyReportData }) {
       <ValidatorGateCard gate={report.validator} />
       <ModelAccuracySection models={report.models} />
       <BenchmarkLedger benchmarks={report.benchmarks} />
+      <CalibrationSection reliability={report.reliability} />
     </div>
+  );
+}
+
+/** §6 / rule 11: the reliability diagram behind the platform's confidences. Rendered when a
+ *  benchmark run has attached a curve; otherwise an honest note on why it isn't computed live. */
+function CalibrationSection({ reliability }: { reliability?: ReliabilityCurve | null }) {
+  if (reliability) {
+    return <ReliabilityDiagram curve={reliability} />;
+  }
+  return (
+    <section className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
+      <h3 className="text-sm font-semibold text-slate-900">
+        Reliability curve <span className="font-normal text-slate-400">· §6 / calibration</span>
+      </h3>
+      <p className="mt-1 text-xs text-slate-500">
+        Produced offline by the on-target efficiency benchmark (guard only) from its per-guide
+        (predicted, observed) pairs — not computed on page load, which never triggers a model fetch
+        or Docker call. The diagram renders here once a benchmark run is attached.
+      </p>
+    </section>
   );
 }
 
