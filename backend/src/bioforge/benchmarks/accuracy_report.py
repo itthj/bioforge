@@ -149,7 +149,7 @@ _BENCHMARKS: list[BenchmarkStatus] = [
         ),
     ),
     BenchmarkStatus(
-        name="CRISPR on-target — cross-dataset guide-efficiency (Spearman)",
+        name="CRISPR on-target — held-out cross-dataset guide-efficiency (Spearman)",
         blueprint_section="§13 / Phase 2",
         status="guard_only",
         detail=(
@@ -158,9 +158,12 @@ _BENCHMARKS: list[BenchmarkStatus] = [
             "data never vendored) and the tie-aware numpy Spearman are unit-tested; the real "
             "1234-guide run is a -m docker e2e (live Spearman 0.130, 2026-05-30). Reported guard_only, "
             "not live: it needs a network fetch + an out-of-process DeepCRISPR call, so it is not "
-            "computed on page load. It is labeled CROSS-DATASET (the model trained on a different "
-            "screen; modest rho expected, Haeussler 2016) with leakage UNVERIFIED -- so it is NOT yet "
-            "presented as a held-out accuracy claim (that needs a Chuai-2018 training-set check)."
+            "computed on page load. Leakage status promoted to HELD-OUT on 2026-06-01 against the "
+            "Chuai 2018 primary source (PMC6020378): DeepCRISPR trained on Wang 2014 / Hart 2015 / "
+            "Doench 2016 across HCT116/HEK293T/HeLa/HL60; Chari 2015 is reference [12], used only as "
+            "independent validation. One residual caveat travels with the result (incidental guide "
+            "overlap with the Doench-2016 HEK293T training subset is not sequence-level checked). "
+            "Still framed CROSS-DATASET (Haeussler 2016: cross-dataset rho is modest)."
         ),
     ),
     BenchmarkStatus(

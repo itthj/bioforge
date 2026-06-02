@@ -26,11 +26,15 @@ Built the first arm of the §13 on-target accuracy benchmark. Suite now **920 pa
 - **Accuracy Report:** the on-target row flipped `not_yet_wired` → **`guard_only`** (NOT `live`:
   needs fetch + Docker, must not run on page load — same honest reasoning as ClinVar fidelity) and
   renamed off "held-out" → "cross-dataset guide-efficiency". Frontend renders it unchanged (data-driven).
-- **STILL OPEN — the leakage gate (do before any `held_out`/`live` promotion):** the result labels
-  `leakage_status="unknown"` because it's not verified whether Chari-2015 was in DeepCRISPR's
-  (Chuai 2018) training data. Verify against the Chuai 2018 training-set description, then update
-  `_LEAKAGE[("chari2015Train","deepcrispr")]` in `on_target_efficiency.py`. Until then it is honestly
-  a cross-dataset correlation, never a held-out accuracy claim.
+- **CLOSED 2026-06-01 — leakage gate:** Chari-2015 vs DeepCRISPR promoted from `unknown` to
+  `held_out` against Chuai 2018 primary source (PMC6020378): training corpus is Wang 2014 +
+  Hart 2015 + Doench 2016 across HCT116/HEK293T/HeLa/HL60; Chari 2015 = reference [12], used only
+  as independent validation. Hardened the design at the same time: `_LEAKAGE` is now typed
+  `LeakageAssessment(status, evidence, caveat)`, every `held_out`/`contaminated` MUST carry a
+  primary-source citation (test_every_leakage_claim_is_sourced enforces this), and the result
+  carries `leakage_evidence` + `leakage_caveat` alongside the status. One residual caveat travels
+  with the result: incidental guide overlap with the Doench-2016 HEK293T training subset is
+  not sequence-level checked. +3 tests, 930 passed.
 - **Calibration shipped (2026-06-01, session 3):** `benchmarks/reliability.py` turns the on-target
   `(predicted, observed)` pairs into a typed `ReliabilityCurve` (numpy quantile bins + Spearman
   monotonicity_rho; honest `kind="regression_ranking"` — NOT probability calibration, y=x is not the

@@ -210,11 +210,13 @@ def test_run_with_injected_predict_fn(tmp_path: Path, monkeypatch: pytest.Monkey
     assert result.n == 4
     assert result.spearman_rho == pytest.approx(1.0)
     assert result.pearson_r == pytest.approx(1.0)
-    # Honesty labels: never claimed held-out; framed cross-dataset.
+    # Honesty labels: the fixture dataset has no registered leakage assessment (no primary source),
+    # so it must default to 'unknown' with empty evidence -- proving the safe default works.
     assert result.leakage_status == "unknown"
+    assert result.leakage_evidence == ""
     assert result.dataset_relationship == "cross_dataset"
     assert "cross-dataset" in result.interpretation.lower()
-    assert "leakage" in result.interpretation.lower()
+    assert "leakage status is unknown" in result.interpretation.lower()
     assert result.model_version.endswith(":injected")
     # The (predicted, observed) pairs are preserved per guide -- the calibration inputs.
     assert len(result.pairs) == 4
@@ -233,8 +235,35 @@ def test_run_unsupported_model_without_predict_fn(tmp_path: Path, monkeypatch: p
         run_on_target_efficiency("fixture", model="bogus", settings=s, local_path=str(supplied))
 
 
-def test_registry_never_claims_held_out() -> None:
-    # The integrity guard: chari/deepcrispr is labeled 'unknown' (leakage unverified), and NOTHING
-    # in the registry asserts 'held_out' from memory -- that requires a verified training-set check.
-    assert _LEAKAGE[("chari2015Train", "deepcrispr")] == "unknown"
-    assert "held_out" not in _LEAKAGE.values()
+def test_every_leakage_claim_is_sourced() -> None:
+    """The hard integrity guard (rule 18 / §0): every committed leakage claim cites its primary
+    source. 'held_out' and 'contaminated' MUST carry a non-empty evidence string; 'unknown' is the
+    only status allowed without one. This makes a 'held_out' label-from-memory structurally
+    impossible -- the platform's first rule, enforced at the test boundary.
+    """
+    for (dataset, model), a in _LEAKAGE.items():
+        if a.status in {"held_out", "contaminated"}:
+            assert a.evidence, f"({dataset!r}, {model!r}) claims {a.status!r} without primary-source evidence"
+
+
+def test_chari_deepcrispr_promoted_to_held_out_with_chuai_evidence() -> None:
+    """Specific regression: the Chari-2015 vs DeepCRISPR leakage call was promoted from 'unknown'
+    to 'held_out' on 2026-06-01 against the Chuai 2018 paper (PMC6020378). If the entry regresses
+    or loses its citation, this test fails -- a leakage promotion can never be silent.
+    """
+    a = _LEAKAGE[("chari2015Train", "deepcrispr")]
+    assert a.status == "held_out"
+    assert "Chuai" in a.evidence
+    assert "PMC6020378" in a.evidence
+    assert "Wang 2014" in a.evidence and "Hart 2015" in a.evidence and "Doench 2016" in a.evidence
+    assert a.caveat  # residual concern recorded
+
+
+def test_assess_leakage_unknown_default() -> None:
+    """A (dataset, model) pair without an entry must structurally be 'unknown' with empty
+    evidence -- the platform never invents a leakage status for an unverified pair."""
+    from bioforge.benchmarks.on_target_efficiency import assess_leakage
+
+    a = assess_leakage("nonexistent_dataset", "deepcrispr")
+    assert a.status == "unknown"
+    assert a.evidence == ""

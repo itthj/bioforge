@@ -27,6 +27,7 @@ guard_only). The numpy correlation + the loader are unit-tested; the real run is
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from typing import Literal
 
 import numpy as np
@@ -40,6 +41,24 @@ from bioforge.config import settings as _default_settings
 PredictFn = Callable[[list[str]], Sequence[float]]
 
 LeakageStatus = Literal["held_out", "unknown", "contaminated"]
+
+
+@dataclass(frozen=True)
+class LeakageAssessment:
+    """A (dataset, model) leakage call that MUST carry its primary-source evidence.
+
+    The whole platform stands on never claiming an accuracy a tool's own license / paper does
+    not support (§0, rule 18). Leakage status is the most-loaded label this module emits -- a
+    'held_out' claim with no source is exactly the kind of confident-wrong-number the platform
+    exists to refuse. Hence the structural rule, enforced by `test_every_leakage_claim_is_sourced`:
+    `status='unknown'` is the only value that may carry an empty `evidence` string; every
+    `held_out` / `contaminated` claim must cite the paper + section + statement that grounds it.
+    `caveat` records any residual concern the evidence does NOT fully close.
+    """
+
+    status: LeakageStatus
+    evidence: str
+    caveat: str = ""
 
 
 # --- numpy correlation (tie-aware; no scipy) ----------------------------------------------------
@@ -110,9 +129,20 @@ class OnTargetEfficiencyResult(BaseModel):
     pearson_r: float
     leakage_status: LeakageStatus = Field(
         description=(
-            "Whether the eval set could be in the model's training data. 'unknown' until verified "
-            "against the model's published training description -- never assume 'held_out'."
+            "Whether the eval set is in the model's training data. 'unknown' until a primary "
+            "source resolves it -- 'held_out' / 'contaminated' MUST carry `leakage_evidence`."
         ),
+    )
+    leakage_evidence: str = Field(
+        default="",
+        description=(
+            "Verbatim primary-source citation grounding the leakage status. Required for "
+            "'held_out' / 'contaminated'; empty for 'unknown' (the platform never invents this)."
+        ),
+    )
+    leakage_caveat: str = Field(
+        default="",
+        description="Any residual concern the evidence does NOT fully close (e.g. unverified guide overlap).",
     )
     dataset_relationship: str = Field(
         description="e.g. 'cross_dataset' -- the model was trained on a DIFFERENT screen than this eval set.",
@@ -126,12 +156,31 @@ class OnTargetEfficiencyResult(BaseModel):
     )
 
 
-# (dataset, model) -> leakage status. UNKNOWN until cross-checked against the model's published
-# training datasets. DeepCRISPR == Chuai et al. 2018 (Genome Biol 19:80); whether the Chari-2015
-# library overlapped its training screens is NOT yet confirmed, so we must not call it held_out.
-# VERIFY: confirm against the Chuai 2018 training-data description before promoting to "held_out".
-_LEAKAGE: dict[tuple[str, str], LeakageStatus] = {
-    ("chari2015Train", "deepcrispr"): "unknown",
+# (dataset, model) -> a typed LeakageAssessment with PRIMARY-SOURCE evidence. Sourced 2026-06-01
+# from the Chuai 2018 paper (Genome Biol 19:80) on PMC, not from memory. A new (dataset, model)
+# pair without a verified entry defaults to ('unknown', '') and the platform refuses to claim
+# 'held_out' for it -- see `assess_leakage`.
+_LEAKAGE: dict[tuple[str, str], LeakageAssessment] = {
+    ("chari2015Train", "deepcrispr"): LeakageAssessment(
+        status="held_out",
+        evidence=(
+            "Chuai et al. 2018, DeepCRISPR (Genome Biology 19:80, PMC6020378). The on-target "
+            "training corpus is ~15,000 sgRNAs across HCT116/HEK293T/HeLa/HL60 sourced from Wang "
+            "2014, Hart 2015 and Doench 2016 (refs [2], [36], [37]). Chari 2015 (Nat Methods "
+            "12:823) is cited as reference [12] and used ONLY as an independent validation set "
+            "(Testing Scenario 8) -- NOT as a training source. Verified against the PMC full "
+            "text 2026-06-01."
+        ),
+        caveat=(
+            "Residual concern not closed by the evidence: the Chuai 2018 paper enumerates a "
+            "'HEL cells, 425 sgRNAs' Chari-2015 cut for Testing Scenario 8, while crisporPaper's "
+            "chari2015Train.tab is 1234 293T guides (Chari's own training split). The 293T cut "
+            "was therefore likely seen by DeepCRISPR only as an independent benchmark too, but "
+            "this is not stated verbatim. Incidental guide-sequence overlap with the Doench-2016 "
+            "HEK293T training subset is also possible and has not been checked at the sequence "
+            "level -- if it materially affects rho, the residual is small (different libraries)."
+        ),
+    ),
 }
 
 # (dataset, model) -> relationship. DeepCRISPR trained on Chuai 2018 cell-line screens; Chari-2015
@@ -141,7 +190,16 @@ _RELATIONSHIP: dict[tuple[str, str], str] = {
 }
 
 
-def _interpretation(rho: float, leakage: LeakageStatus, relationship: str, dataset: str) -> str:
+def assess_leakage(dataset: str, model: str) -> LeakageAssessment:
+    """Return the typed leakage assessment for (dataset, model), defaulting to ('unknown','').
+
+    A missing entry is structurally `unknown` with empty evidence -- the platform never claims
+    `held_out` for a pair without a recorded primary-source citation.
+    """
+    return _LEAKAGE.get((dataset, model), LeakageAssessment(status="unknown", evidence=""))
+
+
+def _interpretation(rho: float, leakage: LeakageAssessment, relationship: str, dataset: str) -> str:
     parts = [f"Spearman rho={rho:.3f} between predicted score and MEASURED editing efficiency on {dataset}."]
     if relationship == "cross_dataset":
         parts.append(
@@ -149,14 +207,21 @@ def _interpretation(rho: float, leakage: LeakageStatus, relationship: str, datas
             "Cross-dataset on-target correlations are known to be modest (Haeussler 2016), so a "
             "low-to-moderate rho is expected here and is not by itself evidence the scorer is broken."
         )
-    if leakage == "unknown":
+    if leakage.status == "held_out":
+        parts.append(f"Held-out vs the model's training set. Evidence: {leakage.evidence}")
+        if leakage.caveat:
+            parts.append(f"Residual caveat: {leakage.caveat}")
+    elif leakage.status == "unknown":
         parts.append(
             "Leakage status is UNKNOWN -- whether this eval set was in the model's training data "
-            "has not been verified -- so this is reported as a cross-dataset correlation, NOT a "
-            "held-out accuracy claim."
+            "has not been verified against a primary source -- so this is reported as a "
+            "cross-dataset correlation, NOT a held-out accuracy claim."
         )
-    elif leakage == "contaminated":
-        parts.append("WARNING: this eval set overlaps the model's training data; the rho is optimistic.")
+    elif leakage.status == "contaminated":
+        parts.append(
+            "WARNING: this eval set overlaps the model's training data; the rho is OPTIMISTIC. "
+            f"Evidence: {leakage.evidence}"
+        )
     return " ".join(parts)
 
 
@@ -201,7 +266,7 @@ def run_on_target_efficiency(
 
     rho = spearman_rho(scores, observed)
     r = pearson_r(scores, observed)
-    leakage = _LEAKAGE.get((dataset, model), "unknown")
+    leakage = assess_leakage(dataset, model)
     relationship = _RELATIONSHIP.get((dataset, model), "cross_dataset")
     pairs = [
         GuidePrediction(guide=row.guide_name, predicted=float(score), observed=row.mod_freq)
@@ -215,7 +280,9 @@ def run_on_target_efficiency(
         n=len(observed),
         spearman_rho=round(rho, 4),
         pearson_r=round(r, 4),
-        leakage_status=leakage,
+        leakage_status=leakage.status,
+        leakage_evidence=leakage.evidence,
+        leakage_caveat=leakage.caveat,
         dataset_relationship=relationship,
         interpretation=_interpretation(rho, leakage, relationship, dataset),
         source=loaded.source,
