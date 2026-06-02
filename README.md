@@ -18,6 +18,8 @@ Open http://localhost:5173. The backend lives in the `bioforge-backend` containe
 
 > **Want to see it work without an API key?** Open the **Accuracy** tab — it renders the four real, self-measured benchmarks (served from `GET /benchmarks/accuracy`) and needs no Anthropic key. The agent chat itself requires `ANTHROPIC_API_KEY`.
 
+> **Deploying to a host?** See [`docs/deploy.md`](docs/deploy.md) — configuration, persistence (SQLite vs Postgres + Alembic), the optional worker/storage profiles, and **how to expose it safely** (it has no auth layer yet, and the agent endpoint spends your API budget).
+
 ### Backend
 
 ```powershell
