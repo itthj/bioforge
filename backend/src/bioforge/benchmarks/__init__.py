@@ -20,6 +20,11 @@ from bioforge.benchmarks.edit_outcome_agreement import (
     jensen_shannon_divergence,
     total_variation_distance,
 )
+from bioforge.benchmarks.edit_outcome_published_run import (
+    EditOutcomePublishedResult,
+    PerGuideAgreement,
+    run_edit_outcome_agreement,
+)
 from bioforge.benchmarks.effdata import (
     EffDataConsentRequired,
     EffDataFetchError,
@@ -74,6 +79,9 @@ __all__ = [
     "ConfidentRegion",
     "EditOutcomeAgreementResult",
     "EditOutcomeLabel",
+    "EditOutcomePublishedResult",
+    "PerGuideAgreement",
+    "run_edit_outcome_agreement",
     "EffDataConsentRequired",
     "EffDataFetchError",
     "EffDataUnknown",
