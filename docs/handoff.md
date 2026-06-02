@@ -35,6 +35,16 @@ Built the first arm of the §13 on-target accuracy benchmark. Suite now **920 pa
   carries `leakage_evidence` + `leakage_caveat` alongside the status. One residual caveat travels
   with the result: incidental guide overlap with the Doench-2016 HEK293T training subset is
   not sequence-level checked. +3 tests, 930 passed.
+- **GIAB concordance metric shipped (2026-06-01, session 3):** `benchmarks/variant_concordance.py`
+  is the SCORING half of the GIAB benchmark -- stratified precision/recall/F1 (SNV/INDEL/ALL)
+  restricted to high-confidence regions, with parsimonious normalized-allele matching, a
+  bisect-indexed region lookup, and a `parse_vcf.Variant` adapter (explodes multiallelic, skips
+  symbolic ALTs). Pure stdlib + pydantic (no pysam, consistent with parse_vcf). Honest caveat
+  travels with every result: genotype-agnostic exact-match, NOT haplotype-aware like hap.py.
+  **GIAB ledger row deliberately stays not_yet_wired** -- the metric is built + tested but the
+  end-to-end benchmark still needs (1) a variant-CALLING path (no caller integrated) and (2) the
+  GIAB HG002 truth-set + BED download. +11 tests; 965 passed. THIS is the honest maximum toward
+  GIAB without the 3GB reference + a caller; the metric goes live the moment a caller feeds it.
 - **Edit-outcome distribution-agreement arm shipped (2026-06-01, session 3):**
   `benchmarks/edit_outcome_agreement.py` provides typed Total Variation Distance + Jensen-Shannon
   divergence (numpy-only) between a predicted indel distribution and an observed one. Same honesty

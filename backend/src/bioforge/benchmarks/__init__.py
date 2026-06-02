@@ -45,8 +45,18 @@ from bioforge.benchmarks.reliability import (
     reliability_curve,
     reliability_from_pairs,
 )
+from bioforge.benchmarks.variant_concordance import (
+    ConcordanceMetrics,
+    ConfidentRegion,
+    VariantCall,
+    VariantConcordanceResult,
+    score_variant_concordance,
+    variant_calls_from_parsed,
+)
 
 __all__ = [
+    "ConcordanceMetrics",
+    "ConfidentRegion",
     "EditOutcomeAgreementResult",
     "EditOutcomeLabel",
     "EffDataConsentRequired",
@@ -61,6 +71,8 @@ __all__ = [
     "RecallAtQuantile",
     "ReliabilityBin",
     "ReliabilityCurve",
+    "VariantCall",
+    "VariantConcordanceResult",
     "compare_distributions",
     "jensen_shannon_divergence",
     "load_dataset",
@@ -70,6 +82,8 @@ __all__ = [
     "run_off_target_recall",
     "run_on_target_efficiency",
     "score_clinvar_fidelity",
+    "score_variant_concordance",
     "spearman_rho",
     "total_variation_distance",
+    "variant_calls_from_parsed",
 ]

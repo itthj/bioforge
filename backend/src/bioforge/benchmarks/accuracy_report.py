@@ -188,7 +188,16 @@ _BENCHMARKS: list[BenchmarkStatus] = [
         name="Variant calling — GIAB precision / recall / F1",
         blueprint_section="§13 / Phase 3",
         status="not_yet_wired",
-        detail="No variant-calling path is built yet; the variant tools are annotation/interpretation only.",
+        detail=(
+            "The SCORING half is built + unit-tested: benchmarks.variant_concordance computes "
+            "stratified precision/recall/F1 (SNV/INDEL/ALL) restricted to high-confidence regions, "
+            "with parsimonious normalized-allele matching and an honest caveat that it is NOT the "
+            "haplotype-aware comparison hap.py/vcfeval perform. Still not_yet_wired end-to-end "
+            "because two upstream pieces remain: (1) a variant-calling PATH -- no caller is "
+            "integrated (the variant tools are annotation-only); and (2) the GIAB HG002 truth-set + "
+            "high-confidence BED download. The metric goes live the moment a digest-pinned caller "
+            "feeds it real called VCFs."
+        ),
     ),
     BenchmarkStatus(
         name="Edit-outcome distribution agreement (TVD + JSD)",
