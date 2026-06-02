@@ -1,3 +1,124 @@
+# BioForge — Session handoff (v4 finalization)
+
+## ★ START HERE — session 4 entry point (written 2026-06-01, end of session 3)
+
+**Repo:** https://github.com/itthj/bioforge — **main @ `31026b7`**, working tree clean, everything pushed.
+**Local:** `C:\Users\james\OneDrive\Documents\BIOTECH 101\bioforge` (Windows; Docker Desktop + WSL2).
+**Suite — all green:** backend **968 passed**, 2 skipped, 16 deselected (online+docker+nextflow gated);
+frontend **91 vitest**; `tsc --strict` + `ruff check` + `ruff format` all clean.
+
+### Where the project is: ~90% of the v4 blueprint
+The blueprint's differentiating CORE — grounding (§0/§4), benchmarking (§13), calibration (§6),
+provenance (§10) — is substantially complete and **demonstrated with real measurements**. Session 3
+closed the two biggest gaps: §13 benchmark suite (~55% → ~85%) and §6 calibration (~60% → ~90%).
+The blueprint itself is NOT in the repo — the user has it; ask for it / re-paste if needed.
+
+### What session 3 shipped (8 slices, all FF-merged to main, oldest → newest)
+1. `8726b79` **on-target efficiency benchmark** — DeepCRISPR × Chari-2015. Fetch-on-first-use effData
+   loader `benchmarks/effdata.py` (sha256 + commit pinned, unlicensed data NEVER vendored), tie-aware
+   numpy Spearman `benchmarks/on_target_efficiency.py`.
+2. `3b32a7f` **calibration + reliability diagrams** — `benchmarks/reliability.py` (numpy quantile bins) +
+   frontend `ReliabilityDiagram.tsx` (inline SVG, no chart dependency).
+3. `c25a10f` **leakage gate hardened** — typed `LeakageAssessment(status, evidence, caveat)`; Chari-2015
+   promoted to `held_out` vs Chuai-2018 (PMC6020378); `held_out`/`contaminated` now STRUCTURALLY require
+   primary-source evidence (`test_every_leakage_claim_is_sourced`).
+4. `176dc2a` **off-target recall** — CFD vs annotOfftargets readFraction; loader gained `EffDataKind`.
+5. `ff269f1` **edit-outcome distribution agreement** — TVD + JSD (numpy); refuses to renormalize a
+   malformed distribution.
+6. `13ab525` **GIAB variant-concordance metric** — `benchmarks/variant_concordance.py`: stratified
+   precision/recall/F1, high-confidence-region restricted, "not haplotype-aware like hap.py" caveat.
+   The SCORING half of GIAB.
+7. `900d49c` **published live calibration** — `benchmarks/published.py` runs the REAL DeepCRISPR×Chari
+   benchmark offline → committed artifact (ρ=0.1299, n=1234, held_out) → served in the Accuracy Report
+   → frontend renders the headline + reliability curve.
+8. `31026b7` **published off-target** — REAL CFD vs annotOfftargets (ρ=0.3132, n=717, unknown). Both
+   arms now show real measured numbers + reliability curves in-product.
+
+### RESUME HERE — next-step priority (session 4), in order
+None of these can be faked (§0 / rule 18). Each is heavy-by-nature, distinct UX work, or a deliberate deviation.
+1. **IGV.js genome browser** (§5 / Phase 2 guide viz) — THE main remaining buildable feature. Add the
+   `igv` npm dep + a React wrapper; render guide position + PAM + off-target sites on the
+   USER-CONFIRMED reference build. Data plumbing: check what genomic coordinates `design_guides` /
+   `find_offtargets` actually carry (on-target scoring is sequence-relative; `find_offtargets` BLAST
+   hits carry genomic positions). IGV.js can load a hosted hg38 → avoids the 3 GB local download.
+2. **GIAB end-to-end** — the concordance SCORER is built + tested. Still needs (a) a digest-pinned
+   variant CALLER (bcftools/DeepVariant — none integrated; variant tools are annotation-only),
+   (b) GRCh38 ~3 GB, (c) GIAB HG002 truth VCF + high-conf BED. License-audit the caller first. The
+   metric goes live the moment a caller feeds it real VCFs. ~half the remaining work; multi-hour.
+3. **Edit-outcome live data** — the TVD/JSD scorer is built; needs a license-clean held-out
+   indel-distribution dataset (Lindel/inDelphi/FORECasT) to publish a real number via `published.py`.
+4. **DeepSpCas9 as primary on-target** — the blueprint NAMES it primary; it was dropped on a license
+   audit (rule 15) and DeepCRISPR substituted. A deliberate deviation needing license clearance, NOT a
+   code gap — flag for the user's sign-off, do not silently "fix".
+5. **MSA viewer** (§5 / Phase 4) — react-msa-viewer not integrated. Minor.
+
+### Decisions made this session (do NOT re-litigate)
+- **crisporPaper effData = fetch-on-first-use** (consent-gated, sha256 + commit pinned, NEVER vendored
+  — it is unlicensed). The loader also accepts a local file / alternate URL, so the posture is not a
+  one-way door.
+- **Leakage labels are primary-source-gated.** `held_out`/`contaminated` require a verified citation;
+  `unknown` is the only label allowed without one. Chari-2015 IS held-out from DeepCRISPR (verified).
+- **Published artifacts are committed REAL measurements** (`benchmarks/published/*.json`),
+  provenance-stamped, reproducible via `python -m bioforge.benchmarks.published`. Served in the report,
+  but the ledger rows stay **guard_only** (a run is offline, not on page load). Never faked, never
+  computed on the fly.
+- **GIAB row stays `not_yet_wired`** even though its scorer is built — the end-to-end benchmark can't
+  RUN without a caller. Honest.
+- A §13 benchmark is **`live`** only when it is pure CPU over a committed corpus; anything needing a
+  network fetch + a model call is **`guard_only`** (same reasoning as ClinVar fidelity).
+
+### Benchmark architecture (the session-3 footprint)
+- `benchmarks/effdata.py` — fetch-on-first-use loader; `EffDataKind` ('on_target'|'off_target');
+  `DATASETS` registry (chari2015Train, annotOfftargets), each sha256 + commit pinned. crisporPaper
+  commit `33a8225c7bc3be7f937786f6b151ffa7d7e29e84`.
+- `benchmarks/{on_target_efficiency,off_target_recall,edit_outcome_agreement,variant_concordance}.py`
+  — the four §13 scorers, each with typed honesty rails (`LeakageAssessment` + `assess_leakage*`).
+- `benchmarks/reliability.py` — reliability curve from any (predicted, observed) pairs.
+- `benchmarks/published.py` — offline generators + `load_published_benchmarks()`; artifacts in
+  `benchmarks/published/`.
+- `benchmarks/accuracy_report.py` — the §13 ledger + `published` list; served at `GET /benchmarks/accuracy`.
+- Frontend: `AccuracyReport.tsx` (ledger + `PublishedResults`), `ReliabilityDiagram.tsx`,
+  `types/benchmarks.ts`.
+
+### Environment gotchas (carry forward)
+- **Docker works** (29.4.3). Legacy images BUILT locally: `bioforge/deepcrispr:legacy` (c420bda, 7.8 GB),
+  `bioforge/azimuth:legacy`, `bioforge/lindel:legacy`, `bioforge/forecast:legacy`. Enable via per-model
+  `BIOFORGE_*_ENABLED` + image env vars.
+- **gh CLI lives in WSL Ubuntu** (`/usr/bin/gh` v2.46, authed as `itthj`), NOT on Windows. Use
+  `wsl -d Ubuntu -- bash -lc "gh ..."` — bare `wsl` defaults to the `docker-desktop` distro and fails.
+- **node/npm** at `C:\Users\james\AppData\Local\Programs\nodejs` — NOT on PATH; prepend it (PowerShell).
+- **Network reachable** from the venv (NCBI eutils, raw.githubusercontent, api.github.com).
+- **Bash-tool cwd flips** repo-root ↔ bioforge. A `cd` inside a bash command persists and shifts cwd for
+  later FILE-tool calls — use absolute paths for Read/Edit/Write and `git -C` / absolute `cd` for bash.
+- **The auto-mode classifier blocks `git push origin main` and remote branch deletes** unless the
+  instruction is specific. Workflow: branch → commit → push branch → `checkout main && merge --ff-only`
+  (local, allowed) → `push origin main` (separate; needs an explicit go). Commit messages: ASCII only
+  ("section 13", "->", no § / em-dash). CRLF warnings on `git add` are harmless.
+
+### Commands (Windows; venv at `bioforge\.venv`)
+```
+cd "/c/Users/james/OneDrive/Documents/BIOTECH 101/bioforge"
+.venv/Scripts/python.exe -m pytest backend/tests/ -q              # 968 passed
+.venv/Scripts/python.exe -m pytest backend/tests/ -m docker -q    # real-image e2e (needs images)
+.venv/Scripts/python.exe -m ruff check backend/ ; .venv/Scripts/python.exe -m ruff format --check backend/
+# Frontend (PowerShell): $env:PATH = "C:\Users\james\AppData\Local\Programs\nodejs;" + $env:PATH
+#   Set-Location ...\bioforge\frontend ; npm run typecheck ; npm test     # tsc --strict ; 91 vitest
+# Regenerate published artifacts (offline; deepcrispr image + effData consent):
+#   BIOFORGE_DEEPCRISPR_ENABLED=true BIOFORGE_DEEPCRISPR_DOCKER_IMAGE=bioforge/deepcrispr:legacy \
+#   BIOFORGE_CRISPOR_EFFDATA_CONSENT=true .venv/Scripts/python.exe -m bioforge.benchmarks.published
+```
+
+### Hard rules still in force
+Plan before coding · vertical slices · no heavy agent frameworks · real biology in tests · provenance
+from day one · typed everything · never silently truncate · **AI never fabricates biology** · **no
+unsourced constants** (cite or `# VERIFY:`) · **no license claims from memory** · **no ML training code**
+(published weights only) · **faithful, never remap upstream** · behavioral equivalence is the gate ·
+**leakage / accuracy labels are primary-source-gated — a `held_out` claim from memory is impossible** ·
+**the gated remainder must be earned with real data, never faked — the integrity IS the product.**
+
+---
+*Historical session logs (sessions 1-3, newest first) follow below.*
+
 # BioForge — Session handoff (v4 finalization, 2026-05-30)
 
 ## Update 2026-06-01 (session 3): on-target efficiency benchmark — slice 1 (DeepCRISPR × Chari-2015)
