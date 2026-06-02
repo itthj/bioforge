@@ -5,6 +5,7 @@ import type {
   AccuracyReport as AccuracyReportData,
   BenchmarkWiring,
   PublishedBenchmark,
+  PublishedGiabBenchmark,
   ValidatorGate,
 } from "../types/benchmarks";
 import { ReliabilityDiagram } from "./ReliabilityDiagram";
@@ -73,7 +74,62 @@ export function AccuracyReportView({ report }: { report: AccuracyReportData }) {
       <ModelAccuracySection models={report.models} />
       <BenchmarkLedger benchmarks={report.benchmarks} />
       <PublishedResults published={report.published} />
+      <GiabConcordanceResults published={report.published_giab} />
     </div>
+  );
+}
+
+/** §13 / Phase 3: real, dated GIAB variant-calling concordance (precision/recall/F1 by class),
+ *  generated offline by a real DeepVariant run vs a NIST/GIAB truth set. Never computed on load. */
+function GiabConcordanceResults({ published }: { published: PublishedGiabBenchmark[] }) {
+  if (published.length === 0) return null;
+  return (
+    <section className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
+      <h3 className="text-sm font-semibold text-slate-900">
+        GIAB variant-calling concordance{" "}
+        <span className="font-normal text-slate-400">· §13 / Phase 3</span>
+      </h3>
+      <div className="mt-3 space-y-4">
+        {published.map((gb) => (
+          <div key={gb.name} className="rounded border border-slate-200 p-3">
+            <div className="text-sm font-medium text-slate-900">{gb.name}</div>
+            <div className="mt-0.5 font-mono text-[11px] text-slate-500">
+              {gb.sample} · {gb.regions} · {gb.reference_build}
+            </div>
+            <table className="mt-2 w-full text-left text-xs">
+              <thead>
+                <tr className="text-slate-500">
+                  <th className="py-0.5 pr-3 font-medium">class</th>
+                  <th className="py-0.5 pr-3 font-medium">precision</th>
+                  <th className="py-0.5 pr-3 font-medium">recall</th>
+                  <th className="py-0.5 pr-3 font-medium">F1</th>
+                  <th className="py-0.5 pr-3 font-medium">TP/FP/FN</th>
+                </tr>
+              </thead>
+              <tbody className="font-mono text-slate-800">
+                {gb.by_class.map((m) => (
+                  <tr key={m.variant_class}>
+                    <td className="py-0.5 pr-3">{m.variant_class}</td>
+                    <td className="py-0.5 pr-3">{m.precision.toFixed(4)}</td>
+                    <td className="py-0.5 pr-3">{m.recall.toFixed(4)}</td>
+                    <td className="py-0.5 pr-3">{m.f1.toFixed(4)}</td>
+                    <td className="py-0.5 pr-3 text-slate-500">
+                      {m.tp}/{m.fp}/{m.fn}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div className="mt-2 text-[11px] text-slate-500">
+              {gb.n_truth_in_regions} truth variants in confident regions ·{" "}
+              {gb.n_called_in_regions} called · caller {gb.caller}
+            </div>
+            <p className="mt-1 text-[11px] text-slate-600">{gb.interpretation}</p>
+            <p className="mt-1 text-[11px] italic text-amber-700">{gb.caveat}</p>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 

@@ -64,7 +64,30 @@ function makeReport(overrides: Partial<AccuracyReport> = {}): AccuracyReport {
       },
     ],
     published: [],
+    published_giab: [],
     ...overrides,
+  };
+}
+
+function makeGiab() {
+  return {
+    name: "Variant calling: DeepVariant vs NIST/GIAB (NA12878, chr20:10-10.1Mb)",
+    blueprint_section: "§13 / Phase 3",
+    generated_at: "2026-06-02T00:33:00Z",
+    caller: "DeepVariant google/deepvariant@sha256:ccab95 model_type=WGS",
+    reference_build: "ucsc.hg19 chr20 (DeepVariant quickstart)",
+    regions: "chr20:10000000-10100000",
+    sample: "NA12878 (HG001)",
+    truth_set: "NIST/GIAB test_nist chr20:10-10.1Mb",
+    n_truth_in_regions: 49,
+    n_called_in_regions: 50,
+    by_class: [
+      { variant_class: "SNV" as const, tp: 45, fp: 1, fn: 0, precision: 0.9783, recall: 1.0, f1: 0.989 },
+      { variant_class: "INDEL" as const, tp: 4, fp: 0, fn: 0, precision: 1.0, recall: 1.0, f1: 1.0 },
+      { variant_class: "ALL" as const, tp: 49, fp: 1, fn: 0, precision: 0.98, recall: 1.0, f1: 0.9899 },
+    ],
+    caveat: "genotype-agnostic, not haplotype-aware like hap.py",
+    interpretation: "small validation region, not a genome-wide HG002 claim",
   };
 }
 
@@ -158,5 +181,24 @@ describe("AccuracyReportView", () => {
     // The reliability diagram behind the number is rendered for the published curve.
     expect(screen.getByRole("img", { name: /reliability curve/i })).toBeInTheDocument();
     expect(screen.getByText(/monotonicity/i)).toBeInTheDocument();
+  });
+
+  it("renders the GIAB concordance section with per-class precision/recall when published", () => {
+    const withGiab = makeReport({ published_giab: [makeGiab()] });
+    render(<AccuracyReportView report={withGiab} />);
+    expect(screen.getByText(/GIAB variant-calling concordance/i)).toBeInTheDocument();
+    expect(
+      screen.getByText("Variant calling: DeepVariant vs NIST/GIAB (NA12878, chr20:10-10.1Mb)"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("SNV")).toBeInTheDocument();
+    expect(screen.getByText("INDEL")).toBeInTheDocument();
+    // The ALL-class precision (0.98 -> 0.9800) surfaces.
+    expect(screen.getAllByText("0.9800").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText(/not haplotype-aware/i)).toBeInTheDocument();
+  });
+
+  it("omits the GIAB section entirely when nothing is published (no faked row)", () => {
+    render(<AccuracyReportView report={makeReport()} />);
+    expect(screen.queryByText(/GIAB variant-calling concordance/i)).not.toBeInTheDocument();
   });
 });

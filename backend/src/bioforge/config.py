@@ -170,6 +170,9 @@ class Settings(BaseSettings):
     giab_truth_vcf_path: str = Field(default="", alias="BIOFORGE_GIAB_TRUTH_VCF_PATH")
     giab_confident_bed_path: str = Field(default="", alias="BIOFORGE_GIAB_CONFIDENT_BED_PATH")
     giab_regions: str = Field(default="", alias="BIOFORGE_GIAB_REGIONS")  # e.g. chr20 or chr20:1-10000000
+    # Docker-shareable dir for the caller's output (the default system temp may not be in Docker
+    # Desktop's shared paths). Empty -> system temp.
+    giab_output_dir: str = Field(default="", alias="BIOFORGE_GIAB_OUTPUT_DIR")
 
     # crisporPaper effData -- held-out guide-efficiency datasets (Haeussler/Concordet, the same
     # source the CFD matrices came from) used ONLY by the §13 on-target accuracy benchmark, never

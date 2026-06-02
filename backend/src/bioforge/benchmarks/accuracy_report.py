@@ -28,7 +28,12 @@ from bioforge.agent.grounding.metrics import (
     evaluate_corpus,
     load_numeric_corpus,
 )
-from bioforge.benchmarks.published import PublishedBenchmark, load_published_benchmarks
+from bioforge.benchmarks.published import (
+    PublishedBenchmark,
+    PublishedGiabBenchmark,
+    load_published_benchmarks,
+    load_published_giab,
+)
 
 # The deterministic grounding layers (numeric L3, identifier L3+) must be perfect — this is
 # the release gate enforced by test_grounding_metrics.py. The Accuracy Report surfaces both
@@ -86,6 +91,10 @@ class AccuracyReport(BaseModel):
     published: list[PublishedBenchmark] = Field(
         default_factory=list,
         description="Real, dated benchmark measurements (generated offline) with the reliability curve behind each.",
+    )
+    published_giab: list[PublishedGiabBenchmark] = Field(
+        default_factory=list,
+        description="Real, dated GIAB variant-calling concordance measurements (precision/recall/F1 by class).",
     )
 
 
@@ -233,4 +242,5 @@ def build_accuracy_report() -> AccuracyReport:
         models=_model_entries(),
         benchmarks=list(_BENCHMARKS),
         published=load_published_benchmarks(),
+        published_giab=load_published_giab(),
     )

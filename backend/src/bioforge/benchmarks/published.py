@@ -21,6 +21,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from bioforge.benchmarks.reliability import ReliabilityCurve, reliability_curve, reliability_from_pairs
+from bioforge.benchmarks.variant_concordance import ConcordanceMetrics
 
 PUBLISHED_DIR = Path(__file__).parent / "published"
 
@@ -56,6 +57,8 @@ def load_published_benchmarks() -> list[PublishedBenchmark]:
         return []
     out: list[PublishedBenchmark] = []
     for path in sorted(PUBLISHED_DIR.glob("*.json")):
+        if path.name.startswith("giab_"):
+            continue  # GIAB artifacts are a different shape -> load_published_giab()
         try:
             out.append(PublishedBenchmark.model_validate_json(path.read_text(encoding="utf-8")))
         except (OSError, ValueError):
@@ -141,6 +144,81 @@ def generate_off_target_artifact(*, settings=None) -> Path:
     )
     PUBLISHED_DIR.mkdir(parents=True, exist_ok=True)
     out_path = PUBLISHED_DIR / "off_target_annotofftargets_cfd.json"
+    out_path.write_text(artifact.model_dump_json(indent=2), encoding="utf-8")
+    return out_path
+
+
+# --- GIAB concordance (precision/recall/F1, not a correlation -> its own artifact shape) -------
+
+
+class PublishedGiabBenchmark(BaseModel):
+    """A real, dated GIAB-style variant-calling concordance measurement.
+
+    Distinct from PublishedBenchmark (which is correlation + reliability-curve shaped): variant
+    calling is scored as stratified precision/recall/F1, so it carries `by_class` metrics instead.
+    """
+
+    name: str
+    blueprint_section: str
+    generated_at: datetime = Field(description="When the benchmark actually ran.")
+    caller: str = Field(description="Caller + digest-pinned image, e.g. 'DeepVariant google/deepvariant@sha256:...'.")
+    reference_build: str = Field(description="The USER-CONFIRMED reference build the call was made against.")
+    regions: str
+    sample: str = Field(description="The sample evaluated, e.g. 'NA12878 (HG001)'.")
+    truth_set: str = Field(description="The truth set + its provenance.")
+    n_truth_in_regions: int
+    n_called_in_regions: int
+    by_class: list[ConcordanceMetrics]
+    caveat: str
+    interpretation: str
+
+
+def load_published_giab() -> list[PublishedGiabBenchmark]:
+    """Load committed GIAB concordance artifacts (`published/giab_*.json`). Tolerant: skips a
+    malformed file rather than breaking the report."""
+    if not PUBLISHED_DIR.exists():
+        return []
+    out: list[PublishedGiabBenchmark] = []
+    for path in sorted(PUBLISHED_DIR.glob("giab_*.json")):
+        try:
+            out.append(PublishedGiabBenchmark.model_validate_json(path.read_text(encoding="utf-8")))
+        except (OSError, ValueError):
+            continue
+    return out
+
+
+def generate_giab_artifact(
+    *,
+    settings=None,
+    sample: str,
+    truth_set: str,
+    interpretation: str,
+    name: str,
+    slug: str,
+    result=None,
+) -> Path:
+    """Run the real GIAB concordance benchmark (or accept a precomputed result) and write its
+    artifact to `published/giab_<slug>.json`. Requires DeepVariant + staged GIAB inputs."""
+    from bioforge.benchmarks.giab import run_giab_benchmark
+
+    res = result if result is not None else run_giab_benchmark(settings=settings)
+    artifact = PublishedGiabBenchmark(
+        name=name,
+        blueprint_section="§13 / Phase 3",
+        generated_at=datetime.now(UTC),
+        caller=res.caller,
+        reference_build=res.reference_build,
+        regions=res.regions,
+        sample=sample,
+        truth_set=truth_set,
+        n_truth_in_regions=res.concordance.n_truth_in_regions,
+        n_called_in_regions=res.concordance.n_called_in_regions,
+        by_class=res.concordance.by_class,
+        caveat=res.concordance.caveat,
+        interpretation=interpretation,
+    )
+    PUBLISHED_DIR.mkdir(parents=True, exist_ok=True)
+    out_path = PUBLISHED_DIR / f"giab_{slug}.json"
     out_path.write_text(artifact.model_dump_json(indent=2), encoding="utf-8")
     return out_path
 

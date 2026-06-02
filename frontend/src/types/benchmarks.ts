@@ -84,6 +84,34 @@ export interface PublishedBenchmark {
   reliability: ReliabilityCurve;
 }
 
+// A real, dated GIAB variant-calling concordance measurement (precision/recall/F1 by class).
+// Mirror of bioforge.benchmarks.published.PublishedGiabBenchmark.
+export interface ConcordanceMetrics {
+  variant_class: "SNV" | "INDEL" | "ALL";
+  tp: number;
+  fp: number;
+  fn: number;
+  precision: number;
+  recall: number;
+  f1: number;
+}
+
+export interface PublishedGiabBenchmark {
+  name: string;
+  blueprint_section: string;
+  generated_at: string;
+  caller: string;
+  reference_build: string;
+  regions: string;
+  sample: string;
+  truth_set: string;
+  n_truth_in_regions: number;
+  n_called_in_regions: number;
+  by_class: ConcordanceMetrics[];
+  caveat: string;
+  interpretation: string;
+}
+
 export interface AccuracyReport {
   generated_at: string;
   bioforge_version: string;
@@ -94,4 +122,7 @@ export interface AccuracyReport {
   // call, never on page load). Each carries the reliability curve behind it. Empty until a run
   // is published.
   published: PublishedBenchmark[];
+  // Real, dated GIAB variant-calling concordance measurements (precision/recall/F1). Empty
+  // until a run is published.
+  published_giab: PublishedGiabBenchmark[];
 }

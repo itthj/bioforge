@@ -74,17 +74,18 @@ shown at GRCh38 coordinates.
 
 ### Step 5 -- The Accuracy Report (real benchmarks + calibration)
 Open the **Accuracy** tab. You'll see the section-13 benchmark ledger (each row honestly labeled
-`live` / `guard_only` / `not_yet_wired`) and the **published results** with real measured numbers and
-their reliability curves:
+`live` / `guard_only`; as of session 5 there are **no `not_yet_wired` rows left**) and the
+**published results** with real measured numbers and their reliability curves:
 
-| Benchmark | Model x dataset | Spearman rho | n | Leakage |
+| Benchmark | Model x dataset | Metric | n | Leakage / scope |
 |---|---|---|---|---|
-| On-target efficiency | DeepCRISPR x Chari-2015 | **0.1299** | 1234 | `held_out` (vs Chuai 2018, verified) |
-| Off-target discrimination | CFD x annotOfftargets | **0.3132** | 717 | `unknown` (honest -- not verified) |
+| On-target efficiency | DeepCRISPR x Chari-2015 | Spearman rho **0.1299** | 1234 | `held_out` (vs Chuai 2018, verified) |
+| Off-target discrimination | CFD x annotOfftargets | Spearman rho **0.3132** | 717 | `unknown` (honest -- not verified) |
+| Variant-calling concordance | DeepVariant x NIST/GIAB (NA12878, chr20:10-10.1Mb) | precision **0.980** / recall **1.000** (ALL) | 49 | small build-matched validation region, not genome-wide HG002 |
 
-Regenerate offline (proves they're real, not hand-entered):
-`python -m bioforge.benchmarks.published` (needs the deepcrispr image + effData consent for the
-on-target arm; the off-target arm needs only the network fetch).
+Regenerate offline (proves they're real, not hand-entered): the correlation arms via
+`python -m bioforge.benchmarks.published`; the GIAB arm via `benchmarks.published.generate_giab_artifact`
+over a real DeepVariant run on staged, build-matched inputs (digest-pinned image).
 
 **Proves:** the differentiating core is not just *built* -- it is *demonstrated with real numbers*,
 each carrying a leakage label that is structurally required to cite a primary source.
@@ -98,6 +99,12 @@ each carrying a leakage label that is structurally required to cite a primary so
   Cross-dataset on-target correlation is known to be low (Haeussler 2016) -- the number is honest,
   not over-sold.
 - **Off-target benchmark** -- CFD x annotOfftargets, Spearman rho = 0.3132 (n=717), `unknown` leakage.
+- **GIAB variant-calling concordance** -- a REAL DeepVariant 1.6.1 (digest-pinned, BSD-3-Clause) run
+  scored vs the NIST/GIAB truth: NA12878 (HG001), chr20:10-10.1Mb, within the high-confidence BED ->
+  precision 0.980 / recall 1.000 (ALL; 49 truth variants in-region). **Honestly scoped:** a small,
+  build-matched VALIDATION region demonstrating the wired pipeline end-to-end -- NOT a genome-wide
+  HG002 accuracy claim, and genotype-agnostic exact-match (not haplotype-aware like hap.py). The
+  full genome-wide HG002 run is the same code path over more data.
 - **ClinVar fidelity** -- scored against LIVE ClinVar (`-m online`, nightly), not a frozen snapshot.
 - **Calibration / reliability diagrams** -- real (predicted, observed) pairs from the benchmarks,
   rendered as reliability curves (honest `kind="regression_ranking"`, not probability calibration).
@@ -110,10 +117,6 @@ each carrying a leakage label that is structurally required to cite a primary so
   honesty-gated off-target view on hosted hg38 (Slice B).
 
 ### Honestly-gated -- built + tested, deliberately waiting on real external data (NEVER faked)
-- **GIAB variant concordance** -- the stratified precision/recall/F1 scorer is built + tested. The
-  end-to-end benchmark cannot RUN without a variant CALLER (none integrated; variant tools are
-  annotation-only) + GRCh38 ~3 GB + the GIAB HG002 truth set. The ledger row stays `not_yet_wired`
-  until a caller feeds it -- it is not faked to look done.
 - **Edit-outcome distribution agreement** -- the TVD + JSD scorer is built + tested. A real published
   number awaits a license-clean held-out indel-distribution dataset (Lindel/inDelphi/FORECasT).
 

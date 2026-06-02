@@ -139,7 +139,10 @@ def run_giab_benchmark(*, settings: Settings | None = None, caller=None) -> Giab
         raise GiabUnavailable(f"GIAB inputs not staged: {', '.join(missing)}.")
 
     def _default_caller(ss: Settings) -> Path:
-        out_dir = tempfile.mkdtemp(prefix="bioforge_giab_")
+        base = ss.giab_output_dir or None
+        if base:
+            Path(base).mkdir(parents=True, exist_ok=True)
+        out_dir = tempfile.mkdtemp(prefix="bioforge_giab_", dir=base)
         return run_caller(
             ss,
             ref_host=ss.giab_reference_path,
