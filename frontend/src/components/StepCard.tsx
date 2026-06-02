@@ -15,12 +15,15 @@ import type { FetchPdbOutput } from "../types/pdb_structure";
 import { isPdbStructureOutput } from "../types/pdb_structure";
 import type { FetchAlphaFoldOutput } from "../types/structure";
 import { isAlphaFoldOutput } from "../types/structure";
+import type { AlignMsaOutput } from "../types/msa";
+import { isAlignMsaOutput } from "../types/msa";
 import { CompareStructuresCard } from "./CompareStructuresCard";
 import { CrisprReportCard } from "./CrisprReportCard";
 import { OnTargetScoreCard } from "./OnTargetScoreCard";
 import { FindBestStructureCard } from "./FindBestStructureCard";
 import { InterproCard } from "./InterproCard";
 import { PdbStructureCard } from "./PdbStructureCard";
+import { MsaCard } from "./MsaCard";
 import { PrimerPairsCard } from "./PrimerPairsCard";
 import { StructureCard } from "./StructureCard";
 
@@ -249,6 +252,10 @@ function ToolCallBody({ step }: { step: AgentStep }) {
     step.tool_name === "compare_structures" &&
     step.tool_output &&
     isCompareStructuresOutput(step.tool_output);
+  const isMsa =
+    step.tool_name === "align_msa" &&
+    step.tool_output &&
+    isAlignMsaOutput(step.tool_output);
 
   return (
     <div className="space-y-2">
@@ -289,6 +296,9 @@ function ToolCallBody({ step }: { step: AgentStep }) {
       {isCompare && step.tool_output && (
         <CompareStructuresCard result={step.tool_output as unknown as CompareStructuresOutput} />
       )}
+      {isMsa && step.tool_output && (
+        <MsaCard output={step.tool_output as unknown as AlignMsaOutput} />
+      )}
       {step.tool_output &&
         !isCrispr &&
         !isOnTarget &&
@@ -297,7 +307,8 @@ function ToolCallBody({ step }: { step: AgentStep }) {
         !isPdbStructure &&
         !isFindBest &&
         !isInterpro &&
-        !isCompare && (
+        !isCompare &&
+        !isMsa && (
         <details className="text-xs">
           <summary className="cursor-pointer text-slate-500 hover:text-slate-700">
             output
