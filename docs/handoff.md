@@ -35,6 +35,15 @@ Built the first arm of the §13 on-target accuracy benchmark. Suite now **920 pa
   carries `leakage_evidence` + `leakage_caveat` alongside the status. One residual caveat travels
   with the result: incidental guide overlap with the Doench-2016 HEK293T training subset is
   not sequence-level checked. +3 tests, 930 passed.
+- **Edit-outcome distribution-agreement arm shipped (2026-06-01, session 3):**
+  `benchmarks/edit_outcome_agreement.py` provides typed Total Variation Distance + Jensen-Shannon
+  divergence (numpy-only) between a predicted indel distribution and an observed one. Same honesty
+  rails as on/off-target: typed `LeakageAssessment` registry (starts empty, never claims `held_out`
+  from memory); refuses to silently renormalize a malformed distribution; per-label
+  `(predicted, observed)` pairs feed the same reliability diagram. Accuracy Report row flipped
+  not_yet_wired -> guard_only. The live distribution-vs-distribution wiring against a held-out
+  Lindel/inDelphi/FORECasT dataset is still a follow-up (needs a license-clean source). +15 tests;
+  954 passed; ruff clean.
 - **Off-target recall arm shipped (2026-06-01, session 3):** `benchmarks/off_target_recall.py`
   scores every (sgRNA, validated off-target) pair from the crisporPaper aggregated `annotOfftargets`
   table (718 sites across Tsai 2015 / Frock 2015 / Cho 2014 / Kim 2015 / Ran 2015, pinned commit

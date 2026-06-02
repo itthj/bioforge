@@ -13,6 +13,13 @@ from bioforge.benchmarks.clinvar_fidelity import (
     FidelityViolation,
     score_clinvar_fidelity,
 )
+from bioforge.benchmarks.edit_outcome_agreement import (
+    EditOutcomeAgreementResult,
+    EditOutcomeLabel,
+    compare_distributions,
+    jensen_shannon_divergence,
+    total_variation_distance,
+)
 from bioforge.benchmarks.effdata import (
     EffDataConsentRequired,
     EffDataFetchError,
@@ -40,6 +47,8 @@ from bioforge.benchmarks.reliability import (
 )
 
 __all__ = [
+    "EditOutcomeAgreementResult",
+    "EditOutcomeLabel",
     "EffDataConsentRequired",
     "EffDataFetchError",
     "EffDataUnknown",
@@ -52,6 +61,8 @@ __all__ = [
     "RecallAtQuantile",
     "ReliabilityBin",
     "ReliabilityCurve",
+    "compare_distributions",
+    "jensen_shannon_divergence",
     "load_dataset",
     "pearson_r",
     "reliability_curve",
@@ -60,4 +71,5 @@ __all__ = [
     "run_on_target_efficiency",
     "score_clinvar_fidelity",
     "spearman_rho",
+    "total_variation_distance",
 ]

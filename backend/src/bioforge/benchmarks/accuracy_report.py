@@ -191,10 +191,20 @@ _BENCHMARKS: list[BenchmarkStatus] = [
         detail="No variant-calling path is built yet; the variant tools are annotation/interpretation only.",
     ),
     BenchmarkStatus(
-        name="Edit-outcome distribution agreement",
+        name="Edit-outcome distribution agreement (TVD + JSD)",
         blueprint_section="§13 / Phase 2",
-        status="not_yet_wired",
-        detail="Lindel + FORECasT are validated for parity; held-out distribution agreement against their own datasets is not yet wired.",
+        status="guard_only",
+        detail=(
+            "benchmarks.edit_outcome_agreement provides typed Total Variation Distance and "
+            "Jensen-Shannon divergence (numpy-only) between a predicted indel distribution and an "
+            "observed one, with the same honesty rails as the on/off-target arms (typed "
+            "LeakageAssessment; refuses to silently renormalize a malformed distribution; per-label "
+            "(predicted, observed) pairs feed the reliability diagram). guard_only because a real "
+            "held-out distribution dataset for Lindel / inDelphi / FORECasT is not yet wired -- "
+            "those models are validated for PARITY against their own published images, and TVD/JSD "
+            "are unit-tested, but the live distribution-vs-distribution comparison needs an "
+            "accessible, license-clean held-out source."
+        ),
     ),
 ]
 
