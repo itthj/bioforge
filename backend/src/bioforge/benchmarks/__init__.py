@@ -27,6 +27,16 @@ from bioforge.benchmarks.effdata import (
     EffDataUnknown,
     load_dataset,
 )
+from bioforge.benchmarks.forecast_profiles import (
+    ForecastProfilesConsentRequired,
+    ForecastProfilesFetchError,
+    ForecastProfilesUnknown,
+    LoadedObserved,
+    ObservedSpec,
+    OligoProfile,
+    load_observed,
+    parse_observed_profiles,
+)
 from bioforge.benchmarks.off_target_recall import (
     OfftargetPair,
     OffTargetRecallResult,
@@ -65,6 +75,14 @@ __all__ = [
     "EffDataset",
     "FidelityReport",
     "FidelityViolation",
+    "ForecastProfilesConsentRequired",
+    "ForecastProfilesFetchError",
+    "ForecastProfilesUnknown",
+    "LoadedObserved",
+    "ObservedSpec",
+    "OligoProfile",
+    "load_observed",
+    "parse_observed_profiles",
     "OffTargetRecallResult",
     "OfftargetPair",
     "OnTargetEfficiencyResult",

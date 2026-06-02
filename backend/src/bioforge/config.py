@@ -193,6 +193,16 @@ class Settings(BaseSettings):
         alias="BIOFORGE_CRISPOR_EFFDATA_COMMIT",
     )
 
+    # FORECasT processed mutational profiles (Allen 2018) -- the OBSERVED indel-distribution data
+    # for the §13 edit-outcome distribution-agreement benchmark, never used at request time. The
+    # processed profiles are CC BY 4.0 (figshare 10.6084/m9.figshare.7312067.v2), so redistribution
+    # would be permitted -- but the loader still fetches on first use into `forecast_profiles_dir`
+    # (default ~/.bioforge/data/forecast_profiles/), sha256-pinned + consent-gated, and NEVER vendors
+    # the data (keeps the repo lean + provenance explicit). A user-supplied local file bypasses the
+    # consent gate (still sha256-verified), so the posture is not a one-way door.
+    forecast_profiles_dir: str = Field(default="", alias="BIOFORGE_FORECAST_PROFILES_DIR")
+    forecast_profiles_consent: bool = Field(default=False, alias="BIOFORGE_FORECAST_PROFILES_CONSENT")
+
     # (v4 §0/§4.1/§4.3) OOD input gate. "off" (default) = the OOD detector records flags
     # post-response only (behavior unchanged). "block" = refuse a tool call whose input falls
     # outside an involved model's validated envelope BEFORE it runs (the §0 inputs boundary).
