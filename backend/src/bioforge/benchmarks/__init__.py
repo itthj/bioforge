@@ -20,6 +20,12 @@ from bioforge.benchmarks.effdata import (
     EffDataUnknown,
     load_dataset,
 )
+from bioforge.benchmarks.off_target_recall import (
+    OfftargetPair,
+    OffTargetRecallResult,
+    RecallAtQuantile,
+    run_off_target_recall,
+)
 from bioforge.benchmarks.on_target_efficiency import (
     OnTargetEfficiencyResult,
     pearson_r,
@@ -40,13 +46,17 @@ __all__ = [
     "EffDataset",
     "FidelityReport",
     "FidelityViolation",
+    "OffTargetRecallResult",
+    "OfftargetPair",
     "OnTargetEfficiencyResult",
+    "RecallAtQuantile",
     "ReliabilityBin",
     "ReliabilityCurve",
     "load_dataset",
     "pearson_r",
     "reliability_curve",
     "reliability_from_pairs",
+    "run_off_target_recall",
     "run_on_target_efficiency",
     "score_clinvar_fidelity",
     "spearman_rho",

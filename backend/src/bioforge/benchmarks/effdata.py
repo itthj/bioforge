@@ -26,11 +26,17 @@ import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from bioforge.config import Settings
 from bioforge.config import settings as _default_settings
 
 DownloadFn = Callable[[str], bytes]
+
+# 'on_target' = guide-efficiency rows (guide / seq / modFreq). 'off_target' = aggregated validated
+# off-target sites (name / guideSeq / otSeq / readFraction / mismatches / ...). Different schema,
+# different parser, different downstream benchmark.
+EffDataKind = Literal["on_target", "off_target"]
 
 _RAW_BASE = "https://raw.githubusercontent.com/maximilianh/crisporPaper"
 
@@ -53,11 +59,12 @@ class EffDataFetchError(Exception):
 
 @dataclass(frozen=True)
 class EffDataset:
-    """One crisporPaper effData guide-efficiency dataset.
+    """One crisporPaper effData dataset (on-target efficiency OR off-target sites).
 
     `expected_sha256` is the committed integrity expectation for the file AT `upstream_relpath`
     AND the pinned commit; `n_rows` is the expected DATA-row count (excluding the header) -- both
-    are release-grade guards that the right bytes were loaded.
+    are release-grade guards that the right bytes were loaded. `kind` selects the parser /
+    downstream benchmark; defaults to 'on_target' so existing entries are unchanged.
     """
 
     name: str
@@ -66,6 +73,7 @@ class EffDataset:
     n_rows: int
     citation: str
     notes: str
+    kind: EffDataKind = "on_target"
 
 
 @dataclass(frozen=True)
@@ -79,18 +87,38 @@ class EffDataRow:
 
 
 @dataclass(frozen=True)
+class EffOfftargetRow:
+    """One validated off-target site from an aggregated crisporPaper off-target table.
+
+    `guide_seq` / `ot_seq` are the 23-mers (20 nt protospacer + 3 nt NGG PAM). `read_fraction` is
+    the upstream signal-strength proxy (e.g. GUIDE-seq read fraction for that site, normalized to
+    the strongest site for the sgRNA) -- used verbatim as the ground-truth target for the recall
+    benchmark, never rescaled.
+    """
+
+    guide_name: str
+    guide_seq: str
+    ot_seq: str
+    read_fraction: float
+    mismatches: int
+
+
+@dataclass(frozen=True)
 class LoadedDataset:
-    """Parsed dataset rows plus the provenance the benchmark records (source + verified hash)."""
+    """Parsed dataset rows plus the provenance the benchmark records (source + verified hash).
+    `rows` is `list[EffDataRow]` for kind='on_target', `list[EffOfftargetRow]` for kind='off_target'.
+    """
 
     spec: EffDataset
-    rows: list[EffDataRow]
+    rows: list[EffDataRow] | list[EffOfftargetRow]
     source: str
     sha256: str
 
 
 # The dataset registry. chari2015Train is the on-target slice-1 eval set; adding doench2014 /
 # concordet2 / the chari K562 split later is a one-line addition (verify each file's sha256 the
-# same way -- never trust a hash from memory). Provenance verified live 2026-05-30.
+# same way -- never trust a hash from memory). Provenance verified live 2026-05-30 (on-target) and
+# 2026-06-01 (off-target).
 DATASETS: dict[str, EffDataset] = {
     "chari2015Train": EffDataset(
         name="chari2015Train",
@@ -106,6 +134,26 @@ DATASETS: dict[str, EffDataset] = {
             "+ 3 nt NGG PAM). `modFreq` is a normalized modification frequency and is NOT bounded to "
             "[0, 1] (values exceed 1.0), so treat it as a rank/linear target, not a probability."
         ),
+        kind="on_target",
+    ),
+    "annotOfftargets": EffDataset(
+        name="annotOfftargets",
+        upstream_relpath="out/annotOfftargets.tsv",
+        expected_sha256="0a27d1ab3d5c6a57cb5c55ecb89cc86e5262e12caccd1fb55c4e3e8c8008d815",
+        n_rows=718,
+        citation=(
+            "Haeussler M, Schoenig K, Eckert H, et al. (2016) Evaluation of off-target and on-target "
+            "scoring algorithms and integration into the guide RNA selection tool CRISPOR. Genome "
+            "Biology 17:148 -- aggregates validated off-target sites from Tsai 2015 (GUIDE-seq), "
+            "Frock 2015 (HTGTS), Cho 2014, Kim 2015 (Digenome-seq), Kim 2016 and Ran 2015."
+        ),
+        notes=(
+            "Aggregated, annotated validated off-target sites. `guideSeq` and `otSeq` are 23-mers "
+            "(20 nt protospacer + 3 nt NGG PAM). `readFraction` is the per-sgRNA-normalized signal "
+            "(e.g. GUIDE-seq fraction) used VERBATIM as the recall target, never rescaled. The "
+            "rows mix several studies; the `name` prefix identifies the source (Tsai_/Frock_/Cho_/...)."
+        ),
+        kind="off_target",
     ),
 }
 
@@ -208,6 +256,54 @@ def parse_tab(blob: bytes) -> list[EffDataRow]:
     return rows
 
 
+def parse_offtarget_tab(blob: bytes) -> list[EffOfftargetRow]:
+    """Parse a crisporPaper aggregated off-target table (e.g. `out/annotOfftargets.tsv`).
+
+    Required columns (by header name, case-insensitive): `name`, `guideSeq`, `otSeq`,
+    `readFraction`, `mismatches`. Extra columns are ignored. Faithful to the upstream layout --
+    `readFraction` is used verbatim, never rescaled.
+    """
+    text = blob.decode("utf-8")
+    lines = text.splitlines()
+    if not lines:
+        raise EffDataFetchError("Empty off-target file (no header row).")
+
+    header = [h.strip().lower() for h in lines[0].split("\t")]
+    required = {"name", "guideseq", "otseq", "readfraction", "mismatches"}
+    missing = required - set(header)
+    if missing:
+        raise EffDataFetchError(
+            f"Off-target table is missing required columns {sorted(missing)} (header: {lines[0]!r}). "
+            "The upstream format may have changed -- re-verify before trusting the parse."
+        )
+    idx = {col: header.index(col) for col in required}
+
+    rows: list[EffOfftargetRow] = []
+    for lineno, line in enumerate(lines[1:], start=2):
+        if not line.strip():
+            continue
+        parts = line.split("\t")
+        if len(parts) <= max(idx.values()):
+            raise EffDataFetchError(
+                f"Truncated off-target row {lineno} (need >={max(idx.values()) + 1} cols): {line!r}"
+            )
+        try:
+            read_fraction = float(parts[idx["readfraction"]])
+            mismatches = int(parts[idx["mismatches"]])
+        except ValueError as e:
+            raise EffDataFetchError(f"Non-numeric readFraction/mismatches at row {lineno}: {line!r}") from e
+        rows.append(
+            EffOfftargetRow(
+                guide_name=parts[idx["name"]].strip(),
+                guide_seq=parts[idx["guideseq"]].strip().upper(),
+                ot_seq=parts[idx["otseq"]].strip().upper(),
+                read_fraction=read_fraction,
+                mismatches=mismatches,
+            )
+        )
+    return rows
+
+
 def load_dataset(
     name: str,
     *,
@@ -254,7 +350,13 @@ def load_dataset(
             cache.parent.mkdir(parents=True, exist_ok=True)
             cache.write_bytes(blob)
 
-    rows = parse_tab(blob)
+    rows: list[EffDataRow] | list[EffOfftargetRow]
+    if spec.kind == "on_target":
+        rows = parse_tab(blob)
+    elif spec.kind == "off_target":
+        rows = parse_offtarget_tab(blob)
+    else:  # pragma: no cover -- exhausted by EffDataKind, defensive against future additions
+        raise EffDataFetchError(f"Unhandled dataset kind {spec.kind!r} for {spec.name!r}.")
     if len(rows) != spec.n_rows:
         raise EffDataFetchError(
             f"Dataset {spec.name!r} parsed {len(rows)} rows but the spec expects {spec.n_rows}. "

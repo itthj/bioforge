@@ -35,6 +35,16 @@ Built the first arm of the §13 on-target accuracy benchmark. Suite now **920 pa
   carries `leakage_evidence` + `leakage_caveat` alongside the status. One residual caveat travels
   with the result: incidental guide overlap with the Doench-2016 HEK293T training subset is
   not sequence-level checked. +3 tests, 930 passed.
+- **Off-target recall arm shipped (2026-06-01, session 3):** `benchmarks/off_target_recall.py`
+  scores every (sgRNA, validated off-target) pair from the crisporPaper aggregated `annotOfftargets`
+  table (718 sites across Tsai 2015 / Frock 2015 / Cho 2014 / Kim 2015 / Ran 2015, pinned commit
+  33a8225, sha256 0a27d1ab3d5c6a57cb5c55ecb89cc86e5262e12caccd1fb55c4e3e8c8008d815) with the
+  platform's full Doench-2016 CFD (mismatch x PAM) and correlates against the upstream
+  `readFraction` (Spearman + Pearson + recall@quantile). effdata.py loader extended to dispatch
+  on `EffDataKind` ('on_target'|'off_target'), with a typed `EffOfftargetRow` and a strict
+  parser that drops malformed rows with a recorded `n_skipped` rather than silently scoring zero.
+  Leakage = 'unknown' until verified against Doench 2016 (same gate discipline as on-target).
+  Accuracy Report row flipped not_yet_wired -> guard_only. +9 tests; 939 passed; ruff clean.
 - **Calibration shipped (2026-06-01, session 3):** `benchmarks/reliability.py` turns the on-target
   `(predicted, observed)` pairs into a typed `ReliabilityCurve` (numpy quantile bins + Spearman
   monotonicity_rho; honest `kind="regression_ranking"` — NOT probability calibration, y=x is not the

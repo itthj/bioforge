@@ -167,10 +167,22 @@ _BENCHMARKS: list[BenchmarkStatus] = [
         ),
     ),
     BenchmarkStatus(
-        name="CRISPR off-target — GUIDE-seq / CIRCLE-seq recall",
+        name="CRISPR off-target — validated-site discrimination (CFD vs readFraction)",
         blueprint_section="§13 / Phase 2",
-        status="not_yet_wired",
-        detail="Requires a validated off-target site set; CFD scoring + full-genome search are pending.",
+        status="guard_only",
+        detail=(
+            "benchmarks.off_target_recall scores every (sgRNA, validated off-target) pair from the "
+            "aggregated crisporPaper annotOfftargets table (718 sites across Tsai 2015 / Frock 2015 / "
+            "Cho 2014 / Kim 2015 / Ran 2015) with the platform's own full CFD (Doench 2016, mismatch x "
+            "PAM) and correlates against the upstream readFraction (Spearman + Pearson) plus "
+            "recall-at-quantile of the strongest sites. Loader is sha256-pinned + commit-pinned; "
+            "fetched-on-first-use, never vendored (same unlicensed-data posture as the on-target arm). "
+            "guard_only, not live: it needs a network fetch + per-site CFD, so it is not computed "
+            "on page load. Leakage status currently UNKNOWN -- whether CFD's Doench-2016 training "
+            "screen overlapped any of these endogenous sites is not yet verified against the primary "
+            "source -- so reported as discrimination, NOT a held-out accuracy claim (the same gate "
+            "discipline the on-target arm uses)."
+        ),
     ),
     BenchmarkStatus(
         name="Variant calling — GIAB precision / recall / F1",
