@@ -46,6 +46,11 @@ Built the first arm of the §13 on-target accuracy benchmark. Suite now **920 pa
   `python -m bioforge.benchmarks.published` (env: BIOFORGE_DEEPCRISPR_ENABLED/IMAGE +
   CRISPOR_EFFDATA_CONSENT). This turns §6 from "capability built" to "capability DEMONSTRATED with
   real numbers". +2 backend tests; 967 passed + 91 vitest.
+  - **Second published arm (off-target, no Docker):** `generate_off_target_artifact` publishes the
+    REAL CFD vs annotOfftargets discrimination -- **Spearman rho 0.3132**, n=717, leakage unknown
+    (honest), reliability curve cleanly monotonic (bin-means 0.002->0.062 as CFD 0.017->0.654). CFD
+    is in-platform, so this needs only the network fetch (no Docker). Both arms now show real numbers
+    + reliability curves in the Accuracy Report. `published/off_target_annotofftargets_cfd.json`. 968 passed.
 - **GIAB concordance metric shipped (2026-06-01, session 3):** `benchmarks/variant_concordance.py`
   is the SCORING half of the GIAB benchmark -- stratified precision/recall/F1 (SNV/INDEL/ALL)
   restricted to high-confidence regions, with parsimonious normalized-allele matching, a

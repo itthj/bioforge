@@ -1,0 +1,118 @@
+{
+  "name": "CRISPR off-target: CFD vs validated-site readFraction (Tsai/Frock/Cho/Kim)",
+  "blueprint_section": "\u00a713 / Phase 2",
+  "generated_at": "2026-06-02T01:11:13.998116Z",
+  "model_version": "doench-2016-cfd-full",
+  "dataset": "annotOfftargets",
+  "data_sha256": "0a27d1ab3d5c6a57cb5c55ecb89cc86e5262e12caccd1fb55c4e3e8c8008d815",
+  "citation": "Haeussler M, Schoenig K, Eckert H, et al. (2016) Evaluation of off-target and on-target scoring algorithms and integration into the guide RNA selection tool CRISPOR. Genome Biology 17:148 -- aggregates validated off-target sites from Tsai 2015 (GUIDE-seq), Frock 2015 (HTGTS), Cho 2014, Kim 2015 (Digenome-seq), Kim 2016 and Ran 2015.",
+  "n": 717,
+  "spearman_rho": 0.3132,
+  "pearson_r": 0.3074,
+  "leakage_status": "unknown",
+  "leakage_evidence": "",
+  "leakage_caveat": "CFD's mismatch matrices come from Doench 2016's synthetic mismatched-library screen (HEK293/A375); the eval sites here are endogenous off-targets from Tsai/Frock/Cho/Kim screens, which are a different experimental regime -- almost certainly held-out in practice, but not promoted until a Doench-2016 primary-source check confirms it.",
+  "dataset_relationship": "",
+  "interpretation": "Spearman rho=0.313 between full CFD (Doench 2016) and measured readFraction across annotOfftargets (aggregated validated off-target sites). Recall-at-quantile (of strongest sites recovered by top-q CFD): top-10%=0.33, top-25%=0.41, top-50%=0.61. Leakage status is UNKNOWN -- whether CFD's Doench-2016 training screen overlapped any of these endogenous sites has not been verified against a primary source -- so this is a discrimination measurement, NOT a held-out accuracy claim. Residual caveat: CFD's mismatch matrices come from Doench 2016's synthetic mismatched-library screen (HEK293/A375); the eval sites here are endogenous off-targets from Tsai/Frock/Cho/Kim screens, which are a different experimental regime -- almost certainly held-out in practice, but not promoted until a Doench-2016 primary-source check confirms it.",
+  "reliability": {
+    "n": 717,
+    "n_bins": 10,
+    "bins": [
+      {
+        "bin_index": 0,
+        "n": 72,
+        "predicted_mean": 0.01678670986386059,
+        "observed_mean": 0.0016281492043728888,
+        "observed_sem": 0.00038410708654584895,
+        "predicted_low": 0.0,
+        "predicted_high": 0.034999999987499995
+      },
+      {
+        "bin_index": 1,
+        "n": 72,
+        "predicted_mean": 0.0548785553442217,
+        "observed_mean": 0.0062451482258832226,
+        "observed_sem": 0.002864257289674359,
+        "predicted_low": 0.03555268234195217,
+        "predicted_high": 0.07369614507193249
+      },
+      {
+        "bin_index": 2,
+        "n": 72,
+        "predicted_mean": 0.09657278096974736,
+        "observed_mean": 0.007014342794462929,
+        "observed_sem": 0.001701962005641589,
+        "predicted_low": 0.07407407397037036,
+        "predicted_high": 0.11873840450528522
+      },
+      {
+        "bin_index": 3,
+        "n": 72,
+        "predicted_mean": 0.13764166861983954,
+        "observed_mean": 0.005272081372391195,
+        "observed_sem": 0.0018102106438778727,
+        "predicted_low": 0.119172413808,
+        "predicted_high": 0.1527777776805555
+      },
+      {
+        "bin_index": 4,
+        "n": 72,
+        "predicted_mean": 0.17234640419268024,
+        "observed_mean": 0.007064016942089403,
+        "observed_sem": 0.0018172542695057573,
+        "predicted_low": 0.15319865298800503,
+        "predicted_high": 0.19736842100000002
+      },
+      {
+        "bin_index": 5,
+        "n": 72,
+        "predicted_mean": 0.2229152194982702,
+        "observed_mean": 0.01880468695921121,
+        "observed_sem": 0.005817900489423582,
+        "predicted_low": 0.19780219804395605,
+        "predicted_high": 0.250105263111
+      },
+      {
+        "bin_index": 6,
+        "n": 72,
+        "predicted_mean": 0.28567393170272176,
+        "observed_mean": 0.013891574113047986,
+        "observed_sem": 0.003968432752992433,
+        "predicted_low": 0.25071428577,
+        "predicted_high": 0.31929824578223687
+      },
+      {
+        "bin_index": 7,
+        "n": 71,
+        "predicted_mean": 0.3599318371072646,
+        "observed_mean": 0.018747131553126472,
+        "observed_sem": 0.009843565634782867,
+        "predicted_low": 0.3197368421585525,
+        "predicted_high": 0.41357421875
+      },
+      {
+        "bin_index": 8,
+        "n": 71,
+        "predicted_mean": 0.4591094948656137,
+        "observed_mean": 0.02069488543755899,
+        "observed_sem": 0.004109692710917629,
+        "predicted_low": 0.41367521361880333,
+        "predicted_high": 0.5293233083639097
+      },
+      {
+        "bin_index": 9,
+        "n": 71,
+        "predicted_mean": 0.6538328774579055,
+        "observed_mean": 0.062095860976472045,
+        "observed_sem": 0.015654878169338842,
+        "predicted_low": 0.5305263155263158,
+        "predicted_high": 1.0
+      }
+    ],
+    "monotonicity_rho": 0.9273,
+    "kind": "regression_ranking",
+    "predicted_label": "CFD off-target score",
+    "observed_label": "validated-site readFraction",
+    "caveat": "Ranking-reliability curve for a regression score: x is the mean predicted score per bin, y is the mean MEASURED outcome. The score is not a probability, so this is not a probability calibration diagram and y=x is not the target -- read it for whether higher scores track higher measured outcomes (monotonicity), not for absolute agreement."
+  }
+}

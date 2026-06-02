@@ -29,8 +29,23 @@ def test_on_target_artifact_loads_and_is_honest() -> None:
     assert art.reliability.kind == "regression_ranking"
 
 
+def test_off_target_artifact_loads_and_is_honest() -> None:
+    published = load_published_benchmarks()
+    art = next((p for p in published if "off-target" in p.name and "CFD" in p.name), None)
+    assert art is not None
+    assert art.dataset == "annotOfftargets"
+    assert art.n > 500  # the validated-site corpus (~717 scored)
+    assert 0.0 < art.spearman_rho < 0.6  # the genuine CFD-vs-readFraction discrimination (~0.31)
+    # Honesty: leakage stays UNKNOWN (Doench-2016 training overlap unverified), with the caveat.
+    assert art.leakage_status == "unknown"
+    assert art.leakage_evidence == ""
+    assert art.leakage_caveat  # the residual concern is recorded
+    assert art.reliability.bins
+
+
 def test_published_artifacts_flow_into_the_report() -> None:
     report = build_accuracy_report()
     assert report.published, "the Accuracy Report must surface the published artifacts"
     names = {p.name for p in report.published}
-    assert any("DeepCRISPR" in n for n in names)
+    assert any("DeepCRISPR" in n for n in names)  # on-target
+    assert any("off-target" in n for n in names)  # off-target -- both arms publish real numbers

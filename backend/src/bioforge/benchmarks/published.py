@@ -20,7 +20,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from bioforge.benchmarks.reliability import ReliabilityCurve, reliability_from_pairs
+from bioforge.benchmarks.reliability import ReliabilityCurve, reliability_curve, reliability_from_pairs
 
 PUBLISHED_DIR = Path(__file__).parent / "published"
 
@@ -105,7 +105,49 @@ def generate_on_target_artifact(*, settings=None) -> Path:
     return out_path
 
 
+def generate_off_target_artifact(*, settings=None) -> Path:
+    """Run the real CFD vs annotOfftargets discrimination benchmark and write its artifact.
+
+    CFD is in-platform (the committed Doench-2016 tables), so this needs only effData consent + a
+    network fetch -- no Docker. Honest: leakage stays 'unknown' (CFD's training-overlap with these
+    endogenous sites is unverified) with its caveat, exactly as the live result reports.
+    """
+    from bioforge.benchmarks.off_target_recall import run_off_target_recall
+
+    result = run_off_target_recall("annotOfftargets", settings=settings)
+    curve = reliability_curve(
+        [(p.cfd, p.read_fraction) for p in result.pairs],
+        n_bins=10,
+        predicted_label="CFD off-target score",
+        observed_label="validated-site readFraction",
+    )
+    artifact = PublishedBenchmark(
+        name="CRISPR off-target: CFD vs validated-site readFraction (Tsai/Frock/Cho/Kim)",
+        blueprint_section="§13 / Phase 2",
+        generated_at=datetime.now(UTC),
+        model_version=result.model_version,
+        dataset=result.dataset,
+        data_sha256=result.data_sha256,
+        citation=result.citation,
+        n=result.n,
+        spearman_rho=result.spearman_rho,
+        pearson_r=result.pearson_r,
+        leakage_status=result.leakage_status,
+        leakage_evidence=result.leakage_evidence,
+        leakage_caveat=result.leakage_caveat,
+        dataset_relationship="",
+        interpretation=result.interpretation,
+        reliability=curve,
+    )
+    PUBLISHED_DIR.mkdir(parents=True, exist_ok=True)
+    out_path = PUBLISHED_DIR / "off_target_annotofftargets_cfd.json"
+    out_path.write_text(artifact.model_dump_json(indent=2), encoding="utf-8")
+    return out_path
+
+
 if __name__ == "__main__":  # pragma: no cover -- offline generation entry point
+    # Regenerates ALL published artifacts. On-target needs the DeepCRISPR legacy image; off-target
+    # needs only the effData consent + network (in-platform CFD).
     os.environ.setdefault("BIOFORGE_DEEPCRISPR_ENABLED", "true")
     os.environ.setdefault("BIOFORGE_DEEPCRISPR_RUNNER", "docker")
     os.environ.setdefault("BIOFORGE_DEEPCRISPR_DOCKER_IMAGE", "bioforge/deepcrispr:legacy")
@@ -114,5 +156,6 @@ if __name__ == "__main__":  # pragma: no cover -- offline generation entry point
     # Re-read settings AFTER setting env (the module-level singleton may have been built already).
     from bioforge.config import Settings
 
-    written = generate_on_target_artifact(settings=Settings())
-    print(f"wrote {written}")
+    s = Settings()
+    print(f"wrote {generate_on_target_artifact(settings=s)}")
+    print(f"wrote {generate_off_target_artifact(settings=s)}")
