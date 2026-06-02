@@ -165,9 +165,35 @@ async def test_genomic_placement_only_for_grch38_chromosome_hits(patch_ncbi) -> 
     assert placed.chromosome == "chr1"
     assert (placed.start, placed.end) == (1000, 1020)  # _fake_hsp uses 1001..1020 (1-based)
     assert placed.build == "GRCh38"
+    assert by_acc["NC_000001.11"].genomic_placement_note is None  # placed -> no refusal note
 
     assert by_acc["NM_007294.4"].genomic_placement is None
+    note = by_acc["NM_007294.4"].genomic_placement_note
+    assert note is not None and "not a GRCh38 primary-assembly chromosome" in note
     assert any("Genomic placement: 1 of 2" in c for c in out.caveats)
+
+
+async def test_wrong_build_chromosome_hit_is_refused_with_a_specific_reason(patch_ncbi) -> None:
+    """A GRCh37 chromosome accession must NOT be placed on hg38, and the hit should say
+    specifically that it's the wrong build (not the generic 'not a chromosome' message)."""
+    record = _fake_record(
+        [
+            _fake_alignment(
+                accession="NC_000001.10",  # GRCh37 chr1 -- coordinates differ from GRCh38
+                hit_def="Homo sapiens chromosome 1, GRCh37 [Homo sapiens]",
+                identities=20,
+                align_length=20,
+            )
+        ]
+    )
+    patch_ncbi((record, "RID-GRCH37"))
+
+    out = await find_offtargets(FindOfftargetsInput(guide=_GUIDE))
+    hit = out.hits[0]
+    assert hit.genomic_placement is None  # refused -- never placed at GRCh38 coordinates
+    assert hit.genomic_placement_note is not None
+    assert "different assembly build" in hit.genomic_placement_note
+    assert "chr1" in hit.genomic_placement_note
 
 
 async def test_2_mismatches_still_high_risk(patch_ncbi) -> None:

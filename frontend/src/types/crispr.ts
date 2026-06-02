@@ -85,6 +85,8 @@ export interface OfftargetHit {
   risk_label: RiskLabel;
   /** Present only when the hit sits on a GRCh38 primary chromosome; null otherwise. */
   genomic_placement: GenomicPlacement | null;
+  /** When not placed, the specific reason (wrong build vs non-chromosome record); null when placed. */
+  genomic_placement_note: string | null;
 }
 
 function asGenomicPlacement(raw: unknown): GenomicPlacement | null {
@@ -129,6 +131,8 @@ export function coerceOfftargetHits(
       ? h.risk_label
       : "low") as RiskLabel,
     genomic_placement: asGenomicPlacement(h.genomic_placement),
+    genomic_placement_note:
+      typeof h.genomic_placement_note === "string" ? h.genomic_placement_note : null,
   }));
 }
 

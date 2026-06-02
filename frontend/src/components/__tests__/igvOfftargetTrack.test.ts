@@ -38,6 +38,7 @@ function hit(over: Partial<OfftargetHit> = {}): OfftargetHit {
     cfd_mismatch_score: 0.4,
     risk_label: "high" as RiskLabel,
     genomic_placement: placement(),
+    genomic_placement_note: null,
     ...over,
   };
 }

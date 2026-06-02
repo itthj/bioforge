@@ -41,6 +41,7 @@ from bioforge.tools.base import ToolError, ToolInput, ToolOutput
 from bioforge.tools.registry import execute_tool, register_tool
 from bioforge.tools.sequence.genomic_placement import (
     GenomicPlacement,
+    placement_refusal_reason,
     resolve_genomic_placement,
 )
 from bioforge.tools.sequence.offtarget_pam import (
@@ -204,6 +205,14 @@ class OfftargetHit(BaseModel):
             "different build, or a non-human subject -- such a hit cannot be soundly shown on an "
             "hg38 genome browser, so it is never assigned a (wrong) locus. Enables the genomic "
             "off-target view; placement is independent of PAM verification."
+        ),
+    )
+    genomic_placement_note: str | None = Field(
+        default=None,
+        description=(
+            "When `genomic_placement` is null, the specific reason the hit was not placed on hg38 "
+            "-- distinguishing a wrong-build chromosome accession (coordinates differ between builds) "
+            "from a gene/transcript/scaffold/non-human record. null when the hit WAS placed."
         ),
     )
     risk_label: Literal["high", "medium", "low"]
@@ -496,7 +505,9 @@ async def find_offtargets(inp: FindOfftargetsInput) -> FindOfftargetsOutput:
         )
         subj_start = int(h.get("subject_start", 0) or 0)
         subj_end = int(h.get("subject_end", 0) or 0)
-        placement = resolve_genomic_placement(h.get("accession", ""), subj_start, subj_end)
+        accession = h.get("accession", "")
+        placement = resolve_genomic_placement(accession, subj_start, subj_end)
+        placement_note = None if placement is not None else placement_refusal_reason(accession)
         candidates.append(
             OfftargetHit(
                 accession=h.get("accession", ""),
@@ -517,6 +528,7 @@ async def find_offtargets(inp: FindOfftargetsInput) -> FindOfftargetsOutput:
                 subject_start=subj_start,
                 subject_end=subj_end,
                 genomic_placement=placement,
+                genomic_placement_note=placement_note,
                 risk_label=risk,
                 risk_reason=reason,
             )

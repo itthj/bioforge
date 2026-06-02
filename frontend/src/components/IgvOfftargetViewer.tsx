@@ -159,6 +159,9 @@ export function IgvOfftargetViewer({ hits }: IgvOfftargetViewerProps) {
                 <span className="font-mono">{h.accession || "(no accession)"}</span>{" "}
                 — {h.risk_label} risk, {h.mismatch_count}mm
                 {h.organism ? ` · ${h.organism}` : ""}
+                {h.genomic_placement_note && (
+                  <span className="block text-slate-500">{h.genomic_placement_note}</span>
+                )}
               </li>
             ))}
           </ul>

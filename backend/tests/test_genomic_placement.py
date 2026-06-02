@@ -14,6 +14,7 @@ from bioforge.tools.sequence.genomic_placement import (
     _ACCESSION_DATA_PATH,
     _accession_map,
     is_grch38_chromosome,
+    placement_refusal_reason,
     resolve_genomic_placement,
 )
 
@@ -64,6 +65,25 @@ def test_refuses_degenerate_coordinates() -> None:
     # BLAST is 1-based; a 0 means the coordinate was missing -- never invent a locus.
     assert resolve_genomic_placement("NC_000001.11", 0, 0) is None
     assert resolve_genomic_placement("NC_000001.11", 0, 20) is None
+
+
+def test_no_refusal_reason_for_a_placeable_chromosome() -> None:
+    assert placement_refusal_reason("NC_000001.11") is None
+
+
+def test_refusal_reason_names_the_wrong_build_specifically() -> None:
+    # NC_000001.10 is GRCh37 chr1 -- same chromosome base, different assembly version.
+    reason = placement_refusal_reason("NC_000001.10")
+    assert reason is not None
+    assert "chr1" in reason
+    assert "different assembly build" in reason
+    assert "NC_000001.11" in reason  # points to the GRCh38 accession it differs from
+
+
+def test_refusal_reason_for_non_chromosome_record() -> None:
+    reason = placement_refusal_reason("NM_007294.4")
+    assert reason is not None
+    assert "not a GRCh38 primary-assembly chromosome" in reason
 
 
 def test_accession_map_matches_committed_data_and_is_complete() -> None:

@@ -60,6 +60,8 @@ function unplacedHit(over: Record<string, unknown> = {}): Record<string, unknown
     cfd_mismatch_score: null,
     risk_label: "high",
     genomic_placement: null,
+    genomic_placement_note:
+      "NM_007294.4 is not a GRCh38 primary-assembly chromosome (e.g. a gene/transcript record, scaffold, or non-human subject); not placed on hg38.",
     ...over,
   };
 }
@@ -86,7 +88,15 @@ describe("IgvOfftargetViewer", () => {
   it("always lists non-placeable hits with their accession, never a locus", () => {
     render(<IgvOfftargetViewer hits={[placedHit(), unplacedHit()]} />);
     expect(screen.getByText(/not on hg38/i)).toBeInTheDocument();
-    expect(screen.getByText(/NM_007294\.4/)).toBeInTheDocument();
+    // The accession appears both as its own token and at the start of the reason note.
+    expect(screen.getAllByText(/NM_007294\.4/).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("shows the specific reason a hit was not placed", () => {
+    render(<IgvOfftargetViewer hits={[unplacedHit()]} />);
+    expect(
+      screen.getByText(/not a GRCh38 primary-assembly chromosome/i),
+    ).toBeInTheDocument();
   });
 
   it("loads igv on the hosted hg38 genome with placed features", async () => {
