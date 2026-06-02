@@ -148,6 +148,29 @@ class Settings(BaseSettings):
     mafft_binary: str = Field(default="mafft", alias="BIOFORGE_MAFFT_BINARY")
     mafft_timeout_seconds: float = Field(default=300.0, alias="BIOFORGE_MAFFT_TIMEOUT_SECONDS")
 
+    # DeepVariant (Poplin et al. 2018) -- the variant CALLER for the section 13 GIAB concordance
+    # benchmark. BSD-3-Clause (verified 2026-06-02, docs/license_audit.md) -> commercial-clean,
+    # NO consent gate. Runs OUT OF PROCESS in a digest-pinned image (run_deepvariant pipeline) over
+    # a reads BAM + reference; there is no pure-Python fallback. The GIAB benchmark stays guard_only
+    # (it needs Docker + the GRCh38 reference + the HG002 truth set, so it never runs on a page load).
+    # The reference build is USER-CONFIRMED, never assumed (section 10).
+    deepvariant_enabled: bool = Field(default=False, alias="BIOFORGE_DEEPVARIANT_ENABLED")
+    deepvariant_docker_image: str = Field(default="", alias="BIOFORGE_DEEPVARIANT_DOCKER_IMAGE")
+    deepvariant_model_type: str = Field(
+        default="WGS", alias="BIOFORGE_DEEPVARIANT_MODEL_TYPE"
+    )  # WGS|WES|PACBIO|ONT_R104
+    deepvariant_num_shards: int = Field(default=2, alias="BIOFORGE_DEEPVARIANT_NUM_SHARDS")
+    deepvariant_timeout_seconds: float = Field(default=14400.0, alias="BIOFORGE_DEEPVARIANT_TIMEOUT_SECONDS")
+
+    # GIAB benchmark inputs (section 13). All user-supplied paths; the reference BUILD must be stated
+    # explicitly (never assumed). Empty by default -> the live benchmark is unavailable until staged.
+    giab_reference_path: str = Field(default="", alias="BIOFORGE_GIAB_REFERENCE_PATH")
+    giab_reference_build: str = Field(default="", alias="BIOFORGE_GIAB_REFERENCE_BUILD")  # e.g. GRCh38.p14
+    giab_reads_path: str = Field(default="", alias="BIOFORGE_GIAB_READS_PATH")  # aligned BAM (indexed)
+    giab_truth_vcf_path: str = Field(default="", alias="BIOFORGE_GIAB_TRUTH_VCF_PATH")
+    giab_confident_bed_path: str = Field(default="", alias="BIOFORGE_GIAB_CONFIDENT_BED_PATH")
+    giab_regions: str = Field(default="", alias="BIOFORGE_GIAB_REGIONS")  # e.g. chr20 or chr20:1-10000000
+
     # crisporPaper effData -- held-out guide-efficiency datasets (Haeussler/Concordet, the same
     # source the CFD matrices came from) used ONLY by the §13 on-target accuracy benchmark, never
     # at request time. The repo carries NO license file (all-rights-reserved), so its data is NEVER

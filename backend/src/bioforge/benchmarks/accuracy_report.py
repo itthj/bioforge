@@ -192,16 +192,17 @@ _BENCHMARKS: list[BenchmarkStatus] = [
     BenchmarkStatus(
         name="Variant calling — GIAB precision / recall / F1",
         blueprint_section="§13 / Phase 3",
-        status="not_yet_wired",
+        status="guard_only",
         detail=(
-            "The SCORING half is built + unit-tested: benchmarks.variant_concordance computes "
-            "stratified precision/recall/F1 (SNV/INDEL/ALL) restricted to high-confidence regions, "
-            "with parsimonious normalized-allele matching and an honest caveat that it is NOT the "
-            "haplotype-aware comparison hap.py/vcfeval perform. Still not_yet_wired end-to-end "
-            "because two upstream pieces remain: (1) a variant-calling PATH -- no caller is "
-            "integrated (the variant tools are annotation-only); and (2) the GIAB HG002 truth-set + "
-            "high-confidence BED download. The metric goes live the moment a digest-pinned caller "
-            "feeds it real called VCFs."
+            "Wired end-to-end: benchmarks.giab now runs a digest-pinned DeepVariant caller "
+            "(BSD-3-Clause; deepvariant_runner) over an aligned reads BAM + the USER-CONFIRMED "
+            "reference build, parses the called VCF, and scores it with benchmarks.variant_concordance "
+            "(stratified precision/recall/F1 for SNV/INDEL/ALL, restricted to the GIAB high-confidence "
+            "BED). guard_only -- NOT live -- because it needs Docker + the GRCh38 reference + the HG002 "
+            "truth set, so it never runs on a page load (the same discipline as the on-target arm). The "
+            "concordance is genotype-agnostic exact-match, NOT the haplotype-aware comparison "
+            "hap.py/vcfeval perform -- that caveat travels with every result. The real published number "
+            "comes from an offline run over the staged GIAB inputs."
         ),
     ),
     BenchmarkStatus(

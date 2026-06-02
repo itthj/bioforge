@@ -38,10 +38,12 @@ def test_report_benchmark_ledger_is_honest() -> None:
     report = build_accuracy_report()
     statuses = [b.status for b in report.benchmarks]
     assert "live" in statuses  # validator metrics are really measured
-    assert "not_yet_wired" in statuses  # we never fake an unmeasured benchmark
-    # GIAB is mandated by §13 and must be present + truthfully marked unwired.
+    # Every row carries one of the three honest states (never an unstated claim).
+    assert set(statuses) <= {"live", "guard_only", "not_yet_wired"}
+    # GIAB is mandated by §13 and must be present. Its caller is now wired (DeepVariant), so it
+    # is guard_only -- runs offline over staged inputs, never faked on a page load.
     giab = next((b for b in report.benchmarks if "GIAB" in b.name), None)
-    assert giab is not None and giab.status == "not_yet_wired"
+    assert giab is not None and giab.status == "guard_only"
 
 
 async def test_accuracy_endpoint_serves_the_report(streaming_client) -> None:
@@ -51,4 +53,5 @@ async def test_accuracy_endpoint_serves_the_report(streaming_client) -> None:
     assert body["validator"]["passes"] is True
     assert isinstance(body["models"], list) and body["models"]
     assert any(b["status"] == "live" for b in body["benchmarks"])
-    assert any(b["status"] == "not_yet_wired" for b in body["benchmarks"])
+    # Every benchmark row is in the honest taxonomy (live / guard_only / not_yet_wired).
+    assert all(b["status"] in {"live", "guard_only", "not_yet_wired"} for b in body["benchmarks"])
