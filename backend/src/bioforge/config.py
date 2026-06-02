@@ -135,6 +135,19 @@ class Settings(BaseSettings):
     )
     azimuth_timeout_seconds: float = Field(default=300.0, alias="BIOFORGE_AZIMUTH_TIMEOUT_SECONDS")
 
+    # MAFFT (Katoh et al.) -- multiple-sequence alignment for the section 3 / Phase 4 MSA viewer.
+    # CORE MAFFT is BSD-3-Clause (verified 2026-06-02, docs/license_audit.md) -> commercial-clean,
+    # NO consent gate. CRITICAL: MAFFT's bundled *extensions* (Vienna RNA, MXSCARNA) are restrictively
+    # licensed, so the image MUST be core-only. Runs OUT OF PROCESS in a digest-pinned core-only image
+    # (BIOFORGE_MAFFT_DOCKER_IMAGE; see models/mafft/legacy/README.md) or via a local `mafft` binary.
+    # There is NO pure-Python fallback: align_msa refuses with setup guidance when the env is absent
+    # (no faked alignment), so the default configuration simply does not offer MSA until configured.
+    mafft_enabled: bool = Field(default=False, alias="BIOFORGE_MAFFT_ENABLED")
+    mafft_runner: str = Field(default="docker", alias="BIOFORGE_MAFFT_RUNNER")  # docker | local
+    mafft_docker_image: str = Field(default="", alias="BIOFORGE_MAFFT_DOCKER_IMAGE")
+    mafft_binary: str = Field(default="mafft", alias="BIOFORGE_MAFFT_BINARY")
+    mafft_timeout_seconds: float = Field(default=300.0, alias="BIOFORGE_MAFFT_TIMEOUT_SECONDS")
+
     # crisporPaper effData -- held-out guide-efficiency datasets (Haeussler/Concordet, the same
     # source the CFD matrices came from) used ONLY by the §13 on-target accuracy benchmark, never
     # at request time. The repo carries NO license file (all-rights-reserved), so its data is NEVER

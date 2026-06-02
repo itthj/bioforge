@@ -1,4 +1,5 @@
 from bioforge.tools.sequence import (  # noqa: F401  — register on import
+    align_msa,
     blast,
     codon_usage,
     crispr_edit_report,
@@ -15,6 +16,7 @@ from bioforge.tools.sequence import (  # noqa: F401  — register on import
 )
 
 __all__ = [
+    "align_msa",
     "blast",
     "codon_usage",
     "crispr_edit_report",
