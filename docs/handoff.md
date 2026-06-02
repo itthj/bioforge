@@ -2,7 +2,51 @@
 
 ## ★ START HERE — session 6 entry point (written 2026-06-02, end of session 5)
 
-**Repo:** https://github.com/itthj/bioforge -- **main @ `9caeef4`**, working tree clean, everything pushed.
+### Session 6 kickoff prompt (copy-paste this into the new session)
+```
+Continuing BioForge (github.com/itthj/bioforge, main @ 7464785, working tree clean -- the v4
+blueprint is functionally COMPLETE on the buildable surface). Backend 1007 tests, frontend 123
+vitest -- all green; tsc --strict + ruff clean. Local repo: C:\Users\james\OneDrive\Documents\
+BIOTECH 101\bioforge; venv at bioforge\.venv; Docker works (deepcrispr/azimuth/lindel/forecast
+legacy images + google/deepvariant:1.6.1 pulled); node not on PATH (prepend C:\Users\james\
+AppData\Local\Programs\nodejs); gh is in WSL Ubuntu (wsl -d Ubuntu -- bash -lc "gh ...").
+NOTE: check `git log origin/main..main`; push any unpushed commit with an explicit `git push origin main`.
+
+First: read docs/handoff.md "★ START HERE -- session 6 entry point" (the live resume point),
+docs/DEMO.md (walkthrough + real-vs-gated scorecard), docs/license_audit.md.
+
+State: every v4 blueprint item is built, published, or a documented deliberate deviation. The
+section-13 ledger has ZERO not_yet_wired rows. THREE real published section-13 numbers show in the
+Accuracy Report: on-target DeepCRISPR x Chari rho=0.130; off-target CFD rho=0.313; GIAB concordance
+(DeepVariant vs NIST/GIAB, NA12878 chr20:10-10.1Mb, ALL precision 0.98 / recall 1.00 -- honestly
+scoped as a small build-matched VALIDATION region, NOT genome-wide HG002). Both IGV.js arms, the MSA
+(MAFFT) tool + viewer, and Layer-5 grounding re-validation all shipped this session. DeepSpCas9 ->
+DeepCRISPR primary and the OOD-interactive-HITL deferral are documented deviations (license_audit.md).
+
+Next steps toward completion, IN ORDER (none may be faked -- the integrity IS the product):
+  1. EDIT-OUTCOME live number -- the LAST gated benchmark, now UNBLOCKED. The TVD/JSD scorer is built
+     (benchmarks/edit_outcome_agreement.py). Held-out dataset VERIFIED license-clean: FORECasT processed
+     mutational profiles = CC BY 4.0 (figshare DOI 10.6084/m9.figshare.7312067.v2; 56 indel-profile
+     files; use the FIGSHARE item, NOT the Sanger fa9.cog.sanger.ac.uk mirror which states no license).
+     Build a fetch-on-first-use loader (consent-gated + sha256-pinned + attribution, mirror
+     benchmarks/effdata.py) + a profile parser -> observed indel distribution; predict with a held-out
+     model (Lindel/FORECasT legacy image, already built) or a FORECasT held-out split; compute TVD/JSD;
+     publish via benchmarks/published.py. Flips the Accuracy Report row guard_only -> published.
+  2. GIAB genome-wide HG002 scale-up (OPTIONAL) -- same shipped code path (benchmarks/giab.py +
+     deepvariant_runner.py; DeepVariant image already pulled, digest in license_audit.md), more data:
+     GRCh38 + full HG002 reads + GIAB HG002 v4.2.1 truth/BED. Pure ops, no new code. Env gotchas below.
+  3. MANUAL BROWSER EYEBALL -- the IGV viewers (Slice A inline-FASTA, Slice B hosted-hg38) + the MSA
+     viewer render real output but are NOT auto-verified (happy-dom can't run igv's canvas; tests mock
+     igv). Confirm in a real browser; a Playwright smoke would lock it in.
+  4. PRESENTATION -- finalize the v4 conformance scorecard; CI for the gated suites (-m docker / -m
+     online); deploy story. docs/DEMO.md is the walkthrough + honesty scorecard.
+
+Plan before coding; vertical slices end-to-end (never horizontal layers); no heavy agent frameworks;
+no faked benchmarks (the gated remainder is earned with real data). Each slice its own branch,
+FF-merged to main, suite green before commit; push only on explicit OK; commit messages ASCII only.
+```
+
+**Repo:** https://github.com/itthj/bioforge -- **main @ `7464785`** (1 docs commit may be unpushed; check `git log origin/main..main`).
 **Local:** `C:\Users\james\OneDrive\Documents\BIOTECH 101\bioforge` (Windows; Docker Desktop + WSL2).
 **Suite -- all green:** backend **1007 passed**, 2 skipped, 17 deselected (online+docker+nextflow gated);
 frontend **123 vitest**; `tsc --strict` + `ruff check` + `ruff format` all clean.
