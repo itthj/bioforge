@@ -63,13 +63,35 @@ export interface ReliabilityCurve {
   caveat: string;
 }
 
+// A real, dated benchmark measurement generated offline and published in the report (§13).
+// Mirror of bioforge.benchmarks.published.PublishedBenchmark.
+export interface PublishedBenchmark {
+  name: string;
+  blueprint_section: string;
+  generated_at: string;
+  model_version: string;
+  dataset: string;
+  data_sha256: string;
+  citation: string;
+  n: number;
+  spearman_rho: number;
+  pearson_r: number;
+  leakage_status: string;
+  leakage_evidence: string;
+  leakage_caveat: string;
+  dataset_relationship: string;
+  interpretation: string;
+  reliability: ReliabilityCurve;
+}
+
 export interface AccuracyReport {
   generated_at: string;
   bioforge_version: string;
   validator: ValidatorGate;
   models: ModelAccuracyEntry[];
   benchmarks: BenchmarkStatus[];
-  // Produced offline by the on-target benchmark run (guard_only) — absent on a live page load,
-  // which never triggers a model fetch + Docker call. Rendered when present.
-  reliability?: ReliabilityCurve | null;
+  // Real, dated measurements generated offline (a benchmark run is a network fetch + a Docker
+  // call, never on page load). Each carries the reliability curve behind it. Empty until a run
+  // is published.
+  published: PublishedBenchmark[];
 }

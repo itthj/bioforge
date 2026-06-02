@@ -1,0 +1,118 @@
+{
+  "name": "CRISPR on-target: DeepCRISPR vs Chari-2015 (held-out, cross-dataset)",
+  "blueprint_section": "\u00a713 / Phase 2",
+  "generated_at": "2026-06-02T01:01:33.462634Z",
+  "model_version": "ontar_cnn_reg_seq@master",
+  "dataset": "chari2015Train",
+  "data_sha256": "6a6254a3966c53aa5eceb46cddf57e940466632ebee277d7b0450b662485e576",
+  "citation": "Chari R, Yeo NC, Chavez A, Church GM (2015) Unraveling CRISPR-Cas9 genome engineering parameters via a library-on-library approach. Nat Methods 12:823-826",
+  "n": 1234,
+  "spearman_rho": 0.1299,
+  "pearson_r": 0.1162,
+  "leakage_status": "held_out",
+  "leakage_evidence": "Chuai et al. 2018, DeepCRISPR (Genome Biology 19:80, PMC6020378). The on-target training corpus is ~15,000 sgRNAs across HCT116/HEK293T/HeLa/HL60 sourced from Wang 2014, Hart 2015 and Doench 2016 (refs [2], [36], [37]). Chari 2015 (Nat Methods 12:823) is cited as reference [12] and used ONLY as an independent validation set (Testing Scenario 8) -- NOT as a training source. Verified against the PMC full text 2026-06-01.",
+  "leakage_caveat": "Residual concern not closed by the evidence: the Chuai 2018 paper enumerates a 'HEL cells, 425 sgRNAs' Chari-2015 cut for Testing Scenario 8, while crisporPaper's chari2015Train.tab is 1234 293T guides (Chari's own training split). The 293T cut was therefore likely seen by DeepCRISPR only as an independent benchmark too, but this is not stated verbatim. Incidental guide-sequence overlap with the Doench-2016 HEK293T training subset is also possible and has not been checked at the sequence level -- if it materially affects rho, the residual is small (different libraries).",
+  "dataset_relationship": "cross_dataset",
+  "interpretation": "Spearman rho=0.130 between predicted score and MEASURED editing efficiency on chari2015Train. This is a CROSS-DATASET evaluation: the model was trained on a different screen. Cross-dataset on-target correlations are known to be modest (Haeussler 2016), so a low-to-moderate rho is expected here and is not by itself evidence the scorer is broken. Held-out vs the model's training set. Evidence: Chuai et al. 2018, DeepCRISPR (Genome Biology 19:80, PMC6020378). The on-target training corpus is ~15,000 sgRNAs across HCT116/HEK293T/HeLa/HL60 sourced from Wang 2014, Hart 2015 and Doench 2016 (refs [2], [36], [37]). Chari 2015 (Nat Methods 12:823) is cited as reference [12] and used ONLY as an independent validation set (Testing Scenario 8) -- NOT as a training source. Verified against the PMC full text 2026-06-01. Residual caveat: Residual concern not closed by the evidence: the Chuai 2018 paper enumerates a 'HEL cells, 425 sgRNAs' Chari-2015 cut for Testing Scenario 8, while crisporPaper's chari2015Train.tab is 1234 293T guides (Chari's own training split). The 293T cut was therefore likely seen by DeepCRISPR only as an independent benchmark too, but this is not stated verbatim. Incidental guide-sequence overlap with the Doench-2016 HEK293T training subset is also possible and has not been checked at the sequence level -- if it materially affects rho, the residual is small (different libraries).",
+  "reliability": {
+    "n": 1234,
+    "n_bins": 10,
+    "bins": [
+      {
+        "bin_index": 0,
+        "n": 124,
+        "predicted_mean": 0.1108984848664653,
+        "observed_mean": 0.8280880632096774,
+        "observed_sem": 0.07725220989460435,
+        "predicted_low": 0.06394249200820923,
+        "predicted_high": 0.131357342004776
+      },
+      {
+        "bin_index": 1,
+        "n": 124,
+        "predicted_mean": 0.14155096031965747,
+        "observed_mean": 0.9678067950322581,
+        "observed_sem": 0.09618609852894505,
+        "predicted_low": 0.13226227462291718,
+        "predicted_high": 0.14963385462760925
+      },
+      {
+        "bin_index": 2,
+        "n": 124,
+        "predicted_mean": 0.1576977493541856,
+        "observed_mean": 0.8923093440645161,
+        "observed_sem": 0.0881555343240888,
+        "predicted_low": 0.14968056976795197,
+        "predicted_high": 0.1653842031955719
+      },
+      {
+        "bin_index": 3,
+        "n": 124,
+        "predicted_mean": 0.17210202303624922,
+        "observed_mean": 1.0927306226612905,
+        "observed_sem": 0.08967535313479146,
+        "predicted_low": 0.16543318331241608,
+        "predicted_high": 0.17951515316963196
+      },
+      {
+        "bin_index": 4,
+        "n": 123,
+        "predicted_mean": 0.19240485701134535,
+        "observed_mean": 1.1425024811707316,
+        "observed_sem": 0.11023850596637769,
+        "predicted_low": 0.17955181002616882,
+        "predicted_high": 0.20694808661937714
+      },
+      {
+        "bin_index": 5,
+        "n": 123,
+        "predicted_mean": 0.22279881619341005,
+        "observed_mean": 1.1587072895284554,
+        "observed_sem": 0.1046718781317536,
+        "predicted_low": 0.20734170079231262,
+        "predicted_high": 0.23606659471988678
+      },
+      {
+        "bin_index": 6,
+        "n": 123,
+        "predicted_mean": 0.25015986256483125,
+        "observed_mean": 1.0986293813414634,
+        "observed_sem": 0.0916344578284756,
+        "predicted_low": 0.2362435907125473,
+        "predicted_high": 0.268768310546875
+      },
+      {
+        "bin_index": 7,
+        "n": 123,
+        "predicted_mean": 0.2914140205073163,
+        "observed_mean": 1.0173382921463414,
+        "observed_sem": 0.08842557007873537,
+        "predicted_low": 0.2703199088573456,
+        "predicted_high": 0.31641271710395813
+      },
+      {
+        "bin_index": 8,
+        "n": 123,
+        "predicted_mean": 0.3456643308565869,
+        "observed_mean": 1.227091665536585,
+        "observed_sem": 0.0955566024207272,
+        "predicted_low": 0.31647828221321106,
+        "predicted_high": 0.3767022490501404
+      },
+      {
+        "bin_index": 9,
+        "n": 123,
+        "predicted_mean": 0.43760707296007045,
+        "observed_mean": 1.3589136089349596,
+        "observed_sem": 0.14711850848165275,
+        "predicted_low": 0.37673652172088623,
+        "predicted_high": 0.5836365818977356
+      }
+    ],
+    "monotonicity_rho": 0.8303,
+    "kind": "regression_ranking",
+    "predicted_label": "DeepCRISPR on-target score",
+    "observed_label": "Chari-2015 measured efficiency",
+    "caveat": "Ranking-reliability curve for a regression score: x is the mean predicted score per bin, y is the mean MEASURED outcome. The score is not a probability, so this is not a probability calibration diagram and y=x is not the target -- read it for whether higher scores track higher measured outcomes (monotonicity), not for absolute agreement."
+  }
+}

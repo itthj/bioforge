@@ -35,6 +35,17 @@ Built the first arm of the §13 on-target accuracy benchmark. Suite now **920 pa
   carries `leakage_evidence` + `leakage_caveat` alongside the status. One residual caveat travels
   with the result: incidental guide overlap with the Doench-2016 HEK293T training subset is
   not sequence-level checked. +3 tests, 930 passed.
+- **Live calibration shipped (2026-06-01, session 3):** `benchmarks/published.py` runs the REAL
+  DeepCRISPR x Chari-2015 benchmark offline (Docker `bioforge/deepcrispr:legacy` over all 1234
+  guides) and writes a provenance-stamped JSON artifact
+  (`benchmarks/published/on_target_chari2015_deepcrispr.json`) -- measured **Spearman rho 0.1299**,
+  Pearson 0.1162, n=1234, leakage held_out. `build_accuracy_report()` loads it into
+  `AccuracyReport.published`; the frontend renders each as a headline card (rho/n/leakage badge +
+  measured-date) plus the real reliability curve (bin-means rise 0.83->1.36, monotonicity 0.83 --
+  good ranking, noisy per-guide, the textbook cross-dataset story). Regenerate with
+  `python -m bioforge.benchmarks.published` (env: BIOFORGE_DEEPCRISPR_ENABLED/IMAGE +
+  CRISPOR_EFFDATA_CONSENT). This turns §6 from "capability built" to "capability DEMONSTRATED with
+  real numbers". +2 backend tests; 967 passed + 91 vitest.
 - **GIAB concordance metric shipped (2026-06-01, session 3):** `benchmarks/variant_concordance.py`
   is the SCORING half of the GIAB benchmark -- stratified precision/recall/F1 (SNV/INDEL/ALL)
   restricted to high-confidence regions, with parsimonious normalized-allele matching, a

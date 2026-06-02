@@ -4,7 +4,7 @@ import { ApiError } from "../api/projects";
 import type {
   AccuracyReport as AccuracyReportData,
   BenchmarkWiring,
-  ReliabilityCurve,
+  PublishedBenchmark,
   ValidatorGate,
 } from "../types/benchmarks";
 import { ReliabilityDiagram } from "./ReliabilityDiagram";
@@ -72,27 +72,72 @@ export function AccuracyReportView({ report }: { report: AccuracyReportData }) {
       <ValidatorGateCard gate={report.validator} />
       <ModelAccuracySection models={report.models} />
       <BenchmarkLedger benchmarks={report.benchmarks} />
-      <CalibrationSection reliability={report.reliability} />
+      <PublishedResults published={report.published} />
     </div>
   );
 }
 
-/** §6 / rule 11: the reliability diagram behind the platform's confidences. Rendered when a
- *  benchmark run has attached a curve; otherwise an honest note on why it isn't computed live. */
-function CalibrationSection({ reliability }: { reliability?: ReliabilityCurve | null }) {
-  if (reliability) {
-    return <ReliabilityDiagram curve={reliability} />;
+const LEAKAGE_STYLES: Record<string, { label: string; classes: string }> = {
+  held_out: { label: "held-out", classes: "bg-emerald-100 text-emerald-800" },
+  unknown: { label: "leakage unverified", classes: "bg-amber-100 text-amber-800" },
+  contaminated: { label: "contaminated", classes: "bg-rose-100 text-rose-800" },
+};
+
+/** §6 / §13: real, dated benchmark measurements + the reliability diagram behind each. Generated
+ *  offline (a run is a network fetch + a Docker call), never computed on page load. */
+function PublishedResults({ published }: { published: PublishedBenchmark[] }) {
+  if (published.length === 0) {
+    return (
+      <section className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
+        <h3 className="text-sm font-semibold text-slate-900">
+          Published results <span className="font-normal text-slate-400">· §6 / §13 calibration</span>
+        </h3>
+        <p className="mt-1 text-xs text-slate-500">
+          No benchmark run has been published yet. A run is a network fetch + an out-of-process model
+          call (never on page load); once generated offline, its measured correlation and the
+          reliability curve behind it appear here.
+        </p>
+      </section>
+    );
   }
   return (
-    <section className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
+    <section className="space-y-4">
       <h3 className="text-sm font-semibold text-slate-900">
-        Reliability curve <span className="font-normal text-slate-400">· §6 / calibration</span>
+        Published results{" "}
+        <span className="font-normal text-slate-400">· §6 / §13 — real, dated measurements</span>
       </h3>
-      <p className="mt-1 text-xs text-slate-500">
-        Produced offline by the on-target efficiency benchmark (guard only) from its per-guide
-        (predicted, observed) pairs — not computed on page load, which never triggers a model fetch
-        or Docker call. The diagram renders here once a benchmark run is attached.
-      </p>
+      {published.map((pb) => {
+        const leak = LEAKAGE_STYLES[pb.leakage_status] ?? LEAKAGE_STYLES.unknown;
+        return (
+          <div key={pb.name} className="space-y-2">
+            <div className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <span className="text-sm font-semibold text-slate-900">{pb.name}</span>
+                <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${leak.classes}`}>
+                  {leak.label}
+                </span>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1 font-mono text-sm text-slate-900">
+                <span>
+                  <span className="text-slate-400">Spearman ρ</span> {pb.spearman_rho.toFixed(3)}
+                </span>
+                <span>
+                  <span className="text-slate-400">Pearson r</span> {pb.pearson_r.toFixed(3)}
+                </span>
+                <span>
+                  <span className="text-slate-400">n</span> {pb.n}
+                </span>
+              </div>
+              <div className="mt-1 text-[11px] text-slate-400">
+                {pb.model_version} · data sha256 {pb.data_sha256.slice(0, 12)}… · measured{" "}
+                {new Date(pb.generated_at).toISOString().slice(0, 10)}
+              </div>
+              <p className="mt-2 text-[11px] text-slate-500">{pb.interpretation}</p>
+            </div>
+            <ReliabilityDiagram curve={pb.reliability} />
+          </div>
+        );
+      })}
     </section>
   );
 }

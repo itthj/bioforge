@@ -28,6 +28,7 @@ from bioforge.agent.grounding.metrics import (
     evaluate_corpus,
     load_numeric_corpus,
 )
+from bioforge.benchmarks.published import PublishedBenchmark, load_published_benchmarks
 
 # The deterministic grounding layers (numeric L3, identifier L3+) must be perfect — this is
 # the release gate enforced by test_grounding_metrics.py. The Accuracy Report surfaces both
@@ -82,6 +83,10 @@ class AccuracyReport(BaseModel):
     validator: ValidatorGate
     models: list[ModelAccuracyEntry]
     benchmarks: list[BenchmarkStatus]
+    published: list[PublishedBenchmark] = Field(
+        default_factory=list,
+        description="Real, dated benchmark measurements (generated offline) with the reliability curve behind each.",
+    )
 
 
 def _validator_gate() -> ValidatorGate:
@@ -226,4 +231,5 @@ def build_accuracy_report() -> AccuracyReport:
         validator=_validator_gate(),
         models=_model_entries(),
         benchmarks=list(_BENCHMARKS),
+        published=load_published_benchmarks(),
     )
