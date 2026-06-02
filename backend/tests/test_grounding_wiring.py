@@ -205,6 +205,101 @@ async def test_shadow_records_but_does_not_enforce(
     assert result.response_text == final_text
 
 
+# --- Layer 5: re-validate the enforced/redacted text before it ships ------------------
+
+
+def test_enforce_output_revalidates_clean() -> None:
+    """The shipped BODY after redaction re-grounds with zero unsupported claims (v4 L5).
+
+    Direct unit test of `_enforce`: two fabricated numbers are redacted, then the redacted
+    body is re-run through deterministic grounding and must come back clean. The audit footer
+    quotes the removed values, so the test re-grounds the body ONLY (above the separator)."""
+    from bioforge.agent.grounding import ground_response
+    from bioforge.agent.loop import _GROUNDING_FOOTER_SEP, _enforce
+
+    tool_outputs = [{"score": 0.5}]
+    text = "The score is 0.5 but the CFD is 0.92 and the MIT score is 0.81."
+    report = ground_response(text, tool_outputs, extra_sources=[])
+    assert not report.ok  # 0.92 and 0.81 have no matching tool field
+
+    final, reval = _enforce(text, report, tool_outputs, "")
+    assert reval["ran"] is True
+    assert reval["ok"] is True
+    assert reval["passes"] == 1
+
+    body = final.split(_GROUNDING_FOOTER_SEP)[0]
+    # The grounded value survives; both fabrications are gone from the body.
+    assert "0.5" in body
+    assert "0.92" not in body and "0.81" not in body
+    # And the body genuinely re-grounds clean (the L5 guarantee, checked independently).
+    assert ground_response(body, tool_outputs, extra_sources=[]).ok is True
+    # The footer still records what was removed (so re-validation must skip it).
+    assert "0.92" in final and "0.81" in final
+
+
+def test_enforce_revalidation_has_teeth() -> None:
+    """A digit-bearing residual in the body WOULD be caught: re-grounding a body that still
+    holds an ungrounded number returns not-ok. Proves re-validation isn't a no-op rubber stamp."""
+    from bioforge.agent.grounding import ground_response
+
+    tool_outputs = [{"score": 0.5}]
+    leaked_body = "The score is 0.5 but the CFD is 0.92."  # 0.92 survived (hypothetical bug)
+    assert ground_response(leaked_body, tool_outputs, extra_sources=[]).ok is False
+
+
+async def test_enforce_records_revalidation_in_trace(
+    grounding_enforce,
+    fake_llm_factory,
+    make_submit_plan_response,
+    make_tool_use_response,
+    make_text_response,
+    trivial_plan,
+) -> None:
+    final_text = "GC content is 50.0%, with an off-target CFD score of 0.92."
+    llm = _script(
+        fake_llm_factory,
+        make_submit_plan_response,
+        make_tool_use_response,
+        make_text_response,
+        trivial_plan,
+        final_text,
+    )
+    result = await run_agent("GC of ATGCATGC", project_id=DEFAULT_PROJECT_ID, llm=llm)
+
+    validation = next(s for s in result.steps if s.type == "validation")
+    reval = validation.verdict["revalidation"]
+    assert reval["ran"] is True
+    assert reval["ok"] is True  # the redacted body re-grounds clean
+    assert reval["passes"] == 1
+    # The fabricated value is gone from the visible body (it remains only in the audit footer).
+    body = result.response_text.split("\n\n---\n")[0]
+    assert "0.92" not in body
+
+
+async def test_revalidation_record_absent_when_not_enforced(
+    grounding_on,  # shadow mode
+    fake_llm_factory,
+    make_submit_plan_response,
+    make_tool_use_response,
+    make_text_response,
+    trivial_plan,
+) -> None:
+    final_text = "GC content is 50.0%, with a CFD of 0.92."
+    llm = _script(
+        fake_llm_factory,
+        make_submit_plan_response,
+        make_tool_use_response,
+        make_text_response,
+        trivial_plan,
+        final_text,
+    )
+    result = await run_agent("GC of ATGCATGC", project_id=DEFAULT_PROJECT_ID, llm=llm)
+
+    validation = next(s for s in result.steps if s.type == "validation")
+    # Shadow mode never enforces, so re-validation did not run.
+    assert validation.verdict["revalidation"]["ran"] is False
+
+
 # --- L4 entity/mechanistic judge wiring ----------------------------------------------
 
 

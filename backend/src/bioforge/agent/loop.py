@@ -194,45 +194,97 @@ def _tool_calls_from_steps(steps: list[AgentStep]) -> list[tuple[str, dict]]:
 
 
 # Inline marker left where an unsupported numeric claim used to be. Deliberately digit-free
-# so it carries no new number and survives re-validation cleanly.
+# and identifier-free so it carries no new claim and survives re-validation cleanly.
 _REDACTION_MARKER = "[unverifiable]"
 
+# Footer separator. Re-validation (Layer 5) runs over the BODY above this marker only, so the
+# audit footer -- which necessarily QUOTES the removed numbers/identifiers -- is never itself
+# re-flagged as a fresh ungrounded claim.
+_GROUNDING_FOOTER_SEP = "\n\n---\n"
 
-def _enforce(text: str, report: ValidationReport) -> str:
-    """Redact unsupported numeric claims in place and append an audit note (v4 §4 L5).
 
-    Numeric claims have exact offsets, so they are spliced out (rightmost-first, to keep
-    offsets valid) and replaced with a marker. Entity/mechanistic claims from the judge
-    have no reliable offsets, so they are flagged in the footer rather than redacted in
-    place. Either way the user sees what was removed/flagged and why — visible redaction
-    (policy a): never a silent rewrite, never a vague qualitative substitution.
+def _span_unsupported(report: ValidationReport) -> list[tuple[int, int, str, str]]:
+    """(start, end, kind, surface_text) for every unsupported claim that carries offsets.
+
+    Numeric claims and structured identifiers both have exact character offsets; judged
+    entity/mechanistic claims do not, so they are handled via footer flags, not redaction.
     """
-    if report.ok:
-        return text
-    # Span-based redactions: numeric claims and structured identifiers both carry exact
-    # offsets, so they are spliced out (rightmost-first to keep offsets valid). Judged
-    # entity/mechanistic claims have no reliable offsets, so they are flagged in the footer.
     spans = [(c.start, c.end, "numeric", c.text) for c in report.unsupported]
     spans += [(e.start, e.end, e.kind, e.text) for e in report.unsupported_entities]
-    redacted = text
+    return spans
+
+
+def _redact_spans(text: str, spans: list[tuple[int, int, str, str]]) -> str:
+    """Splice the marker over each span, rightmost-first so earlier offsets stay valid."""
+    out = text
     for start, end, _kind, _ctext in sorted(spans, key=lambda s: s[0], reverse=True):
-        redacted = redacted[:start] + _REDACTION_MARKER + redacted[end:]
+        out = out[:start] + _REDACTION_MARKER + out[end:]
+    return out
+
+
+def _enforce(
+    text: str,
+    report: ValidationReport,
+    tool_outputs: list[dict],
+    goal: str,
+) -> tuple[str, dict]:
+    """Redact unsupported claims in place, RE-VALIDATE the result (v4 §4 Layer 5), then
+    append the audit footer. Returns `(final_text, revalidation_record)`.
+
+    Layer 5 closes the rewrite trap: a redaction is itself a rewrite, so the redacted BODY is
+    re-run through deterministic grounding (Layers 2/3 + entity) before it ships. The marker is
+    digit- and identifier-free, so pass 1 normally converges; a second pass redacts any residual
+    the first missed (capped — no unbounded loop). Re-validation runs over the body ONLY, since
+    the audit footer necessarily quotes the removed values and must not be re-flagged. L4 judged
+    claims have no offsets and are footer-flagged rather than spliced, so a judge re-run would
+    only re-flag the same claims at extra model cost; it is intentionally skipped.
+
+    Vague qualitative substitution is impossible by construction: a stripped value becomes
+    "[unverifiable]", never "scored well" (v4 §4 Layer 5 / rule 14).
+    """
+    if report.ok:
+        return text, {"ran": False, "ok": True, "passes": 0, "residual": []}
+
+    # Notes quote the claims actually removed (from the first report), for the audit trail.
+    removed = sorted(_span_unsupported(report), key=lambda s: s[0])
     notes = [
         f'  - "{ctext}" ({kind}) was removed: not traceable to a tool result in this run.'
-        for start, end, kind, ctext in sorted(spans, key=lambda s: s[0])
+        for _start, _end, kind, ctext in removed
     ]
+    body = _redact_spans(text, _span_unsupported(report))
+
+    # (Layer 5) Re-validate the redacted body; redact any residual (one extra pass, capped).
+    residual: list[str] = []
+    reval = ground_response(body, tool_outputs, extra_sources=[goal])
+    reval_spans = _span_unsupported(reval)
+    passes = 1
+    if reval_spans:
+        ordered = sorted(reval_spans, key=lambda s: s[0])
+        residual = [ctext for _s, _e, _k, ctext in ordered]
+        notes += [
+            f'  - "{ctext}" ({kind}) was removed on re-validation: still not traceable to a tool result.'
+            for _s, _e, kind, ctext in ordered
+        ]
+        body = _redact_spans(body, reval_spans)
+        reval = ground_response(body, tool_outputs, extra_sources=[goal])
+        passes = 2
+    revalidation_ok = not _span_unsupported(reval)
+
+    # Judged entity/mechanistic claims have no offsets -> flagged in the footer, not spliced.
     notes += [
         f'  - "{jc.text}" ({jc.kind}) is not supported by any tool result in this run.'
         for jc in report.unsupported_judged
     ]
+
+    record = {"ran": True, "ok": revalidation_ok, "passes": passes, "residual": residual}
     if not notes:
-        return redacted
+        return body, record
     footer = (
-        "\n\n---\n"
-        f"[BioForge grounding] {len(notes)} claim(s) could not be traced to a tool result this run:\n"
+        _GROUNDING_FOOTER_SEP
+        + f"[BioForge grounding] {len(notes)} claim(s) could not be traced to a tool result this run:\n"
         + "\n".join(notes)
     )
-    return redacted + footer
+    return body + footer, record
 
 
 async def _apply_grounding(
@@ -279,8 +331,9 @@ async def _apply_grounding(
     report.ok = report.ok and not report.unsupported_judged
     mode = settings.grounding_mode
     enforced = mode == "enforce" and not report.ok
+    revalidation = {"ran": False, "ok": True, "passes": 0, "residual": []}
     if enforced:
-        final_text = _enforce(response_text, report)
+        final_text, revalidation = _enforce(response_text, report, tool_outputs, goal)
     elif mode == "annotate":
         # Visible grounding: append a scientist-facing trust signal, remove nothing.
         final_text = response_text + summarize_grounding(report)
@@ -299,6 +352,7 @@ async def _apply_grounding(
             **report.model_dump(),
             "enforced": enforced,
             "mode": mode,
+            "revalidation": revalidation,
             "soundness": soundness.model_dump(),
             "ood": ood.model_dump(),
             "model_uncertainty": [n.model_dump() for n in model_uncertainty],
