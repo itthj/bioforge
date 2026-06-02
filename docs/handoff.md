@@ -1,11 +1,76 @@
 # BioForge — Session handoff (v4 finalization)
 
-## ★ START HERE — session 5 entry point (written 2026-06-02, end of session 4)
+## ★ START HERE — session 6 entry point (written 2026-06-02, end of session 5)
 
-**Repo:** https://github.com/itthj/bioforge -- **main @ `de1efa1`**, working tree clean, everything pushed.
+**Repo:** https://github.com/itthj/bioforge -- **main @ `9caeef4`**, working tree clean, everything pushed.
 **Local:** `C:\Users\james\OneDrive\Documents\BIOTECH 101\bioforge` (Windows; Docker Desktop + WSL2).
-**Suite -- all green:** backend **980 passed**, 2 skipped, 16 deselected (online+docker+nextflow gated);
-frontend **116 vitest**; `tsc --strict` + `ruff check` + `ruff format` all clean.
+**Suite -- all green:** backend **1007 passed**, 2 skipped, 17 deselected (online+docker+nextflow gated);
+frontend **123 vitest**; `tsc --strict` + `ruff check` + `ruff format` all clean.
+
+### Where the project is: the v4 blueprint is functionally COMPLETE on the buildable surface
+Every blueprint item is now built, published, or a documented deliberate deviation. The **§13 ledger
+has ZERO `not_yet_wired` rows** -- all live or guard_only. THREE real published §13 numbers now show in
+the Accuracy Report: on-target rho=0.1299, off-target rho=0.3132, and (new) **GIAB concordance**.
+
+### What session 5 shipped (10 commits, all FF-merged + pushed; oldest -> newest)
+1. `896c131` **IGV.js guide viewer (Slice A)** -- guides/PAM/cut on the submitted sequence as its own
+   igv reference (no genome-build claim). `crispr_edit_report` echoes `target_sequence`.
+2. `de1efa1` **IGV.js hg38 off-target view (Slice B)** -- off-targets on hosted hg38, gated to
+   verified GRCh38 chromosome accessions (`genomic_placement.py` + a sourced NCBI accession map);
+   non-placeable hits listed by accession, never a false locus.
+3. `2f83fd8` **docs** -- handoff refresh + `docs/DEMO.md` (the walkthrough + real-vs-gated scorecard).
+4. `abacf94` **Grounding Layer 5** -- enforced/redacted responses are re-grounded before they ship
+   (closes the blueprint's literal rewrite-trap requirement).
+5. `f490e6e` **wrong-build refusal reason** -- non-hg38 off-target hits say WHY (GRCh37/wrong-build vs
+   non-chromosome), from the same committed map.
+6. `1a252cf` **session-5 decisions** (license_audit.md) -- DeepCRISPR-as-primary SIGNED OFF (DeepSpCas9
+   stays dropped); MAFFT + DeepVariant license-audited (both BSD-3-Clause; caught the MAFFT-extensions
+   trap); OOD interactive HITL deliberately deferred (needs a mid-loop executor rewrite).
+7. `82902e1` **MSA tool** -- `align_msa` (MAFFT, out-of-process, digest-pinned core-only; refuses to
+   fake an alignment or report a corrupted one).
+8. `11f4299` **MSA viewer** -- lean zero-dep renderer (react-msa-viewer is React-18-incompatible -- a
+   documented deviation), derived per-column conservation.
+9. `316c153` **GIAB end-to-end** -- DeepVariant caller (`deepvariant_runner.py`) wired to the
+   concordance scorer (`benchmarks/giab.py`); ledger row flipped to guard_only.
+10. `9caeef4` **GIAB published REAL number** -- ran DeepVariant 1.6.1 (digest-pinned
+    `@sha256:ccab95548e6c...`) on NA12878 chr20:10-10.1Mb vs the NIST/GIAB truth via the SHIPPED
+    `run_giab_benchmark`: ALL precision 0.980 / recall 1.000 (49 truth variants in-region). HONESTLY
+    SCOPED as a small build-matched VALIDATION region, NOT a genome-wide HG002 claim. Committed
+    artifact `benchmarks/published/giab_na12878_chr20_10mb.json`; served in the Accuracy Report.
+
+### RESUME HERE -- the ONE remaining real number, then polish
+1. **Edit-outcome live benchmark** (the last gated number). The TVD/JSD scorer is built; the held-out
+   dataset is now UNBLOCKED: **FORECasT processed mutational profiles = CC BY 4.0 (verified 2026-06-02
+   via the figshare API; DOI 10.6084/m9.figshare.7312067.v2, 56 indel-profile files; commercial-safe
+   with attribution -- see docs/license_audit.md).** Build: a fetch-on-first-use loader for the figshare
+   profiles (consent-gated + sha256-pinned + attribution, mirror crisporPaper effData), a profile parser
+   -> observed indel distribution, predict with a held-out model (Lindel/FORECasT image, already built)
+   or FORECasT on a held-out split, compute TVD/JSD, publish via `published.py`. Use the FIGSHARE item
+   (CC BY 4.0), NOT the Sanger `fa9.cog.sanger.ac.uk` mirror (no stated license).
+2. **GIAB genome-wide HG002 scale-up** (optional) -- same shipped code path, more data: GRCh38 + the
+   full HG002 reads + the GIAB HG002 v4.2.1 truth/BED. Produces a genome-wide number to complement the
+   small validation region. Pure ops/compute, no new code.
+3. **Manual browser eyeball** -- the IGV viewers (inline-FASTA Slice A, hosted-hg38 Slice B) and the MSA
+   viewer render real output but are NOT auto-verified (happy-dom can't run igv's canvas; component tests
+   mock igv). Confirm in a real browser. The pure adapters ARE fully tested.
+4. **Presentation** -- `docs/DEMO.md` is the walkthrough + honesty scorecard (now includes GIAB);
+   finalize the conformance scorecard; CI for the gated suites; deploy story.
+
+### Environment notes for the GIAB / edit-outcome work (carry forward)
+- **DeepVariant 1.6.1 image is PULLED** locally, digest `google/deepvariant@sha256:ccab95548e6c3ec28c75232987f31209ff1392027d67732435ce1ba3d0b55c68` (9.24 GB). The GIAB quickstart inputs are staged at
+  `C:\Users\james\.bioforge\dv_quickstart\input` (NA12878 + ucsc.hg19.chr20 + NIST truth/BED).
+- **GIAB run gotchas:** (a) Git-Bash mangles container args starting with `/` (e.g. `/opt/...`) -> run
+  docker via PYTHON subprocess, not bash. (b) The caller output dir must be Docker-Desktop-shareable ->
+  `BIOFORGE_GIAB_OUTPUT_DIR` (a system temp may not be shared). (c) reference + reads contig naming must
+  match (chr20 vs 20) or DeepVariant refuses with "0 contigs in common" -- the gate working, not a bug.
+- Regenerate the GIAB artifact: `benchmarks.published.generate_giab_artifact(...)` with the
+  `BIOFORGE_DEEPVARIANT_*` + `BIOFORGE_GIAB_*` env vars set (see the giab_na12878 artifact's `caller`/`regions`).
+
+---
+
+## Session 5 work log (superseded by the session-6 START HERE above; written 2026-06-02 mid-session)
+
+**Repo at the time:** main @ `de1efa1`. Suite: backend 980, frontend 116.
 
 ### What session 4 shipped (2 slices, both FF-merged to main + pushed)
 The IGV.js genome browser -- the handoff's #1 remaining buildable feature -- is now DONE on both arms.

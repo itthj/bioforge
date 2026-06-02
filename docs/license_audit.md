@@ -145,6 +145,25 @@ from the blueprint's named primary -- recorded here so it is intentional and vis
   variant-calling path. We pull the official image and do **not** redistribute its weights; re-verify
   the model-file terms before any redistribution.
 
+### Edit-outcome held-out dataset (FORECasT profiles): VERIFIED CC BY 4.0 (2026-06-02)
+
+The §13 edit-outcome benchmark (TVD/JSD distribution agreement) needs a license-clean held-out
+indel-distribution dataset. Verified against upstream (rule 15 -- not from memory):
+
+| Resource | What | License | Source |
+|---|---|---|---|
+| FORECasT **processed mutational profiles** | measured indel-distribution profiles per gRNA (56 files; the directly-usable benchmark data) | **CC BY 4.0** (verified via the figshare API `license` field) | [figshare 10.6084/m9.figshare.7312067.v2](https://doi.org/10.6084/m9.figshare.7312067) |
+| FORECasT raw reads | sequencing reads (would require re-running the pipeline) | ENA / INSDC open-access | ENA PRJEB12405 / ERP013879 |
+| FORECasT code | SelfTarget | MIT | [github](https://github.com/felicityallen/SelfTarget) |
+
+**Verdict: 🟢 the processed profiles are CC BY 4.0 — commercial use + redistribution permitted with
+attribution.** This UNBLOCKS the edit-outcome live benchmark. Important nuance (rule 15): the SelfTarget
+README points to Sanger object storage (`fa9.cog.sanger.ac.uk`) for precomputed results with NO stated
+license; the *authoritative, license-bearing* deposition is the **figshare** item (CC BY 4.0) cited in
+the paper's Data Availability statement — use that. Recommended posture: fetch-on-first-use
+(consent-gated, sha256-pinned, attribution recorded), mirroring the crisporPaper effData pattern; the
+data is redistributable under CC BY 4.0 but fetch-on-first-use keeps the repo lean and provenance explicit.
+
 ### OOD interactive HITL (§4.3): deliberately deferred (user decision, 2026-06-02)
 
 The blueprint's §4.3 "proceed-with-OOD-flag or cancel" interactive card requires pausing and
