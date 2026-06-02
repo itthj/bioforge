@@ -5,7 +5,7 @@
 # Brings up:
 #   - backend       FastAPI + agent loop, SQLite at /data/bioforge.db (volume)
 #   - frontend      Vite static bundle served by nginx, proxying /agent + /projects
-#                   + /traces + /health to backend
+#                   + /traces + /health + /benchmarks to backend
 #
 # Open http://localhost:5173 (or whichever host port the frontend service publishes).
 # Set ANTHROPIC_API_KEY in a .env file beside this compose file (gitignored) before

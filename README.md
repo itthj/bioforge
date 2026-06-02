@@ -1,6 +1,6 @@
 # BioForge
 
-Agentic AI bioinformatics platform. Current state: Phase 2 + Phase 3 in progress — full plan→approval→execute→critique→replan loop with SSE streaming, a React frontend that renders the live trace, and a 15-tool registry covering sequence basics, CRISPR design / scoring / off-targets / NHEJ outcomes / integrated edit reports, PCR primer design (primer3), VCF parsing, and project memory. Projects + persistent project memory with audit/edit endpoints. Structured-output planner and critic via Anthropic forced tool-use. OpenTelemetry tracing on every agent run. CI runs ruff + pytest + the frontend build on every push. Local BLAST+ supported alongside the remote NCBI default. The full stack runs via `docker compose up`.
+Agentic AI bioinformatics platform — a research prototype built so a result it produces is one a scientist could put in a methods section. Full plan→approval→execute→critique→replan loop with SSE streaming and a React frontend that renders the live trace, over a ~30-tool registry spanning sequence basics, CRISPR design / on- & off-target scoring / NHEJ edit outcomes / integrated edit reports, PCR primer design (primer3), MSA, VCF parsing + variant annotation (ClinVar / dbSNP / gnomAD, VEP consequences), and protein structures (AlphaFold / PDB / InterPro, with per-residue pLDDT). The differentiator is the **7-layer grounding stack** (deterministic numeric grounding, an Opus entity/mechanistic judge, rewrite re-validation, and a validated validator) plus an **Accuracy Report** that publishes the platform's own measured numbers — four real section-13 benchmarks today: CRISPR on-target (DeepCRISPR × Chari, ρ=0.130), off-target discrimination (CFD, ρ=0.313), GIAB variant-calling concordance (DeepVariant, precision 0.98 / recall 1.00 on a build-matched region), and edit-outcome agreement (FORECasT vs measured K562 profiles, median TVD 0.546) — each honestly leakage-labeled, never faked. Projects + persistent, user-editable memory. Run manifests + RO-Crate export for provenance; digest-pinned external images. OpenTelemetry tracing on every run. CI runs ruff + pytest + the frontend build on every push. Local BLAST+ alongside the remote NCBI default. The full stack runs via `docker compose up`.
 
 **New here?** See [`docs/DEMO.md`](docs/DEMO.md) for an end-to-end walkthrough and the "what's real vs honestly-gated" scorecard — the integrity (grounding / benchmarking / calibration / provenance) is the product, and that doc states exactly which numbers are real measurements.
 
@@ -15,6 +15,8 @@ docker compose up --build
 ```
 
 Open http://localhost:5173. The backend lives in the `bioforge-backend` container on the compose network; the SQLite DB persists in the named volume `bioforge-data`. To wipe state: `docker compose down -v`.
+
+> **Want to see it work without an API key?** Open the **Accuracy** tab — it renders the four real, self-measured benchmarks (served from `GET /benchmarks/accuracy`) and needs no Anthropic key. The agent chat itself requires `ANTHROPIC_API_KEY`.
 
 ### Backend
 
@@ -47,7 +49,7 @@ npm run typecheck      # tsc --noEmit, strict mode
 npm run build          # production bundle in dist/
 ```
 
-Open http://localhost:5173 — type a goal, watch the agent reason. The dev server proxies `/agent`, `/projects`, `/traces`, `/health` to the backend so the SPA uses relative URLs.
+Open http://localhost:5173 — type a goal, watch the agent reason. The dev server proxies `/agent`, `/projects`, `/traces`, `/health`, `/benchmarks` to the backend so the SPA uses relative URLs.
 
 Then in another shell:
 

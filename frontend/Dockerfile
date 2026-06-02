@@ -5,9 +5,9 @@
 #      output lands in /app/dist; everything else (node_modules, sources) is
 #      discarded by leaving the stage behind.
 #   2. `runtime` is nginx:alpine. The compiled dist/ is served as static files;
-#      /agent, /projects, /traces, /health are proxied to the backend container
-#      (named `backend` on the compose network) — see nginx.conf next to this
-#      Dockerfile.
+#      /agent, /projects, /traces, /health, /benchmarks are proxied to the backend
+#      container (named `backend` on the compose network) — see nginx.conf next to
+#      this Dockerfile.
 
 # --- Stage 1: build ----------------------------------------------------------
 FROM node:22-alpine AS builder
