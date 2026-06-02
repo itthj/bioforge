@@ -21,8 +21,11 @@ from bioforge.benchmarks.forecast_profiles import (
     ForecastProfilesFetchError,
     ForecastProfilesUnknown,
     ObservedSpec,
+    TargetLibrarySpec,
     load_observed,
+    load_target_library,
     parse_observed_profiles,
+    parse_target_library,
 )
 from bioforge.config import settings as _settings_singleton
 
@@ -229,3 +232,120 @@ def test_parse_rejects_zip_without_profile_members() -> None:
     with pytest.raises(ForecastProfilesFetchError) as exc:
         parse_observed_profiles(z)
     assert "members" in str(exc.value).lower()
+
+
+# --- target library (Dataset 1): parser (FASTA + table) + loader --------------------------------
+
+# Real records from the authors' example exp_target_pam_new.fasta (authoritative format):
+# `>Oligo<N>_<guide> <pam_index> <direction>` then the 78-nt designed target.
+_T1 = "TAAACTCCAACTACTCTACTAGTCCTGTACTTTCGCAATTTAAGCTGAAGCTACATGGGTTTAAGGGCAGTCACATGTG"
+_T2 = "ATGGCCGAAATGTAAATAGACTATGGGAGTGCGCGTTAGGTCGTGTTAGTAGTACCAGGCGCTAACGCTAAGTTAGGAT"
+_FIXTURE_FASTA = (
+    f">Oligo1062_GATTTAAGCTGAAGCTACAT 56 FORWARD\n{_T1}\n>Oligo46510_GAGGTCGTGTTAGTAGTACC 56 FORWARD\n{_T2}\n"
+).encode()
+_FIXTURE_TARGET_TSV = (
+    "ID\tTarget\tGuide\tPAM Location\tPAM Direction\n"
+    f"Oligo1062_GATTTAAGCTGAAGCTACAT\t{_T1}\tGATTTAAGCTGAAGCTACAT\t56\tFORWARD\n"
+    f"Oligo46510_GAGGTCGTGTTAGTAGTACC\t{_T2}\tGAGGTCGTGTTAGTAGTACC\t56\tFORWARD\n"
+).encode()
+
+
+def test_parse_target_fasta() -> None:
+    recs = parse_target_library(_FIXTURE_FASTA)
+    assert set(recs) == {"Oligo1062", "Oligo46510"}
+    r = recs["Oligo1062"]
+    assert r.target == _T1
+    assert r.pam_index == 56
+    assert r.direction == "FORWARD"
+    assert r.guide == "GATTTAAGCTGAAGCTACAT"
+    assert 0 <= r.pam_index <= len(r.target) - 3  # a usable FORECasT (target, pam_index)
+
+
+def test_parse_target_table_tsv_matches_fasta() -> None:
+    recs = parse_target_library(_FIXTURE_TARGET_TSV)
+    assert set(recs) == {"Oligo1062", "Oligo46510"}
+    assert recs["Oligo1062"].target == _T1
+    assert recs["Oligo1062"].pam_index == 56
+    assert recs["Oligo46510"].guide == "GAGGTCGTGTTAGTAGTACC"
+
+
+def test_parse_target_table_csv() -> None:
+    csv = b"id,target,pam index,pam direction\nOligo7,ACGTACGTACGTACGTACGTACG,3,FORWARD\n"
+    recs = parse_target_library(csv)
+    assert recs["Oligo7"].target == "ACGTACGTACGTACGTACGTACG"
+    assert recs["Oligo7"].pam_index == 3
+
+
+def test_parse_target_rejects_header_without_oligo_id() -> None:
+    with pytest.raises(ForecastProfilesFetchError) as exc:
+        parse_target_library(b">NotAnOligo 5 FORWARD\nACGTACGT\n")
+    assert "oligo" in str(exc.value).lower()
+
+
+def test_parse_target_rejects_nonint_pam() -> None:
+    with pytest.raises(ForecastProfilesFetchError) as exc:
+        parse_target_library(b">Oligo1_AAA nope FORWARD\nACGTACGT\n")
+    assert "pam" in str(exc.value).lower()
+
+
+def test_parse_target_rejects_duplicate() -> None:
+    dup = b">Oligo1_A 3 FORWARD\nACGTACGT\n>Oligo1_B 3 FORWARD\nACGTACGT\n"
+    with pytest.raises(ForecastProfilesFetchError) as exc:
+        parse_target_library(dup)
+    assert "duplicate" in str(exc.value).lower()
+
+
+def test_parse_target_table_missing_columns_raises() -> None:
+    with pytest.raises(ForecastProfilesFetchError) as exc:
+        parse_target_library(b"id\tdescription\nOligo1\tfoo\n")
+    assert "column" in str(exc.value).lower()
+
+
+def _register_target_fixture(monkeypatch: pytest.MonkeyPatch, *, n_oligos: int = 2) -> TargetLibrarySpec:
+    spec = TargetLibrarySpec(
+        name="fixture_lib",
+        download_url="https://example.invalid/dataset1",
+        cache_filename="dataset1.fixture.txt",
+        expected_sha256=hashlib.sha256(_FIXTURE_FASTA).hexdigest(),
+        n_oligos=n_oligos,
+        citation="fixture",
+        notes="fixture",
+    )
+    monkeypatch.setitem(forecast_profiles.TARGET_LIBRARY, "fixture_lib", spec)
+    return spec
+
+
+def test_load_target_library_local_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _register_target_fixture(monkeypatch)
+    supplied = tmp_path / "d1.txt"
+    supplied.write_bytes(_FIXTURE_FASTA)
+    s = _settings(tmp_path, consent=False)  # local file needs no consent
+
+    loaded = load_target_library("fixture_lib", settings=s, local_path=str(supplied))
+    assert set(loaded.records) == {"Oligo1062", "Oligo46510"}
+    assert loaded.source.startswith("local:")
+    assert loaded.sha256 == hashlib.sha256(_FIXTURE_FASTA).hexdigest()
+
+
+def test_load_target_library_sha256_mismatch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _register_target_fixture(monkeypatch)
+    supplied = tmp_path / "d1.txt"
+    supplied.write_bytes(_FIXTURE_FASTA + b"\n>OligoX_A 3 FORWARD\nACGTACGT\n")  # wrong bytes
+    s = _settings(tmp_path)
+    with pytest.raises(ForecastProfilesFetchError) as exc:
+        load_target_library("fixture_lib", settings=s, local_path=str(supplied))
+    assert "sha256" in str(exc.value).lower()
+
+
+def test_load_target_library_oligo_count_mismatch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _register_target_fixture(monkeypatch, n_oligos=999)  # fasta has 2
+    supplied = tmp_path / "d1.txt"
+    supplied.write_bytes(_FIXTURE_FASTA)
+    with pytest.raises(ForecastProfilesFetchError) as exc:
+        load_target_library("fixture_lib", settings=_settings(tmp_path), local_path=str(supplied))
+    assert "oligo" in str(exc.value).lower()
+
+
+def test_load_target_library_unknown_raises(tmp_path: Path) -> None:
+    with pytest.raises(ForecastProfilesUnknown):
+        load_target_library("nope", settings=_settings(tmp_path))

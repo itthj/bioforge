@@ -38,6 +38,7 @@ from __future__ import annotations
 import hashlib
 import io
 import os
+import re
 import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -313,3 +314,233 @@ def load_observed(
             "Refusing to benchmark on an unexpected oligo count -- re-verify the spec / source."
         )
     return LoadedObserved(spec=spec, profiles=profiles, source=source, sha256=verified)
+
+
+# =================================================================================================
+# Target library (Dataset 1: oligo id -> designed target sequence + PAM index)
+#
+# To PREDICT with FORECasT for an observed oligo we need that oligo's designed target + PAM index --
+# the observed profiles (keyed by a bare `@@@Oligo<N>` id) do not carry it. The authoritative mapping
+# is Allen 2018's "Dataset 1" (the complete library of 41,630 gRNA-target pairs; supplementary file
+# / Code Ocean capsule 10.24433/CO.6bc7bcae-d736-475b-bae5-00ca0562d401). Two upstream layouts are
+# supported (verified against the authors' own example files + selftarget.oligo):
+#   * FASTA: `>Oligo<N>_<guide> <pam_index> <FORWARD|REVERSE>` then the target sequence line(s)
+#   * table: tab/comma-delimited with ID / Target / PAM Location / PAM Direction (+ optional Guide)
+# The join key is the leading `Oligo<N>`, matching the observed `@@@Oligo<N>` blocks.
+# =================================================================================================
+
+_OLIGO_ID_RE = re.compile(r"(Oligo\d+)")
+_DNA = set("ACGT")
+
+
+@dataclass(frozen=True)
+class TargetRecord:
+    """One designed oligo: the target DNA + the 0-based PAM index FORECasT consumes, verbatim from
+    the library. `target` is oriented as the library stores it (the PAM at `pam_index`); `direction`
+    and `guide` travel as provenance. Not re-derived -- faithful to upstream."""
+
+    oligo_id: str
+    target: str
+    pam_index: int
+    direction: str
+    guide: str
+
+
+@dataclass(frozen=True)
+class TargetLibrarySpec:
+    """The Dataset-1 target library file + its integrity expectations (sha256 + oligo count)."""
+
+    name: str
+    download_url: str
+    cache_filename: str
+    expected_sha256: str
+    n_oligos: int
+    citation: str
+    notes: str
+
+
+@dataclass(frozen=True)
+class LoadedTargetLibrary:
+    """Parsed target records (oligo_id -> TargetRecord) + provenance (source + verified hash)."""
+
+    spec: TargetLibrarySpec
+    records: dict[str, TargetRecord]
+    source: str
+    sha256: str
+
+
+# The target-library registry. The real Dataset-1 entry is pinned (sha256 + oligo count) once its
+# bytes are in hand: the PMC supplementary / Code Ocean download is bot-gated (reCAPTCHA), so it is
+# supplied via `load_target_library(..., local_path=...)` and pinned on first load. Empty until then.
+TARGET_LIBRARY: dict[str, TargetLibrarySpec] = {}
+
+
+def _store_target(
+    records: dict[str, TargetRecord], oligo_id: str, target: str, pam_index: int, direction: str, guide: str
+) -> None:
+    if oligo_id in records:
+        raise ForecastProfilesFetchError(f"Duplicate oligo id {oligo_id!r} in the target library.")
+    if not target:
+        raise ForecastProfilesFetchError(f"Target library oligo {oligo_id!r} has an empty target sequence.")
+    records[oligo_id] = TargetRecord(
+        oligo_id=oligo_id, target=target, pam_index=pam_index, direction=direction, guide=guide
+    )
+
+
+def _store_target_fasta(records: dict[str, TargetRecord], header: str, sequence: str) -> None:
+    """Parse one FASTA record header `<Oligo<N>[_guide]> <pam_index> <direction>` + its sequence."""
+    tokens = header.split()
+    if len(tokens) < 3:
+        raise ForecastProfilesFetchError(f"Target FASTA header is not '<id> <pam_index> <direction>': {header!r}")
+    id_token = tokens[0]
+    m = _OLIGO_ID_RE.search(id_token)
+    if not m:
+        raise ForecastProfilesFetchError(f"Target FASTA header has no 'Oligo<N>' id: {header!r}")
+    try:
+        pam_index = int(tokens[1])
+    except ValueError as e:
+        raise ForecastProfilesFetchError(f"Target FASTA pam_index not an int in header {header!r}") from e
+    guide = id_token.split("_", 1)[1] if "_" in id_token else ""
+    _store_target(records, m.group(1), sequence.upper(), pam_index, tokens[2].upper(), guide)
+
+
+def _parse_target_fasta(text: str) -> dict[str, TargetRecord]:
+    records: dict[str, TargetRecord] = {}
+    header: str | None = None
+    seq: list[str] = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if line.startswith(">"):
+            if header is not None:
+                _store_target_fasta(records, header, "".join(seq))
+            header = line[1:].strip()
+            seq = []
+        else:
+            if header is None:
+                raise ForecastProfilesFetchError(f"Target FASTA sequence before any '>' header: {line!r}")
+            seq.append(line)
+    if header is not None:
+        _store_target_fasta(records, header, "".join(seq))
+    return records
+
+
+def _col_index(cols: list[str], *names: str) -> int | None:
+    for n in names:
+        if n in cols:
+            return cols.index(n)
+    return None
+
+
+def _parse_target_table(text: str) -> dict[str, TargetRecord]:
+    lines = [line for line in text.splitlines() if line.strip()]
+    if not lines:
+        raise ForecastProfilesFetchError("Target library table is empty.")
+    delim = "\t" if "\t" in lines[0] else ","
+    cols = [c.strip().lower() for c in lines[0].split(delim)]
+    id_i = _col_index(cols, "id", "oligo id", "oligo", "name")
+    tgt_i = _col_index(cols, "target", "target sequence", "sequence")
+    pam_i = _col_index(cols, "pam location", "pam index", "pam_index", "pamlocation", "pam")
+    dir_i = _col_index(cols, "pam direction", "direction", "strand")
+    guide_i = _col_index(cols, "guide", "grna")
+    if id_i is None or tgt_i is None or pam_i is None:
+        raise ForecastProfilesFetchError(
+            f"Target library table missing required ID/Target/PAM columns; header={lines[0]!r}"
+        )
+    records: dict[str, TargetRecord] = {}
+    need = max(i for i in (id_i, tgt_i, pam_i) if i is not None)
+    for lineno, line in enumerate(lines[1:], start=2):
+        parts = line.split(delim)
+        if len(parts) <= need:
+            raise ForecastProfilesFetchError(f"Target library row {lineno} is truncated: {line!r}")
+        m = _OLIGO_ID_RE.search(parts[id_i])
+        if not m:
+            raise ForecastProfilesFetchError(f"Target library row {lineno} has no 'Oligo<N>' id: {parts[id_i]!r}")
+        try:
+            pam_index = int(parts[pam_i])
+        except ValueError as e:
+            raise ForecastProfilesFetchError(
+                f"Target library row {lineno} pam index not an int: {parts[pam_i]!r}"
+            ) from e
+        direction = parts[dir_i].strip().upper() if dir_i is not None and dir_i < len(parts) else ""
+        guide = parts[guide_i].strip().upper() if guide_i is not None and guide_i < len(parts) else ""
+        _store_target(records, m.group(1), parts[tgt_i].strip().upper(), pam_index, direction, guide)
+    return records
+
+
+def parse_target_library(blob: bytes) -> dict[str, TargetRecord]:
+    """Parse Dataset 1 into `{oligo_id: TargetRecord}`, auto-detecting FASTA vs delimited table.
+
+    Faithful to the upstream layout; the target sequence + PAM index are carried verbatim (never
+    re-derived). Structural surprises (no oligo id, non-int PAM, empty sequence) raise rather than
+    guessing -- the benchmark must never score a misparsed target.
+    """
+    text = blob.decode("utf-8", "replace")
+    first = next((line for line in text.splitlines() if line.strip()), "")
+    records = _parse_target_fasta(text) if first.lstrip().startswith(">") else _parse_target_table(text)
+    if not records:
+        raise ForecastProfilesFetchError("Target library parsed zero records -- unexpected layout.")
+    return records
+
+
+def load_target_library(
+    name: str,
+    *,
+    settings: Settings | None = None,
+    download_fn: DownloadFn | None = None,
+    local_path: str | Path | None = None,
+) -> LoadedTargetLibrary:
+    """Load + verify + parse the FORECasT target library (Dataset 1).
+
+    Same posture as `load_observed`: a `local_path` you supply (no network/consent) -> cache ->
+    consent-gated fetch; sha256-verified before parse/cache; parsed oligo count checked against the
+    spec. NOTE: the real Dataset-1 download is bot-gated, so `local_path` is the expected path.
+    """
+    s = settings if settings is not None else _default_settings
+    spec = TARGET_LIBRARY.get(name)
+    if spec is None:
+        raise ForecastProfilesUnknown(
+            f"Unknown FORECasT target library {name!r}. Registered: {sorted(TARGET_LIBRARY)}. Add it to "
+            "benchmarks.forecast_profiles.TARGET_LIBRARY (with its verified sha256 + oligo count) first."
+        )
+
+    def _verify(blob: bytes, source: str) -> str:
+        actual = _sha256(blob)
+        if actual != spec.expected_sha256:
+            raise ForecastProfilesFetchError(
+                f"sha256 mismatch for target library {spec.name!r} from {source}: expected "
+                f"{spec.expected_sha256}, got {actual}. Refusing to parse unverified target bytes."
+            )
+        return actual
+
+    if local_path is not None:
+        path = Path(local_path).expanduser()
+        try:
+            blob = path.read_bytes()
+        except OSError as e:
+            raise ForecastProfilesFetchError(f"Could not read supplied target library {path}: {e}") from e
+        source = f"local:{path}"
+        verified = _verify(blob, source)
+    else:
+        cache = _resolve_data_dir(s) / spec.cache_filename
+        if cache.exists():
+            blob = cache.read_bytes()
+            source = f"cache:{cache}"
+            verified = _verify(blob, source)
+        else:
+            _require_consent(s)
+            fetch = download_fn if download_fn is not None else _httpx_download
+            blob = fetch(spec.download_url)
+            source = f"fetch:{spec.download_url}"
+            verified = _verify(blob, source)
+            cache.parent.mkdir(parents=True, exist_ok=True)
+            cache.write_bytes(blob)
+
+    records = parse_target_library(blob)
+    if len(records) != spec.n_oligos:
+        raise ForecastProfilesFetchError(
+            f"Target library {spec.name!r} parsed {len(records)} oligos but the spec expects "
+            f"{spec.n_oligos}. Refusing to benchmark on an unexpected oligo count -- re-verify the source."
+        )
+    return LoadedTargetLibrary(spec=spec, records=records, source=source, sha256=verified)
