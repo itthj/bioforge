@@ -114,3 +114,44 @@ two-scorer design's secondary slot (DeepCRISPR primary + Doench RS2 secondary, s
 (scikit-learn 0.23.2 deserializes the committed `V3_model_nopos.pickle`; deterministic), off by
 default. No new license risk.
 
+---
+
+## Session 5 decisions (2026-06-02)
+
+### DeepSpCas9 -> DeepCRISPR primary: SIGNED OFF (user decision, 2026-06-02)
+
+The blueprint names DeepSpCas9 the *primary* on-target scorer. Per the audit above it is
+non-commercial (article CC BY-NC) with unlicensed code, which conflicts with the project's
+commercial-clean posture. **Decision (user, 2026-06-02): formally accept DeepCRISPR (Apache-2.0)
+as the primary on-target model; DeepSpCas9 stays dropped** (available only if a user supplies it
+themselves under their own non-commercial agreement). This is a deliberate, signed-off deviation
+from the blueprint's named primary -- recorded here so it is intentional and visible, never silent.
+
+### Phase 3/4 external tooling audit (verified 2026-06-02 against current upstream)
+
+| Tool | Purpose | License | Commercial? | Source |
+|---|---|---|---|---|
+| **MAFFT** (core) | multiple-sequence alignment (Phase 4 MSA viewer) | **BSD-3-Clause** (verified) | ✅ Yes (+ redistribute, keep attribution) | [license.txt](https://mafft.cbrc.jp/alignment/software/license.txt) |
+| **DeepVariant** | variant calling (Phase 3 GIAB benchmark) | **BSD-3-Clause** (verified; SPDX via GitHub API) | ✅ Yes | [LICENSE](https://github.com/google/deepvariant/blob/r1.6/LICENSE) · [license API](https://api.github.com/repos/google/deepvariant/license) |
+
+- **MAFFT core is BSD-3-Clause** — clear to integrate + containerize (digest-pinned); commercial use
+  and redistribution permitted with attribution. **CRITICAL nuance (rule 15):** MAFFT's *bundled
+  extensions* (`license66.txt`: the Vienna RNA Package and MXSCARNA) carry a restrictive
+  "not redistributed for any fee, other than media costs" clause and are **NOT** BSD. The MSA tool
+  must build a **core-only MAFFT** image (no extensions) so only the BSD core is shipped. (ProbCons,
+  also in the extension bundle, is public domain; the restrictive pieces are Vienna RNA + MXSCARNA.)
+  Had we assumed "MAFFT is BSD" from memory we would have missed this — exactly what rule 15 exists for.
+- **DeepVariant is BSD-3-Clause** — clear to integrate as a digest-pinned container for the GIAB
+  variant-calling path. We pull the official image and do **not** redistribute its weights; re-verify
+  the model-file terms before any redistribution.
+
+### OOD interactive HITL (§4.3): deliberately deferred (user decision, 2026-06-02)
+
+The blueprint's §4.3 "proceed-with-OOD-flag or cancel" interactive card requires pausing and
+resuming the executor **mid-loop** (the `Plan` carries no concrete tool inputs — verified in
+`agent/planner.py` — so OOD can only be evaluated at execution time). That is a substantial,
+regression-risky rewrite of the stable executor. **Decision: keep the existing `block` (refuse
+before running) + `annotate` (visible OOD advisory) modes, which already protect and inform the
+user, and defer the interactive mid-run gate.** Recorded as an intentional architectural deviation,
+not a silent gap.
+
