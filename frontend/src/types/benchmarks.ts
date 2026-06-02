@@ -112,6 +112,44 @@ export interface PublishedGiabBenchmark {
   interpretation: string;
 }
 
+// A real, dated edit-outcome distribution-agreement measurement (FORECasT predicted vs measured
+// indel profiles, TVD/JSD). Mirror of bioforge.benchmarks.published.PublishedEditOutcomeBenchmark.
+export interface TvdHistogramBin {
+  lo: number;
+  hi: number;
+  count: number;
+}
+
+export interface PublishedEditOutcomeBenchmark {
+  name: string;
+  blueprint_section: string;
+  generated_at: string;
+  model: string;
+  model_version: string;
+  predictor_image: string;
+  observed_dataset: string;
+  observed_sha256: string;
+  target_library: string;
+  target_sha256: string;
+  sample: string;
+  direction: string;
+  min_reads: number;
+  n_guides: number;
+  n_skipped: number;
+  tvd_median: number;
+  tvd_q1: number;
+  tvd_q3: number;
+  jsd_median: number;
+  jsd_q1: number;
+  jsd_q3: number;
+  tvd_histogram: TvdHistogramBin[];
+  leakage_status: string;
+  leakage_evidence: string;
+  leakage_caveat: string;
+  citation: string;
+  interpretation: string;
+}
+
 export interface AccuracyReport {
   generated_at: string;
   bioforge_version: string;
@@ -125,4 +163,7 @@ export interface AccuracyReport {
   // Real, dated GIAB variant-calling concordance measurements (precision/recall/F1). Empty
   // until a run is published.
   published_giab: PublishedGiabBenchmark[];
+  // Real, dated edit-outcome distribution-agreement measurements (FORECasT vs measured, TVD/JSD).
+  // Empty until a run is published.
+  published_edit_outcome: PublishedEditOutcomeBenchmark[];
 }

@@ -65,7 +65,51 @@ function makeReport(overrides: Partial<AccuracyReport> = {}): AccuracyReport {
     ],
     published: [],
     published_giab: [],
+    published_edit_outcome: [],
     ...overrides,
+  };
+}
+
+function makeEditOutcome() {
+  return {
+    name: "CRISPR edit outcome: FORECasT predicted vs measured indel profiles (TVD/JSD)",
+    blueprint_section: "section 13 / Phase 2",
+    generated_at: "2026-06-02T02:00:00Z",
+    model: "forecast",
+    model_version: "allen-2018",
+    predictor_image: "bioforge/forecast:legacy",
+    observed_dataset: "K562_LV7A_DPI7",
+    observed_sha256: "526dbcbfaa86375fc65d4c040486d27f8e9d0e68a7204c1354ac25f71d3c0bfc",
+    target_library: "self_target_oligos",
+    target_sha256: "d6949518ea73fb72f6dd2f0c41b5c853655ecdca20e64041100d23d4ff53d275",
+    sample: "K562 (800x, LV7A, DPI7)",
+    direction: "FORWARD",
+    min_reads: 100,
+    n_guides: 150,
+    n_skipped: 0,
+    tvd_median: 0.46,
+    tvd_q1: 0.39,
+    tvd_q3: 0.55,
+    jsd_median: 0.3,
+    jsd_q1: 0.25,
+    jsd_q3: 0.35,
+    tvd_histogram: [
+      { lo: 0.0, hi: 0.1, count: 2 },
+      { lo: 0.1, hi: 0.2, count: 5 },
+      { lo: 0.2, hi: 0.3, count: 20 },
+      { lo: 0.3, hi: 0.4, count: 35 },
+      { lo: 0.4, hi: 0.5, count: 40 },
+      { lo: 0.5, hi: 0.6, count: 30 },
+      { lo: 0.6, hi: 0.7, count: 12 },
+      { lo: 0.7, hi: 0.8, count: 4 },
+      { lo: 0.8, hi: 0.9, count: 1 },
+      { lo: 0.9, hi: 1.0, count: 1 },
+    ],
+    leakage_status: "unknown",
+    leakage_evidence: "",
+    leakage_caveat: "IN-DISTRIBUTION agreement, not a held-out accuracy claim (K562 is the training cell line).",
+    citation: "Allen F et al. (2018) Nat Biotechnol 37:64-72",
+    interpretation: "median TVD 0.460 over 150 FORWARD-strand guides.",
   };
 }
 
@@ -200,5 +244,21 @@ describe("AccuracyReportView", () => {
   it("omits the GIAB section entirely when nothing is published (no faked row)", () => {
     render(<AccuracyReportView report={makeReport()} />);
     expect(screen.queryByText(/GIAB variant-calling concordance/i)).not.toBeInTheDocument();
+  });
+
+  it("renders the edit-outcome section with median TVD/JSD, n, and the in-distribution caveat", () => {
+    const withEo = makeReport({ published_edit_outcome: [makeEditOutcome()] });
+    render(<AccuracyReportView report={withEo} />);
+    expect(screen.getByText(/Edit-outcome distribution agreement/i)).toBeInTheDocument();
+    // The real, dated measurement surfaces via the interpretation line (unique full string).
+    expect(screen.getByText(/median TVD 0\.460 over 150 FORWARD-strand guides/i)).toBeInTheDocument();
+    expect(screen.getByText("leakage unverified")).toBeInTheDocument(); // honest 'unknown' badge
+    expect(screen.getByText(/IN-DISTRIBUTION agreement, not a held-out/i)).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /TVD distribution/i })).toBeInTheDocument();
+  });
+
+  it("omits the edit-outcome section entirely when nothing is published (no faked row)", () => {
+    render(<AccuracyReportView report={makeReport()} />);
+    expect(screen.queryByText(/Edit-outcome distribution agreement/i)).not.toBeInTheDocument();
   });
 });

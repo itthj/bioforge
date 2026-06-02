@@ -5,6 +5,7 @@ import type {
   AccuracyReport as AccuracyReportData,
   BenchmarkWiring,
   PublishedBenchmark,
+  PublishedEditOutcomeBenchmark,
   PublishedGiabBenchmark,
   ValidatorGate,
 } from "../types/benchmarks";
@@ -75,7 +76,102 @@ export function AccuracyReportView({ report }: { report: AccuracyReportData }) {
       <BenchmarkLedger benchmarks={report.benchmarks} />
       <PublishedResults published={report.published} />
       <GiabConcordanceResults published={report.published_giab} />
+      <EditOutcomeResults published={report.published_edit_outcome} />
     </div>
+  );
+}
+
+/** §13 / Phase 2: real, dated edit-outcome distribution agreement — FORECasT predicted vs measured
+ *  indel profiles (TVD/JSD), generated offline (a network fetch + an out-of-process FORECasT run),
+ *  never on page load. */
+function EditOutcomeResults({ published }: { published: PublishedEditOutcomeBenchmark[] }) {
+  if (published.length === 0) return null;
+  return (
+    <section className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
+      <h3 className="text-sm font-semibold text-slate-900">
+        Edit-outcome distribution agreement{" "}
+        <span className="font-normal text-slate-400">· §13 / Phase 2</span>
+      </h3>
+      <div className="mt-3 space-y-4">
+        {published.map((eo) => {
+          const leak = LEAKAGE_STYLES[eo.leakage_status] ?? LEAKAGE_STYLES.unknown;
+          return (
+            <div key={eo.name} className="rounded border border-slate-200 p-3">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <span className="text-sm font-medium text-slate-900">{eo.name}</span>
+                <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${leak.classes}`}>
+                  {leak.label}
+                </span>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1 font-mono text-sm text-slate-900">
+                <span>
+                  <span className="text-slate-400">median TVD</span> {eo.tvd_median.toFixed(3)}
+                  <span className="ml-1 text-[11px] text-slate-400">
+                    (IQR {eo.tvd_q1.toFixed(3)}–{eo.tvd_q3.toFixed(3)})
+                  </span>
+                </span>
+                <span>
+                  <span className="text-slate-400">median JSD</span> {eo.jsd_median.toFixed(3)}
+                </span>
+                <span>
+                  <span className="text-slate-400">n</span> {eo.n_guides}
+                </span>
+              </div>
+              <div className="mt-1 font-mono text-[11px] text-slate-400">
+                {eo.sample} · {eo.direction}-strand · ≥{eo.min_reads} reads · {eo.model_version} ·
+                measured {new Date(eo.generated_at).toISOString().slice(0, 10)}
+              </div>
+              <TvdHistogram bins={eo.tvd_histogram} />
+              <p className="mt-2 text-[11px] text-slate-600">{eo.interpretation}</p>
+              <p className="mt-1 text-[11px] italic text-amber-700">{eo.leakage_caveat}</p>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+/** Per-guide TVD distribution as a lean inline-SVG histogram (no chart dependency). Lower TVD =
+ *  better agreement, so mass toward the left is good. */
+function TvdHistogram({ bins }: { bins: PublishedEditOutcomeBenchmark["tvd_histogram"] }) {
+  if (bins.length === 0) return null;
+  const max = Math.max(1, ...bins.map((b) => b.count));
+  const W = 240;
+  const H = 60;
+  const bw = W / bins.length;
+  return (
+    <figure className="mt-2">
+      <svg viewBox={`0 0 ${W} ${H + 14}`} className="w-full max-w-xs" role="img" aria-label="Per-guide TVD distribution">
+        {bins.map((b, i) => {
+          const h = (b.count / max) * H;
+          return (
+            <rect
+              key={b.lo}
+              x={i * bw + 1}
+              y={H - h}
+              width={bw - 2}
+              height={h}
+              className="fill-sky-400"
+            >
+              <title>
+                TVD {b.lo.toFixed(1)}–{b.hi.toFixed(1)}: {b.count} guides
+              </title>
+            </rect>
+          );
+        })}
+        <line x1={0} y1={H} x2={W} y2={H} className="stroke-slate-300" strokeWidth={1} />
+        <text x={0} y={H + 11} className="fill-slate-400 text-[8px]">
+          TVD 0
+        </text>
+        <text x={W} y={H + 11} textAnchor="end" className="fill-slate-400 text-[8px]">
+          1
+        </text>
+      </svg>
+      <figcaption className="text-[10px] text-slate-400">
+        Per-guide TVD (left = better agreement)
+      </figcaption>
+    </figure>
   );
 }
 

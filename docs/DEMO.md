@@ -82,10 +82,13 @@ Open the **Accuracy** tab. You'll see the section-13 benchmark ledger (each row 
 | On-target efficiency | DeepCRISPR x Chari-2015 | Spearman rho **0.1299** | 1234 | `held_out` (vs Chuai 2018, verified) |
 | Off-target discrimination | CFD x annotOfftargets | Spearman rho **0.3132** | 717 | `unknown` (honest -- not verified) |
 | Variant-calling concordance | DeepVariant x NIST/GIAB (NA12878, chr20:10-10.1Mb) | precision **0.980** / recall **1.000** (ALL) | 49 | small build-matched validation region, not genome-wide HG002 |
+| Edit-outcome agreement | FORECasT x measured K562 profiles (Allen 2018) | median TVD **0.546** / JSD **0.385** | 150 | `unknown` -- in-distribution (K562 is FORECasT's training cell line), FORWARD-strand |
 
 Regenerate offline (proves they're real, not hand-entered): the correlation arms via
 `python -m bioforge.benchmarks.published`; the GIAB arm via `benchmarks.published.generate_giab_artifact`
-over a real DeepVariant run on staged, build-matched inputs (digest-pinned image).
+over a real DeepVariant run on staged, build-matched inputs (digest-pinned image); the edit-outcome
+arm via `benchmarks.published.generate_edit_outcome_artifact` (FORECasT image over the figshare K562
+profiles joined to the Dataset-1 target library).
 
 **Proves:** the differentiating core is not just *built* -- it is *demonstrated with real numbers*,
 each carrying a leakage label that is structurally required to cite a primary source.
@@ -105,6 +108,14 @@ each carrying a leakage label that is structurally required to cite a primary so
   build-matched VALIDATION region demonstrating the wired pipeline end-to-end -- NOT a genome-wide
   HG002 accuracy claim, and genotype-agnostic exact-match (not haplotype-aware like hap.py). The
   full genome-wide HG002 run is the same code path over more data.
+- **Edit-outcome distribution agreement** -- FORECasT-predicted vs measured indel profiles (Allen
+  2018), median TVD = 0.546 / JSD = 0.385 (n=150 FORWARD-strand K562 guides, >=100 edited reads each).
+  `unknown` leakage with an explicit IN-DISTRIBUTION caveat (K562 is FORECasT's own training cell
+  line; the per-guide train/test split is unverified) -- reported as distribution AGREEMENT, NOT a
+  held-out accuracy claim. ~Half the outcome mass is misallocated on average: FORECasT captures the
+  dominant indels but the full per-guide distribution agreement is moderate. FORECasT-vs-FORECasT is
+  the only label-vocabulary-matched comparison (no remapping); REVERSE-strand records are excluded
+  (the predictor rejects them as-provided; strand is orthogonal to accuracy).
 - **ClinVar fidelity** -- scored against LIVE ClinVar (`-m online`, nightly), not a frozen snapshot.
 - **Calibration / reliability diagrams** -- real (predicted, observed) pairs from the benchmarks,
   rendered as reliability curves (honest `kind="regression_ranking"`, not probability calibration).
@@ -117,8 +128,12 @@ each carrying a leakage label that is structurally required to cite a primary so
   honesty-gated off-target view on hosted hg38 (Slice B).
 
 ### Honestly-gated -- built + tested, deliberately waiting on real external data (NEVER faked)
-- **Edit-outcome distribution agreement** -- the TVD + JSD scorer is built + tested. A real published
-  number awaits a license-clean held-out indel-distribution dataset (Lindel/inDelphi/FORECasT).
+- **None remain for section 13.** Every mandated section-13 benchmark now has a REAL published number
+  (on-target, off-target, GIAB concordance, and -- as of session 6 -- edit-outcome agreement). What
+  stays deliberately scoped rather than faked: the GIAB number is a small build-matched VALIDATION
+  region (the genome-wide HG002 run is the same code path over more data), and the edit-outcome number
+  is in-distribution agreement on FORWARD-strand K562 guides (a documented held-out split would upgrade
+  its `unknown` leakage label, and reverse-strand frame handling would add the remaining ~7% of oligos).
 
 ### Deliberate, documented deviations (license-driven, not shortcuts)
 - **DeepSpCas9** -- the blueprint names it the primary on-target model; it was dropped on a license

@@ -146,6 +146,27 @@ def test_min_reads_filters_low_coverage_oligos(tmp_path: Path, monkeypatch: pyte
     assert res.per_guide[0].oligo_id == "Oligo1062"
 
 
+def test_reverse_strand_records_excluded_by_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Oligo46510 is REVERSE -> excluded (the predictor's indelgentarget rejects REVERSE records);
+    # both join the library (ID-health), but only the FORWARD oligo is scored.
+    lib = f">Oligo1062_G 56 FORWARD\n{_T1}\n>Oligo46510_G 56 REVERSE\n{_T2}\n".encode()
+    _register(monkeypatch, target_oligos=2, target_fasta=lib)
+    obs_p, lib_p = _write(tmp_path, lib=lib)
+    res = run_edit_outcome_agreement(
+        "obs_fix",
+        "lib_fix",
+        settings=_settings(tmp_path),
+        min_reads=1,
+        observed_local_path=obs_p,
+        target_local_path=lib_p,
+        run_fn=_mock_run_fn,
+    )
+    assert res.n_joined == 2  # ID-join health counts both strands
+    assert res.n_guides == 1  # only the FORWARD record is scored
+    assert res.direction == "FORWARD"
+    assert res.per_guide[0].oligo_id == "Oligo1062"
+
+
 def test_low_join_coverage_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # Target library has only ONE of the two eligible observed oligos -> coverage 0.5 < 0.8.
     lib = f">Oligo1062_GATTTAAGCTGAAGCTACAT 56 FORWARD\n{_T1}\n".encode()

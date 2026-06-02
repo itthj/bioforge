@@ -276,6 +276,19 @@ def test_parse_target_table_csv() -> None:
     assert recs["Oligo7"].pam_index == 3
 
 
+def test_parse_target_canonicalizes_underscore_ids() -> None:
+    # The design library keys 'Oligo_<N>' (underscore); observed profiles key 'Oligo<N>'. The parser
+    # must canonicalize to 'Oligo<N>' so the two JOIN. Regression for the real Dataset-1 format.
+    tsv = (
+        b"ID\tGuide\tTarget\tPAM Location\tPAM Direction\n"
+        b"Oligo_87034\tGTGCGATCCGGAGTAGTTCT\tACGTACGTACGTACGTACGTACG\t3\tFORWARD\n"
+    )
+    recs = parse_target_library(tsv)
+    assert "Oligo87034" in recs  # underscore stripped -> joins observed @@@Oligo87034
+    assert recs["Oligo87034"].pam_index == 3
+    assert recs["Oligo87034"].direction == "FORWARD"
+
+
 def test_parse_target_rejects_header_without_oligo_id() -> None:
     with pytest.raises(ForecastProfilesFetchError) as exc:
         parse_target_library(b">NotAnOligo 5 FORWARD\nACGTACGT\n")

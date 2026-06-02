@@ -1,6 +1,81 @@
 # BioForge — Session handoff (v4 finalization)
 
-## ★ START HERE — session 6 entry point (written 2026-06-02, end of session 5)
+## ★ START HERE — session 7 entry point (written 2026-06-02, end of session 6)
+
+### Session 7 kickoff prompt (copy-paste this into the new session)
+```
+Continuing BioForge (github.com/itthj/bioforge, main @ <HEAD>, working tree clean). The v4 §13
+benchmark suite is COMPLETE: every mandated §13 number is now a REAL published measurement -- there
+are ZERO honestly-gated §13 numbers left. Backend 1040 tests, frontend 125 vitest -- all green;
+tsc --strict + ruff clean. Local repo: C:\Users\james\OneDrive\Documents\BIOTECH 101\bioforge; venv
+at bioforge\.venv; Docker works (deepcrispr/azimuth/lindel/forecast legacy + google/deepvariant:1.6.1);
+node not on PATH (prepend C:\Users\james\AppData\Local\Programs\nodejs); gh is in WSL Ubuntu.
+NOTE: check `git log origin/main..main`; push unpushed commits with an explicit `git push origin main`.
+
+First: read docs/handoff.md (this section), docs/DEMO.md (walkthrough + honesty scorecard),
+docs/license_audit.md.
+
+State: FOUR real published §13 numbers now show in the Accuracy Report: on-target DeepCRISPR x Chari
+rho=0.130; off-target CFD rho=0.313; GIAB concordance (DeepVariant, NA12878 chr20:10-10.1Mb, ALL
+precision 0.98 / recall 1.00, small build-matched VALIDATION region); and (NEW, session 6) EDIT-OUTCOME
+agreement -- FORECasT-predicted vs measured K562 indel profiles (Allen 2018), median TVD 0.546 / JSD
+0.385 over n=150 FORWARD-strand guides (>=100 reads each), leakage UNKNOWN + an explicit
+IN-DISTRIBUTION caveat (K562 is FORECasT's training cell line; per-guide train/test split unverified)
+-- distribution AGREEMENT, NOT a held-out claim.
+
+Next steps toward completion (none may be faked -- the integrity IS the product):
+  1. GIAB genome-wide HG002 scale-up (OPTIONAL) -- same shipped code path (benchmarks/giab.py +
+     deepvariant_runner.py; DeepVariant image pulled), more data: GRCh38 + full HG002 reads + GIAB
+     HG002 v4.2.1 truth/BED. Pure ops, no new code.
+  2. MANUAL BROWSER EYEBALL -- the IGV viewers (Slice A inline-FASTA, Slice B hosted-hg38) + the MSA
+     viewer render real output but are NOT auto-verified (happy-dom can't run igv's canvas). A
+     Playwright smoke would lock it in.
+  3. PRESENTATION -- finalize the v4 conformance scorecard; CI for the gated suites (-m docker /
+     -m online); deploy story. docs/DEMO.md is the walkthrough + honesty scorecard.
+  4. EDIT-OUTCOME enhancements (OPTIONAL, would strengthen the number): (a) a documented FORECasT
+     train/test oligo split would upgrade leakage UNKNOWN -> held_out; (b) reverse-strand frame
+     handling (revcomp Target + adjust PAM index) would add the ~7% REVERSE oligos currently excluded.
+
+Plan before coding; vertical slices end-to-end; no heavy agent frameworks; no faked benchmarks.
+Each slice its own branch, FF-merged to main, suite green before commit; push only on explicit OK;
+commit messages ASCII only.
+```
+
+### What session 6 shipped (4 slices, the LAST gated §13 number -- edit-outcome live)
+The §13 edit-outcome distribution-agreement benchmark went from "scorer built, gated" to a REAL
+published number. FORECasT-predicted vs FORECasT-observed indel distributions (the only
+label-vocabulary-matched comparison -- Lindel ruled out, a crosswalk would violate never-remap):
+1. **Observed data layer** (`benchmarks/forecast_profiles.py`) -- fetch-on-first-use loader for the
+   Allen 2018 processed mutational profiles (figshare 10.6084/m9.figshare.7312067.v2, CC BY 4.0);
+   consent gate + `local_path` bypass + sha256 + oligo-count guards; ZIP/`@@@`-block parser ->
+   per-oligo normalized distribution (WT `-` line dropped). K562 LV7A DPI7 pinned (sha256 `526dbcbf`,
+   35131 oligos).
+2. **Target-library loader** -- Allen 2018 Dataset 1 (`self_target_oligos_details_with_pam_details.csv`,
+   41,630 gRNA-target pairs) maps each oligo -> target seq + PAM index (the predictor needs it; the
+   profiles don't carry it). Parser auto-detects FASTA + delimited-table; canonicalizes `Oligo_<N>`
+   (library) <-> `Oligo<N>` (observed) -> 99.4% join. Bot-gated everywhere it is published (PMC
+   reCAPTCHA, Code Ocean login) -> supplied via local_path, sha256-pinned (`d6949518`, 41121 records).
+   Source: the paper's Code Ocean capsule 10.24433/CO.6bc7bcae-d736-475b-bae5-00ca0562d401.
+3. **Runner** (`benchmarks/edit_outcome_published_run.py`) -- join observed∩targets, predict each via
+   the out-of-process FORECasT image, score predicted-vs-observed with TVD/JSD, aggregate median +
+   quartiles. FORWARD-strand only (the predictor's indelgentarget rejects REVERSE design records
+   as-provided; strand is orthogonal to accuracy -- documented). Refuses on low join coverage / too
+   many predictor failures; min_reads=100; per-guide scores + read depth retained.
+4. **Publish + surface** -- `PublishedEditOutcomeBenchmark` artifact + loader + generator in
+   `published.py`; wired into the Accuracy Report (`published_edit_outcome`) + the frontend
+   (edit-outcome card + inline-SVG TVD histogram); ledger row detail updated (stays guard_only --
+   the live run is a fetch + Docker call, never on page load). Real number generated offline over
+   150 guides in ~30 min, committed as `published/edit_outcome_k562_lv7a_dpi7.json`.
+
+Honesty notes carried in-product + in license_audit.md: median TVD 0.546 means ~half the outcome mass
+is misallocated on average -- FORECasT captures the dominant indels but full per-guide agreement is
+moderate; reported as IN-DISTRIBUTION agreement (K562 is its training cell line), never a held-out
+accuracy claim. The capsule `data/LICENSE` text is the one open TODO in the audit (the target library
+is fetched transiently / never vendored regardless).
+
+---
+
+## START HERE — session 6 entry point (written 2026-06-02, end of session 5; SUPERSEDED by session 7 above)
 
 ### Session 6 kickoff prompt (copy-paste this into the new session)
 ```

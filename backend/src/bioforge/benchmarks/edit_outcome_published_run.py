@@ -73,8 +73,11 @@ class EditOutcomePublishedResult(BaseModel):
     model_version: str
     target_library: str
     min_reads: int
+    direction: str = Field(
+        description="Design strand scored (FORWARD); REVERSE records are excluded, see interpretation."
+    )
     n_eligible: int = Field(description="Observed oligos with >= min_reads edited reads (candidates).")
-    n_joined: int = Field(description="Eligible oligos also present in the target library.")
+    n_joined: int = Field(description="Eligible oligos also present in the target library (ID-join health).")
     n_guides: int = Field(description="Oligos actually scored (after the max_guides cap).")
     n_skipped: int = Field(description="Joined oligos the predictor could not score (recorded, not hidden).")
     join_coverage: float
@@ -110,6 +113,7 @@ def run_edit_outcome_agreement(
     settings: Settings | None = None,
     max_guides: int | None = None,
     min_reads: int = _DEFAULT_MIN_READS,
+    direction: str = "FORWARD",
     observed_local_path: str | None = None,
     target_local_path: str | None = None,
     run_fn: RunFn | None = None,
@@ -117,8 +121,12 @@ def run_edit_outcome_agreement(
     """Run the FORECasT-predicted vs observed edit-outcome agreement benchmark.
 
     Deterministic: oligos are scored in sorted id order, so `max_guides` selects a stable subset and
-    the result reproduces. Raises if the observed<->target join coverage is too low or too many
-    oligos fail in the predictor (never publish a number built on a mismatched / mostly-failed set).
+    the result reproduces. Only `direction`-strand design records are scored (FORWARD by default):
+    the predictor's indelgentarget rejects the REVERSE design records as-provided, and strand is a
+    design artifact orthogonal to model accuracy, so we score one strand and document the restriction
+    rather than guess a reverse-complement frame. Raises if the observed<->target join coverage is too
+    low or too many oligos fail in the predictor (never publish a number built on a mismatched /
+    mostly-failed set).
     """
     s = settings if settings is not None else _default_settings
 
@@ -128,21 +136,24 @@ def run_edit_outcome_agreement(
     eligible = {
         oid: prof for oid, prof in observed.profiles.items() if prof.total_reads >= min_reads and prof.distribution
     }
-    joined_ids = sorted(oid for oid in eligible if oid in library.records)
-    if not joined_ids:
+    in_library = sorted(oid for oid in eligible if oid in library.records)
+    if not in_library:
         raise ValueError(
             f"No eligible observed oligos (>= {min_reads} reads) join the target library "
             f"{target_name!r}. Check the ID schemes match (observed @@@Oligo<N> vs library ids)."
         )
-    coverage = len(joined_ids) / len(eligible)
+    coverage = len(in_library) / len(eligible)
     if coverage < _MIN_JOIN_COVERAGE:
         raise ValueError(
-            f"Join coverage {coverage:.2f} below {_MIN_JOIN_COVERAGE}: only {len(joined_ids)} of "
+            f"Join coverage {coverage:.2f} below {_MIN_JOIN_COVERAGE}: only {len(in_library)} of "
             f"{len(eligible)} eligible observed oligos are in the target library. Refusing to score a "
             "mismatched subset -- re-verify the observed/library ID schemes."
         )
+    candidates = [oid for oid in in_library if library.records[oid].direction == direction]
+    if not candidates:
+        raise ValueError(f"No {direction}-strand design records among the {len(in_library)} joined oligos.")
 
-    selected = joined_ids if max_guides is None else joined_ids[:max_guides]
+    selected = candidates if max_guides is None else candidates[:max_guides]
     model_version = "allen-2018"
 
     per_guide: list[PerGuideAgreement] = []
@@ -191,8 +202,10 @@ def run_edit_outcome_agreement(
     interpretation = (
         f"FORECasT (Allen 2018) predicted indel distributions vs the measured profiles on "
         f"{observed.spec.sample_label}: median TVD {tvd_median:.3f} (IQR {tvd_q1:.3f}-{tvd_q3:.3f}), "
-        f"median JSD {jsd_median:.3f}, over n={len(per_guide)} guides (>= {min_reads} edited reads "
-        f"each). TVD is the fraction of outcome mass misallocated on average; lower is better. "
+        f"median JSD {jsd_median:.3f}, over n={len(per_guide)} {direction}-strand guides (>= {min_reads} "
+        f"edited reads each). TVD is the fraction of outcome mass misallocated on average; lower is "
+        f"better. Scored {direction}-strand design records only (the predictor's indelgentarget rejects "
+        f"the REVERSE records as-provided; strand is orthogonal to model accuracy). "
         f"Leakage UNKNOWN: {_IN_DISTRIBUTION_CAVEAT}"
     )
 
@@ -203,8 +216,9 @@ def run_edit_outcome_agreement(
         model_version=model_version,
         target_library=target_name,
         min_reads=min_reads,
+        direction=direction,
         n_eligible=len(eligible),
-        n_joined=len(joined_ids),
+        n_joined=len(in_library),
         n_guides=len(per_guide),
         n_skipped=n_skipped,
         join_coverage=round(coverage, 4),

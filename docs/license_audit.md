@@ -174,3 +174,39 @@ before running) + `annotate` (visible OOD advisory) modes, which already protect
 user, and defer the interactive mid-run gate.** Recorded as an intentional architectural deviation,
 not a silent gap.
 
+---
+
+## Session 6 decisions (2026-06-02) -- edit-outcome live benchmark data
+
+The §13 edit-outcome distribution-agreement benchmark (TVD/JSD) needs THREE inputs, each
+license-audited against its current upstream (rule 15 -- not from memory):
+
+| Input | What | License | Source / posture |
+|---|---|---|---|
+| **Observed** indel profiles | Allen 2018 measured per-oligo indel distributions (the ground truth); K562 LV7A DPI7 sample used | **CC BY 4.0** (verified via the figshare API `license` field) | figshare 10.6084/m9.figshare.7312067.v2; fetch-on-first-use, sha256-pinned (`526dbcbf...`), never vendored |
+| **Target library** (Dataset 1) | the 41,630 gRNA-target design pairs (`self_target_oligos_details_with_pam_details.csv`) -- maps each observed oligo to its target sequence + PAM index, which the predictor needs and the profiles do not carry | **VERIFY (capsule `data/LICENSE`)** | obtained from the paper's Code Ocean capsule 10.24433/CO.6bc7bcae-d736-475b-bae5-00ca0562d401 (the bot-gated PMC supplementary / Code Ocean are the only sources); supplied via `local_path`, sha256-pinned (`d6949518...`), never vendored |
+| **Predictor** | FORECasT (Allen 2018) | **MIT** (verified, session-5 audit above; SelfTarget © 2018 Felicity Allen) | local image `bioforge/forecast:legacy` (image id `a6be7df21047`), out-of-process |
+
+**Posture.** Same fetch-on-first-use / consent-gated / sha256-pinned / never-vendored discipline as
+crisporPaper effData: even the CC BY 4.0 profiles are not vendored (keeps the repo lean + provenance
+explicit). The target library is bot-gated everywhere it is published (PMC reCAPTCHA, Code Ocean
+login), so it is supplied via `local_path` (sha256-verified) rather than auto-fetched.
+
+**Honest scope of the published number (the integrity rule applied).** The comparison is
+FORECasT-PREDICTED vs FORECasT-OBSERVED, the only label-vocabulary-matched pairing (both use
+FORECasT's own `D2_L-3R0`/`I1_L-2C1R0` indel taxonomy -- no remapping, faithful to upstream; Lindel
+was ruled OUT because its different vocabulary would force a banned crosswalk). Two caveats travel
+with the number, never buried:
+  1. **Leakage UNKNOWN / in-distribution.** These oligos are FORECasT's OWN library and K562 is its
+     primary TRAINING cell line; the per-guide train/test split is not verified against a primary
+     source. So it is reported as distribution AGREEMENT, NOT a held-out accuracy claim (the scorer's
+     gate forbids a `held_out` label without primary-source evidence).
+  2. **FORWARD-strand only.** The predictor's `indelgentarget` rejects the REVERSE-strand design
+     records as-provided; rather than guess a reverse-complement frame (risking a confident-wrong
+     number), only FORWARD-strand records are scored. Strand is a design artifact orthogonal to model
+     accuracy. The ~7% REVERSE records are excluded and the restriction is stated in the result.
+
+**TODO (capsule data license):** confirm the Code Ocean capsule's `data/LICENSE` text and record it
+above (the target library is used transiently / never redistributed regardless, mirroring the
+unlicensed-but-consent-gated crisporPaper posture, so this does not gate the build).
+

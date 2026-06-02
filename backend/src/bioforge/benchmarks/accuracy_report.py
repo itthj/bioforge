@@ -30,8 +30,10 @@ from bioforge.agent.grounding.metrics import (
 )
 from bioforge.benchmarks.published import (
     PublishedBenchmark,
+    PublishedEditOutcomeBenchmark,
     PublishedGiabBenchmark,
     load_published_benchmarks,
+    load_published_edit_outcome,
     load_published_giab,
 )
 
@@ -95,6 +97,10 @@ class AccuracyReport(BaseModel):
     published_giab: list[PublishedGiabBenchmark] = Field(
         default_factory=list,
         description="Real, dated GIAB variant-calling concordance measurements (precision/recall/F1 by class).",
+    )
+    published_edit_outcome: list[PublishedEditOutcomeBenchmark] = Field(
+        default_factory=list,
+        description="Real, dated edit-outcome distribution-agreement measurements (FORECasT vs observed, TVD/JSD).",
     )
 
 
@@ -223,11 +229,14 @@ _BENCHMARKS: list[BenchmarkStatus] = [
             "Jensen-Shannon divergence (numpy-only) between a predicted indel distribution and an "
             "observed one, with the same honesty rails as the on/off-target arms (typed "
             "LeakageAssessment; refuses to silently renormalize a malformed distribution; per-label "
-            "(predicted, observed) pairs feed the reliability diagram). guard_only because a real "
-            "held-out distribution dataset for Lindel / inDelphi / FORECasT is not yet wired -- "
-            "those models are validated for PARITY against their own published images, and TVD/JSD "
-            "are unit-tested, but the live distribution-vs-distribution comparison needs an "
-            "accessible, license-clean held-out source."
+            "(predicted, observed) pairs feed the reliability diagram). NOW PUBLISHED: a real "
+            "FORECasT-predicted vs measured comparison runs over the Allen 2018 processed profiles "
+            "(figshare, CC BY 4.0) joined to the design library (Dataset 1), via benchmarks."
+            "edit_outcome_published_run -- see published_edit_outcome for the measured TVD/JSD. Still "
+            "guard_only (not live): it needs a network-fetched dataset + an out-of-process FORECasT "
+            "call, so it is not computed on a page load. Leakage UNKNOWN + an explicit in-distribution "
+            "caveat (K562 is FORECasT's training cell line; the per-guide train/test split is "
+            "unverified), so it is reported as distribution agreement, NOT a held-out accuracy claim."
         ),
     ),
 ]
@@ -243,4 +252,5 @@ def build_accuracy_report() -> AccuracyReport:
         benchmarks=list(_BENCHMARKS),
         published=load_published_benchmarks(),
         published_giab=load_published_giab(),
+        published_edit_outcome=load_published_edit_outcome(),
     )
