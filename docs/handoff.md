@@ -2,7 +2,51 @@
 
 ## ★ START HERE — session 4 entry point (written 2026-06-01, end of session 3)
 
-**Repo:** https://github.com/itthj/bioforge — **main @ `31026b7`**, working tree clean, everything pushed.
+### Session 4 kickoff prompt (copy-paste this into the new session)
+```
+Continuing BioForge (github.com/itthj/bioforge, main @ 32d6b6e, working tree clean, ~90% of the
+v4 blueprint). Backend 968 tests (+ docker/online e2e, gated), frontend 91 vitest -- all green;
+tsc --strict + ruff clean. Local repo: C:\Users\james\OneDrive\Documents\BIOTECH 101\bioforge;
+venv at bioforge\.venv; Docker works (deepcrispr/azimuth/lindel/forecast legacy images built);
+node not on PATH (prepend C:\Users\james\AppData\Local\Programs\nodejs); gh is in WSL Ubuntu, not
+Windows (wsl -d Ubuntu -- bash -lc "gh ...").
+
+First: read docs/handoff.md, especially the "★ START HERE -- session 4 entry point" section at the
+top. That's the live resume point.
+
+Last session (3) shipped 8 slices, all FF-merged to main: the full section-13 benchmark suite
+(on-target DeepCRISPR x Chari-2015; off-target CFD vs GUIDE-seq/validated sites; edit-outcome
+TVD/JSD; GIAB variant-concordance scorer) + section-6 calibration (reliability diagrams) + a
+hardened, primary-source-gated leakage system + TWO real published benchmark results (on-target
+rho=0.130 held_out; off-target rho=0.313 unknown) now shown in the Accuracy Report with their
+reliability curves. The blueprint's differentiating core (grounding / benchmarking / calibration /
+provenance) is substantially done and demonstrated with real numbers.
+
+Where I'm picking up -- next priorities IN ORDER (none can be faked; the integrity IS the product):
+  1. IGV.js genome browser (section 5 / Phase 2 guide viz) -- the main remaining buildable feature.
+     Add the igv npm dep + a React wrapper; render guide position + PAM + off-target sites on the
+     USER-CONFIRMED reference build. First check what genomic coordinates design_guides /
+     find_offtargets actually carry; IGV.js can load a hosted hg38 to avoid the 3 GB download.
+  2. GIAB end-to-end -- the concordance scorer (benchmarks/variant_concordance.py) is built+tested;
+     needs a digest-pinned variant CALLER (bcftools/DeepVariant -- license-audit first), GRCh38
+     ~3 GB, and the HG002 truth VCF + high-conf BED. ~half the remaining work; multi-hour.
+  3. Edit-outcome live data -- the TVD/JSD scorer is built; needs a license-clean held-out
+     indel-distribution dataset (Lindel/inDelphi/FORECasT) to publish a real number via published.py.
+  4. DeepSpCas9 -- the blueprint NAMES it the primary on-target model; it was dropped on a license
+     audit (rule 15) and DeepCRISPR substituted. A deliberate deviation needing my sign-off, NOT a
+     silent fix.
+  5. MSA viewer (Phase 4) -- react-msa-viewer not integrated. Minor.
+
+One decision is mine before the next build: which to tackle first -- IGV.js (recommended; the main
+user-facing feature left) or the GIAB caller (heavier). If IGV.js: confirm I'm OK adding the igv
+dependency + using a hosted hg38 reference. If GIAB: pick the caller (bcftools = lighter /
+license-clean; DeepVariant = heavier / more accurate) and license-audit it before building.
+
+Plan before coding; vertical slices end-to-end (never horizontal layers); no heavy agent frameworks;
+no faked benchmarks -- the gated remainder is earned with real data.
+```
+
+**Repo:** https://github.com/itthj/bioforge — **main @ `32d6b6e`**, working tree clean, everything pushed.
 **Local:** `C:\Users\james\OneDrive\Documents\BIOTECH 101\bioforge` (Windows; Docker Desktop + WSL2).
 **Suite — all green:** backend **968 passed**, 2 skipped, 16 deselected (online+docker+nextflow gated);
 frontend **91 vitest**; `tsc --strict` + `ruff check` + `ruff format` all clean.
