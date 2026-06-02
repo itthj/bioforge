@@ -16,6 +16,7 @@
     "react-dom": "^18.3.1"
   },
   "optionalDependencies": {
+    "igv": "^3.8.1",
     "molstar": "^4.7.0"
   },
   "devDependencies": {

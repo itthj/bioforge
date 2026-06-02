@@ -125,6 +125,15 @@ class GuideReport(BaseModel):
 
 class CrisprEditReportOutput(ToolOutput):
     target_length: int
+    target_sequence: str = Field(
+        description=(
+            "The submitted target locus (the caller's own input, echoed back, cleaned + "
+            "uppercased). Carried so a genome-browser view can render the target as its own "
+            "reference and place each guide's protospacer/PAM at the forward-strand coordinates "
+            "below. These coordinates are sequence-relative to THIS string only -- not a genome "
+            "build; the tool never captures where this locus sits on a chromosome."
+        )
+    )
     pam: str
     num_guides_considered: int
     recommended_guide: GuideReport | None
@@ -245,6 +254,7 @@ async def crispr_edit_report(inp: CrisprEditReportInput) -> CrisprEditReportOutp
     if not guides:
         return CrisprEditReportOutput(
             target_length=len(inp.target),
+            target_sequence=inp.target,
             pam=inp.pam,
             num_guides_considered=0,
             recommended_guide=None,
@@ -363,6 +373,7 @@ async def crispr_edit_report(inp: CrisprEditReportInput) -> CrisprEditReportOutp
 
     return CrisprEditReportOutput(
         target_length=len(inp.target),
+        target_sequence=inp.target,
         pam=inp.pam,
         num_guides_considered=len(report_guides),
         recommended_guide=report_guides[0] if report_guides else None,

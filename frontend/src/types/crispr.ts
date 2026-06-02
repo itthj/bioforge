@@ -42,6 +42,11 @@ export interface GuideReport {
 
 export interface CrisprEditReportOutput {
   target_length: number;
+  // The submitted target locus, echoed back (cleaned + uppercased). Coordinates on
+  // each GuideReport are sequence-relative to THIS string only — not a genome build.
+  // The IGV guide view renders it as its own reference. May be absent on traces
+  // produced before this field existed, so consumers must tolerate undefined.
+  target_sequence: string;
   pam: string;
   num_guides_considered: number;
   recommended_guide: GuideReport | null;

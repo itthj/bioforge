@@ -3,6 +3,7 @@ import type {
   GuideReport,
   RecommendationLabel,
 } from "../types/crispr";
+import { IgvGuideViewer } from "./IgvGuideViewer";
 
 interface CrisprReportCardProps {
   report: CrisprEditReportOutput;
@@ -30,6 +31,10 @@ export function CrisprReportCard({ report }: CrisprReportCardProps) {
           </div>
         </div>
       </header>
+
+      {report.guides.length > 0 && report.target_sequence && (
+        <IgvGuideViewer report={report} />
+      )}
 
       {report.recommended_guide ? (
         <RecommendedGuide guide={report.recommended_guide} />

@@ -45,6 +45,9 @@ function makeReport(
 ): CrisprEditReportOutput {
   return {
     target_length: 60,
+    // Coordinate-consistent with makeGuide(): [10,30) is the protospacer, [30,33) the AGG PAM.
+    target_sequence:
+      "A".repeat(10) + "ACGTACGTACGTACGTACGG" + "AGG" + "C".repeat(27),
     pam: "NGG",
     num_guides_considered: 3,
     recommended_guide: makeGuide(),

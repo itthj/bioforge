@@ -103,6 +103,53 @@ async def test_report_designs_guides_and_simulates_edit_without_offtargets() -> 
     assert any("Off-target search was not run" in c for c in out.caveats)
 
 
+def _revcomp(seq: str) -> str:
+    return seq.translate(str.maketrans("ACGT", "TGCA"))[::-1]
+
+
+async def test_report_echoes_target_sequence_and_coordinates_index_into_it() -> None:
+    """The report carries the submitted locus verbatim, and every guide's
+    forward-strand coordinates index back into it correctly.
+
+    This is the contract the genome-browser (IGV) view relies on: it renders
+    `target_sequence` as its own reference and places protospacer/PAM features at
+    [protospacer_start, protospacer_end) / [pam_start, pam_end). If that mapping
+    ever drifts, the browser would draw a guide at the wrong place -- so we lock
+    it here, for both strands.
+    """
+    out = await crispr_edit_report(CrisprEditReportInput(target=_TARGET))
+
+    # Echoed verbatim (cleaned + uppercased input == _TARGET already).
+    assert out.target_sequence == _TARGET
+    assert out.target_length == len(_TARGET)
+
+    assert out.guides  # the fixture target has PAM sites on both strands
+    seen_strands = set()
+    for g in out.guides:
+        seen_strands.add(g.strand)
+        proto = out.target_sequence[g.protospacer_start : g.protospacer_end]
+        pam = out.target_sequence[g.pam_start : g.pam_end]
+        if g.strand == "+":
+            assert proto == g.protospacer
+            assert pam == g.pam_sequence
+            # PAM sits immediately 3' of the protospacer on the forward strand.
+            assert g.pam_start == g.protospacer_end
+        else:
+            assert _revcomp(proto) == g.protospacer
+            assert _revcomp(pam) == g.pam_sequence
+            # For a '-' guide the PAM is 5' (lower coord) of the protospacer.
+            assert g.pam_end == g.protospacer_start
+    # The poly-C / guide / poly-T fixture yields guides on both strands.
+    assert seen_strands == {"+", "-"}
+
+
+async def test_empty_report_still_carries_target_sequence() -> None:
+    target = "A" * 80
+    out = await crispr_edit_report(CrisprEditReportInput(target=target))
+    assert out.recommended_guide is None
+    assert out.target_sequence == target
+
+
 async def test_report_runs_offtarget_search_when_requested(patch_ncbi) -> None:
     # HIGH: perfect 20/20 alignment → MIT score 1.0 → high risk.
     # MED: three seed-region mismatches (positions 14, 16, 18 — high Hsu weights)
