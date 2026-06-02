@@ -1,6 +1,81 @@
 # BioForge — Session handoff (v4 finalization)
 
-## ★ START HERE — session 4 entry point (written 2026-06-01, end of session 3)
+## ★ START HERE — session 5 entry point (written 2026-06-02, end of session 4)
+
+**Repo:** https://github.com/itthj/bioforge -- **main @ `de1efa1`**, working tree clean, everything pushed.
+**Local:** `C:\Users\james\OneDrive\Documents\BIOTECH 101\bioforge` (Windows; Docker Desktop + WSL2).
+**Suite -- all green:** backend **980 passed**, 2 skipped, 16 deselected (online+docker+nextflow gated);
+frontend **116 vitest**; `tsc --strict` + `ruff check` + `ruff format` all clean.
+
+### What session 4 shipped (2 slices, both FF-merged to main + pushed)
+The IGV.js genome browser -- the handoff's #1 remaining buildable feature -- is now DONE on both arms.
+
+1. `896c131` **IGV.js guide viewer (Slice A)** -- renders each candidate guide's protospacer + PAM
+   (+ cut site when the edit outcome was simulated) on the **submitted target sequence as its own
+   igv.js reference** (inline non-indexed FASTA, no hosted genome). Backend: `crispr_edit_report`
+   now echoes `target_sequence` (the caller's own input) + a test locking the coordinate contract
+   (+ guides index directly into the sequence, - guides via reverse-complement). Frontend: `igv`
+   added as an installed optionalDependency (MolstarViewer pattern -- lazy import, install-hint
+   fallback; zero new npm advisories); pure tested adapter `igvGuideTrack.ts`; lazy `IgvGuideViewer.tsx`;
+   mounted in `CrisprReportCard`. Honesty: the submitted locus is its OWN coordinate system -- no
+   genome build, nothing it can misplace on a chromosome.
+2. `de1efa1` **hg38 genomic off-target view (Slice B)** -- renders off-target hits on the hosted
+   GRCh38 (hg38) genome, but ONLY hits that provably sit on a GRCh38 primary chromosome. Backend:
+   `data/grch38_chromosome_accessions.json` (chromosome RefSeq -> UCSC-name map, 24 chr + MT,
+   **derived live from the NCBI GRCh38.p14 assembly report**, committed with provenance + sha256
+   `64318ddf...`; no constants from memory). `genomic_placement.py`: `resolve_genomic_placement`
+   places only version-matched GRCh38 chromosomes (`NC_000001.11`, NOT GRCh37 `.10`), normalizes
+   1-based BLAST coords incl. minus-strand order to 0-based half-open, refuses degenerate coords;
+   everything else (gene/transcript records, scaffolds, wrong build, non-human) -> None. New
+   `genomic_placement` field on `OfftargetHit` + honest "N of M placed" caveat. UCSC names match
+   igv hg38 contigs, so a placed hit lands correctly with no remapping. Frontend: typed
+   `OfftargetHit`/`GenomicPlacement` + coercion; pure `igvOfftargetTrack.ts`; `IgvOfftargetViewer.tsx`
+   (lazy igv on `genome:"hg38"` for placeable hits + a table listing non-placeable hits by accession,
+   never a locus); mounted on the recommended guide's off-target section.
+
+### The data-plumbing reality (verified this session -- carry forward)
+- `design_guides` coordinates are SEQUENCE-RELATIVE only (0-based half-open on the forward strand of
+  the submitted input) -- no chromosome, no build. Hence Slice A renders the input as its own reference.
+- `find_offtargets` hits carry `accession` + `subject_start/end` on whatever BLAST subject matched --
+  which may be a GRCh38 chromosome, a gene/transcript record, a scaffold, a different build, or a
+  non-human subject. Only GRCh38 chromosome RefSeqs are hg38-placeable -- hence the Slice B gate.
+
+### RESUME HERE -- next-step priority (session 5), in order
+IGV (old #1) is DONE. Remaining work, by KIND (this matters -- some is data-gated, some needs your call):
+1. **GIAB variant-concordance end-to-end** -- the big rock, multi-hour. Scorer built+tested; goes
+   live the moment a caller feeds it. Needs: (a) YOUR DECISION + license-audit on a variant CALLER
+   (bcftools = lighter/license-clean vs DeepVariant = heavier/more accurate), (b) digest-pin it,
+   (c) GRCh38 ~3 GB + index, (d) GIAB HG002 truth VCF + high-conf BED, (e) build the missing
+   variant-CALLING path (variant tools are annotation-only today), (f) publish a real number ->
+   flip GIAB ledger `not_yet_wired -> live/guard_only`.
+2. **Edit-outcome live number** -- medium. TVD/JSD scorer built; needs a license-clean held-out
+   indel-distribution dataset (Lindel/inDelphi/FORECasT) -> publish via `published.py` -> flip that
+   row `guard_only -> published`. (On-target rho=0.1299 and off-target rho=0.3132 already published.)
+3. **DeepSpCas9 sign-off** -- NOT a code gap. The blueprint names it primary; dropped on license
+   (CC-BY-NC/unlicensed), DeepCRISPR (Apache-2.0) substituted. Needs YOUR call: accept the deviation
+   + document in `docs/license_audit.md`, or re-investigate a license path. Do not silently "fix".
+4. **MSA viewer (Phase 4)** -- minor, buildable now, no external data. Same pattern as the IGV slices
+   (optional dep + lazy viewer + pure adapter). `react-msa-viewer` not integrated.
+5. **GRCh37-specific refusal message** -- tiny polish. GRCh37 off-target accessions currently get the
+   generic "not a GRCh38 chromosome" message (honest + safe, just not specific). Source the GRCh37
+   chromosome accessions to say "looks like the wrong build".
+6. **Agent/grounding depth (optional)** -- execution-time replan on L7 violation; L5 iterative-rewrite
+   re-validation; structured-claim emission (the validator's recall ceiling); proceed-with-OOD-flag HITL.
+7. **Presentation/productionization** -- see `docs/DEMO.md` (the real-vs-gated walkthrough, written this
+   session); finalize the v4 conformance scorecard; live demo screenshots; CI for gated suites; deploy.
+
+### Loose ends from session 4
+- **Manual browser eyeball of both IGV viewers** -- NOT auto-verified. happy-dom can't run igv's
+  canvas, so the component tests MOCK igv. The pure coordinate/placement adapters ARE fully tested.
+  Confirm the inline-FASTA render (Slice A) and the hosted-hg38 load (Slice B, needs network) work
+  in a real browser before relying on them visually.
+- `igv@^3.8.1` is now an INSTALLED optionalDependency in `frontend/package.json` (+ package-lock).
+  It pulled in zero transitive deps and zero new npm advisories (the 6 npm flags are pre-existing
+  dev tooling: vite/vitest/happy-dom).
+
+---
+
+## Session 4 entry point (historical -- superseded by the START HERE above; written 2026-06-01, end of session 3)
 
 ### Session 4 kickoff prompt (copy-paste this into the new session)
 ```
