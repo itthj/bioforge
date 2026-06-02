@@ -1,0 +1,39 @@
+{
+  "_provenance": {
+    "build": "GRCh38",
+    "assembly_accession": "GCF_000001405.40_GRCh38.p14",
+    "data_source": "NCBI RefSeq assembly report for GRCh38.p14 (assembled-molecule rows; RefSeq-Accn -> UCSC-style-name columns)",
+    "source_url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/001/405/GCF_000001405.40_GRCh38.p14/GCF_000001405.40_GRCh38.p14_assembly_report.txt",
+    "source_sha256": "64318ddff470b69b261a667d813210044f60d4ce654253a547db80ff73638d38",
+    "retrieved": "2026-06-01",
+    "verify": "Re-derive by fetching the assembly report and taking assembled-molecule rows, columns RefSeq-Accn (col 7) -> UCSC-style-name (col 10). The accession VERSION is build-specific: GRCh37 chr1 is NC_000001.10, GRCh38 chr1 is NC_000001.11 -- a coordinate from the wrong build must NEVER be placed on hg38.",
+    "ucsc_naming_note": "UCSC-style names (chr1..chr22, chrX, chrY, chrM) match the contig names of IGV.js's hosted 'hg38' genome, so a placed off-target lands at the correct locus without remapping."
+  },
+  "accession_to_ucsc": {
+    "NC_000001.11": "chr1",
+    "NC_000002.12": "chr2",
+    "NC_000003.12": "chr3",
+    "NC_000004.12": "chr4",
+    "NC_000005.10": "chr5",
+    "NC_000006.12": "chr6",
+    "NC_000007.14": "chr7",
+    "NC_000008.11": "chr8",
+    "NC_000009.12": "chr9",
+    "NC_000010.11": "chr10",
+    "NC_000011.10": "chr11",
+    "NC_000012.12": "chr12",
+    "NC_000013.11": "chr13",
+    "NC_000014.9": "chr14",
+    "NC_000015.10": "chr15",
+    "NC_000016.10": "chr16",
+    "NC_000017.11": "chr17",
+    "NC_000018.10": "chr18",
+    "NC_000019.10": "chr19",
+    "NC_000020.11": "chr20",
+    "NC_000021.9": "chr21",
+    "NC_000022.11": "chr22",
+    "NC_000023.11": "chrX",
+    "NC_000024.10": "chrY",
+    "NC_012920.1": "chrM"
+  }
+}

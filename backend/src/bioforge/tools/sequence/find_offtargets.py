@@ -39,6 +39,10 @@ from pydantic import BaseModel, Field, field_validator
 from bioforge.config import settings
 from bioforge.tools.base import ToolError, ToolInput, ToolOutput
 from bioforge.tools.registry import execute_tool, register_tool
+from bioforge.tools.sequence.genomic_placement import (
+    GenomicPlacement,
+    resolve_genomic_placement,
+)
 from bioforge.tools.sequence.offtarget_pam import (
     FLANK_MARGIN,
     OfftargetPamError,
@@ -191,6 +195,17 @@ class OfftargetHit(BaseModel):
     bit_score: float
     subject_start: int
     subject_end: int
+    genomic_placement: GenomicPlacement | None = Field(
+        default=None,
+        description=(
+            "The hit resolved to a GRCh38 chromosome locus (UCSC contig + 0-based half-open "
+            "coords), populated ONLY when `accession` is a recognized GRCh38 primary-assembly "
+            "chromosome RefSeq (version-matched). null for gene/transcript records, scaffolds, a "
+            "different build, or a non-human subject -- such a hit cannot be soundly shown on an "
+            "hg38 genome browser, so it is never assigned a (wrong) locus. Enables the genomic "
+            "off-target view; placement is independent of PAM verification."
+        ),
+    )
     risk_label: Literal["high", "medium", "low"]
     risk_reason: str
 
@@ -479,6 +494,9 @@ async def find_offtargets(inp: FindOfftargetsInput) -> FindOfftargetsOutput:
             query_coverage_percent=coverage,
             used_full_alignment=score.used_full_alignment,
         )
+        subj_start = int(h.get("subject_start", 0) or 0)
+        subj_end = int(h.get("subject_end", 0) or 0)
+        placement = resolve_genomic_placement(h.get("accession", ""), subj_start, subj_end)
         candidates.append(
             OfftargetHit(
                 accession=h.get("accession", ""),
@@ -496,8 +514,9 @@ async def find_offtargets(inp: FindOfftargetsInput) -> FindOfftargetsOutput:
                 identity_percent=identity_pct,
                 e_value=h.get("e_value", 0.0),
                 bit_score=h.get("bit_score", 0.0),
-                subject_start=h.get("subject_start", 0),
-                subject_end=h.get("subject_end", 0),
+                subject_start=subj_start,
+                subject_end=subj_end,
+                genomic_placement=placement,
                 risk_label=risk,
                 risk_reason=reason,
             )
@@ -536,8 +555,16 @@ async def find_offtargets(inp: FindOfftargetsInput) -> FindOfftargetsOutput:
             "factor is not applied; treat it as an upper bound. cfd_mismatch_score is null for "
             "gapped / partial / non-ACGT alignments.",
         ]
+    n_placed = sum(1 for c in candidates if c.genomic_placement is not None)
     caveats = [
         *pam_caveats,
+        (
+            f"Genomic placement: {n_placed} of {len(candidates)} returned hit(s) sit on a GRCh38 "
+            "primary-assembly chromosome and carry `genomic_placement` (UCSC contig + coordinates) "
+            "for the hg38 browser view. Hits on gene/transcript records, scaffolds, a different "
+            "build, or a non-human subject are intentionally NOT placed -- their coordinates would "
+            "be wrong on hg38, so no locus is assigned."
+        ),
         "Bulges / insertions / deletions in the off-target alignment are treated "
         "as position-aligned mismatches, NOT as separate indel events.",
         "BLAST coverage is sensitive to the database choice. Searching 'nt' "

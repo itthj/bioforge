@@ -136,6 +136,40 @@ async def test_zero_mismatch_hit_is_high_risk(patch_ncbi) -> None:
     assert hit.query_coverage_percent == 100.0
 
 
+async def test_genomic_placement_only_for_grch38_chromosome_hits(patch_ncbi) -> None:
+    """A hit on a GRCh38 chromosome accession is placed on hg38; a transcript-record
+    hit is intentionally left unplaced (its coords would be wrong on the genome)."""
+    record = _fake_record(
+        [
+            _fake_alignment(
+                accession="NC_000001.11",  # GRCh38 chr1
+                hit_def="Homo sapiens chromosome 1 [Homo sapiens]",
+                identities=20,
+                align_length=20,
+            ),
+            _fake_alignment(
+                accession="NM_007294.4",  # BRCA1 mRNA -- not a chromosome
+                hit_def="Homo sapiens BRCA1 mRNA [Homo sapiens]",
+                identities=20,
+                align_length=20,
+            ),
+        ]
+    )
+    patch_ncbi((record, "RID-PLACE"))
+
+    out = await find_offtargets(FindOfftargetsInput(guide=_GUIDE))
+    by_acc = {h.accession: h for h in out.hits}
+
+    placed = by_acc["NC_000001.11"].genomic_placement
+    assert placed is not None
+    assert placed.chromosome == "chr1"
+    assert (placed.start, placed.end) == (1000, 1020)  # _fake_hsp uses 1001..1020 (1-based)
+    assert placed.build == "GRCh38"
+
+    assert by_acc["NM_007294.4"].genomic_placement is None
+    assert any("Genomic placement: 1 of 2" in c for c in out.caveats)
+
+
 async def test_2_mismatches_still_high_risk(patch_ncbi) -> None:
     record = _fake_record([_fake_alignment(accession="ACC", hit_def="x", identities=18, align_length=20)])
     patch_ncbi((record, "RID"))

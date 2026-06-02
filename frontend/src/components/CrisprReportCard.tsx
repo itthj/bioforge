@@ -4,6 +4,7 @@ import type {
   RecommendationLabel,
 } from "../types/crispr";
 import { IgvGuideViewer } from "./IgvGuideViewer";
+import { IgvOfftargetViewer } from "./IgvOfftargetViewer";
 
 interface CrisprReportCardProps {
   report: CrisprEditReportOutput;
@@ -139,6 +140,12 @@ function GuideRow({ guide, dense = false }: { guide: GuideReport; dense?: boolea
           <span className="text-slate-500">{guide.off_target_summary.low_risk_count} low</span>
         </div>
       )}
+
+      {!dense &&
+        guide.off_target_summary.searched &&
+        guide.off_target_summary.top_hits.length > 0 && (
+          <IgvOfftargetViewer hits={guide.off_target_summary.top_hits} />
+        )}
 
       {guide.rationale.length > 0 && (
         <ul className="ml-4 list-disc text-[11px] text-slate-600">
