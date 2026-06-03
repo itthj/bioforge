@@ -1,6 +1,11 @@
 // Types mirror the backend's AgentStep / AgentResult shape. Kept hand-written for now;
 // when the backend's OpenAPI schema is exported, we can codegen these.
 
+// User-set autonomy level sent with a run. "auto" pauses only for expensive/destructive
+// plans; "review" pauses after planning on any non-trivial plan so the user approves the
+// plan before any tool runs.
+export type Autonomy = "auto" | "review";
+
 export type StepType =
   | "plan"
   | "replan"
@@ -66,8 +71,32 @@ export interface ModelUncertaintyNote {
   note: string;
 }
 
+// A single numeric token in the response, with its grounding outcome + provenance.
+// `start`/`end` are character offsets into the (draft) response text.
+export interface NumericClaimVerdict {
+  text: string;
+  value: number;
+  is_percent: boolean;
+  start: number;
+  end: number;
+  status: "grounded" | "unsupported";
+  matched_path: string | null;
+  matched_value: number | null;
+}
+
+// A structured biological identifier (rsID, RefSeq, Ensembl, ClinVar, PDB) in the response.
+export interface EntityClaimVerdict {
+  text: string;
+  kind: string;
+  start: number;
+  end: number;
+  status: "grounded" | "unsupported";
+  matched_path: string | null;
+}
+
 // The validation/grounding step (BioForge v4 §4/§6) reuses the `verdict` slot with this shape:
-// grounding status, the OOD report, and per-model uncertainty posture.
+// grounding status, per-claim verdicts (with offsets + provenance), the OOD report, and the
+// per-model uncertainty posture.
 export interface ValidationVerdict {
   ok: boolean;
   summary: string;
@@ -75,6 +104,10 @@ export interface ValidationVerdict {
   enforced: boolean;
   ood: { ok: boolean; checked: number; flags: OodFlag[] };
   model_uncertainty: ModelUncertaintyNote[];
+  // Optional: present on traces produced once per-claim grounding shipped. Drives the
+  // inline hover-to-verify highlighting in FinalCard.
+  numeric_claims?: NumericClaimVerdict[];
+  entity_claims?: EntityClaimVerdict[];
 }
 
 export interface UsageSummary {

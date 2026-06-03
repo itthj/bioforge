@@ -33,20 +33,20 @@ export function ReliabilityDiagram({ curve }: ReliabilityDiagramProps) {
   const polyline = curve.bins.map((b) => `${px(b.predicted_mean)},${py(b.observed_mean)}`).join(" ");
 
   return (
-    <section className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
+    <section className="rounded-md border border-border bg-surface p-4 shadow-sm">
       <div className="flex items-baseline justify-between gap-2">
-        <h3 className="text-sm font-semibold text-slate-900">
-          Reliability curve <span className="font-normal text-slate-400">· §6 / calibration</span>
+        <h3 className="text-sm font-semibold text-fg">
+          Reliability curve <span className="font-normal text-fg-subtle">· §6 / calibration</span>
         </h3>
-        <span className="font-mono text-xs text-slate-500" title="Spearman rho of per-bin predicted vs observed">
+        <span className="font-mono text-xs text-fg-subtle" title="Spearman rho of per-bin predicted vs observed">
           monotonicity ρ = {curve.monotonicity_rho.toFixed(3)}
         </span>
       </div>
 
       <svg viewBox={`0 0 ${W} ${H}`} className="mt-2 w-full" role="img" aria-label="reliability curve">
-        <line x1={M.left} y1={H - M.bottom} x2={W - M.right} y2={H - M.bottom} stroke="#cbd5e1" strokeWidth={1} />
-        <line x1={M.left} y1={M.top} x2={M.left} y2={H - M.bottom} stroke="#cbd5e1" strokeWidth={1} />
-        <polyline points={polyline} fill="none" stroke="#0ea5e9" strokeWidth={1.5} />
+        <line x1={M.left} y1={H - M.bottom} x2={W - M.right} y2={H - M.bottom} stroke="#2a3038" strokeWidth={1} />
+        <line x1={M.left} y1={M.top} x2={M.left} y2={H - M.bottom} stroke="#2a3038" strokeWidth={1} />
+        <polyline points={polyline} fill="none" stroke="#2f9e8f" strokeWidth={1.5} />
         {curve.bins.map((b) => (
           <g key={b.bin_index}>
             {b.observed_sem > 0 && (
@@ -55,14 +55,14 @@ export function ReliabilityDiagram({ curve }: ReliabilityDiagramProps) {
                 y1={py(b.observed_mean - b.observed_sem)}
                 x2={px(b.predicted_mean)}
                 y2={py(b.observed_mean + b.observed_sem)}
-                stroke="#94a3b8"
+                stroke="#6b7480"
                 strokeWidth={1}
               />
             )}
-            <circle cx={px(b.predicted_mean)} cy={py(b.observed_mean)} r={3} fill="#0369a1" />
+            <circle cx={px(b.predicted_mean)} cy={py(b.observed_mean)} r={3} fill="#5ad1c0" />
           </g>
         ))}
-        <text x={(M.left + W - M.right) / 2} y={H - 6} textAnchor="middle" className="fill-slate-500 text-[10px]">
+        <text x={(M.left + W - M.right) / 2} y={H - 6} textAnchor="middle" className="fill-fg-subtle text-[10px]">
           {curve.predicted_label}
         </text>
         <text
@@ -70,7 +70,7 @@ export function ReliabilityDiagram({ curve }: ReliabilityDiagramProps) {
           y={(M.top + H - M.bottom) / 2}
           textAnchor="middle"
           transform={`rotate(-90 12 ${(M.top + H - M.bottom) / 2})`}
-          className="fill-slate-500 text-[10px]"
+          className="fill-fg-subtle text-[10px]"
         >
           {curve.observed_label}
         </text>
@@ -78,7 +78,7 @@ export function ReliabilityDiagram({ curve }: ReliabilityDiagramProps) {
 
       <table className="mt-2 w-full text-[11px]">
         <thead>
-          <tr className="text-left text-slate-400">
+          <tr className="text-left text-fg-subtle">
             <th className="font-medium">bin</th>
             <th className="font-medium">n</th>
             <th className="font-medium">predicted</th>
@@ -87,11 +87,11 @@ export function ReliabilityDiagram({ curve }: ReliabilityDiagramProps) {
         </thead>
         <tbody>
           {curve.bins.map((b) => (
-            <tr key={b.bin_index} className="border-t border-slate-100">
-              <td className="text-slate-600">{b.bin_index}</td>
-              <td className="text-slate-600">{b.n}</td>
-              <td className="font-mono text-slate-800">{b.predicted_mean.toFixed(3)}</td>
-              <td className="font-mono text-slate-800">
+            <tr key={b.bin_index} className="border-t border-border">
+              <td className="text-fg-muted">{b.bin_index}</td>
+              <td className="text-fg-muted">{b.n}</td>
+              <td className="font-mono text-fg">{b.predicted_mean.toFixed(3)}</td>
+              <td className="font-mono text-fg">
                 {b.observed_mean.toFixed(3)} ± {b.observed_sem.toFixed(3)}
               </td>
             </tr>
@@ -99,7 +99,7 @@ export function ReliabilityDiagram({ curve }: ReliabilityDiagramProps) {
         </tbody>
       </table>
 
-      <p className="mt-1 text-[11px] text-slate-500">
+      <p className="mt-1 text-[11px] text-fg-subtle">
         {curve.n_bins} quantile bins over {curve.n} predictions. {curve.caveat}
       </p>
     </section>

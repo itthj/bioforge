@@ -19,9 +19,9 @@ const KIND_LABELS: Record<MemoryKind, string> = {
 };
 
 const SOURCE_STYLES: Record<MemorySource, string> = {
-  agent: "bg-emerald-100 text-emerald-800",
-  user: "bg-blue-100 text-blue-800",
-  system: "bg-slate-200 text-slate-700",
+  agent: "bg-surface-2 text-success",
+  user: "bg-surface-2 text-accent",
+  system: "bg-surface-2 text-fg-muted",
 };
 
 export function MemoryInspector({ projectId }: MemoryInspectorProps) {
@@ -88,10 +88,10 @@ export function MemoryInspector({ projectId }: MemoryInspectorProps) {
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-fg-subtle">
             Project memory
           </h2>
-          <p className="mt-0.5 text-xs text-slate-400">
+          <p className="mt-0.5 text-xs text-fg-subtle">
             Facts the agent has learned, plus anything you've added. Agent writes go
             through the <code className="font-mono">remember</code> tool; user edits
             (here) are tagged <span className="font-mono">source=user</span>.
@@ -100,24 +100,24 @@ export function MemoryInspector({ projectId }: MemoryInspectorProps) {
         <button
           type="button"
           onClick={() => setAddOpen(true)}
-          className="rounded-md bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800"
+          className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-accent-fg hover:opacity-90"
         >
           + Add entry
         </button>
       </div>
 
       {error && (
-        <div className="rounded border border-rose-300 bg-rose-50 p-2 text-xs text-rose-800">
+        <div className="rounded border border-border bg-surface-2 p-2 text-xs text-danger">
           {error}
         </div>
       )}
 
       {loading ? (
-        <div className="rounded-md border border-dashed border-slate-300 bg-white p-6 text-center text-sm text-slate-400">
+        <div className="rounded-md border border-dashed border-border bg-surface p-6 text-center text-sm text-fg-subtle">
           Loading memory…
         </div>
       ) : entries.length === 0 ? (
-        <div className="rounded-md border border-dashed border-slate-300 bg-white p-6 text-center text-sm text-slate-400">
+        <div className="rounded-md border border-dashed border-border bg-surface p-6 text-center text-sm text-fg-subtle">
           No memory entries yet. The agent will add them as it learns durable facts,
           or click "+ Add entry" to add one manually.
         </div>
@@ -166,25 +166,25 @@ function MemoryRow({
   onDelete: () => void;
 }) {
   return (
-    <div className="rounded-md border border-slate-200 bg-white p-3 shadow-sm">
+    <div className="rounded-md border border-border bg-surface p-3 shadow-sm">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="font-mono text-sm font-semibold text-slate-900">
+            <span className="font-mono text-sm font-semibold text-fg">
               {entry.key}
             </span>
-            <Badge text={KIND_LABELS[entry.kind]} classes="bg-slate-100 text-slate-700" />
+            <Badge text={KIND_LABELS[entry.kind]} classes="bg-surface-2 text-fg-muted" />
             <Badge text={entry.source} classes={SOURCE_STYLES[entry.source]} />
           </div>
-          <div className="mt-2 whitespace-pre-wrap text-sm text-slate-800">
+          <div className="mt-2 whitespace-pre-wrap text-sm text-fg">
             {entry.value}
           </div>
           {entry.rationale && (
-            <div className="mt-2 text-xs italic text-slate-500">
+            <div className="mt-2 text-xs italic text-fg-subtle">
               why: {entry.rationale}
             </div>
           )}
-          <div className="mt-2 font-mono text-[11px] text-slate-400">
+          <div className="mt-2 font-mono text-[11px] text-fg-subtle">
             updated {new Date(entry.updated_at).toLocaleString()}
           </div>
         </div>
@@ -192,14 +192,14 @@ function MemoryRow({
           <button
             type="button"
             onClick={onEdit}
-            className="rounded border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            className="rounded border border-border bg-surface px-2 py-1 text-xs font-medium text-fg-muted hover:bg-surface-2"
           >
             Edit
           </button>
           <button
             type="button"
             onClick={onDelete}
-            className="rounded border border-rose-300 bg-white px-2 py-1 text-xs font-medium text-rose-700 hover:bg-rose-50"
+            className="rounded border border-border bg-surface px-2 py-1 text-xs font-medium text-danger hover:bg-surface-2"
           >
             Delete
           </button>
@@ -223,26 +223,26 @@ function MemoryEditor({
   const [rationale, setRationale] = useState(initial.rationale ?? "");
 
   return (
-    <div className="rounded-md border border-slate-300 bg-amber-50 p-3 shadow-sm">
+    <div className="rounded-md border border-border bg-surface-2 p-3 shadow-sm">
       <div className="mb-2 flex items-center gap-2">
-        <span className="font-mono text-sm font-semibold text-slate-900">
+        <span className="font-mono text-sm font-semibold text-fg">
           {initial.key}
         </span>
-        <span className="text-xs italic text-slate-500">(editing)</span>
+        <span className="text-xs italic text-fg-subtle">(editing)</span>
       </div>
       <textarea
         value={value}
         onChange={(e) => setValue(e.target.value)}
         rows={3}
-        className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
+        className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
       />
       <div className="mt-2 grid grid-cols-2 gap-2">
         <label className="block text-xs">
-          <span className="mb-1 block font-medium text-slate-700">Kind</span>
+          <span className="mb-1 block font-medium text-fg-muted">Kind</span>
           <select
             value={kind}
             onChange={(e) => setKind(e.target.value as MemoryKind)}
-            className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm"
+            className="w-full rounded-md border border-border bg-surface px-2 py-1.5 text-sm"
           >
             <option value="fact">fact</option>
             <option value="preference">preference</option>
@@ -252,20 +252,20 @@ function MemoryEditor({
         </label>
       </div>
       <label className="mt-2 block text-xs">
-        <span className="mb-1 block font-medium text-slate-700">Rationale</span>
+        <span className="mb-1 block font-medium text-fg-muted">Rationale</span>
         <input
           type="text"
           value={rationale}
           onChange={(e) => setRationale(e.target.value)}
           placeholder="Why this is worth remembering"
-          className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm"
+          className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm"
         />
       </label>
       <div className="mt-3 flex justify-end gap-2">
         <button
           type="button"
           onClick={onCancel}
-          className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+          className="rounded-md border border-border bg-surface px-3 py-1.5 text-xs font-medium text-fg-muted hover:bg-surface-2"
         >
           Cancel
         </button>
@@ -280,7 +280,7 @@ function MemoryEditor({
             })
           }
           disabled={!value.trim()}
-          className="rounded-md bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800 disabled:bg-slate-400"
+          className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-accent-fg hover:opacity-90 disabled:opacity-50"
         >
           Save
         </button>
@@ -337,27 +337,27 @@ function AddMemoryDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-slate-900/40 p-4 pt-20">
-      <div className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-5 shadow-xl">
+      <div className="w-full max-w-md rounded-lg border border-border bg-surface p-5 shadow-xl">
         <div className="flex items-start justify-between">
-          <h2 className="text-base font-semibold text-slate-900">Add memory entry</h2>
+          <h2 className="text-base font-semibold text-fg">Add memory entry</h2>
           <button
             type="button"
             onClick={onClose}
             disabled={submitting}
-            className="-mr-1 text-slate-400 hover:text-slate-700 disabled:opacity-50"
+            className="-mr-1 text-fg-subtle hover:text-fg-muted disabled:opacity-50"
             aria-label="Close"
           >
             ×
           </button>
         </div>
-        <p className="mt-1 text-xs text-slate-500">
+        <p className="mt-1 text-xs text-fg-subtle">
           Writing here is tagged{" "}
           <span className="font-mono">source=user</span> in the audit trail.
         </p>
 
         <form onSubmit={handleSubmit} className="mt-4 space-y-3">
           <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-700">
+            <span className="mb-1 block text-xs font-medium text-fg-muted">
               Key<span className="ml-0.5 text-rose-500">*</span>
             </span>
             <input
@@ -365,36 +365,36 @@ function AddMemoryDialog({
               value={key}
               onChange={(e) => setKey(e.target.value)}
               placeholder="preferred_organism"
-              className="w-full rounded-md border border-slate-300 px-3 py-1.5 font-mono text-sm"
+              className="w-full rounded-md border border-border px-3 py-1.5 font-mono text-sm"
               autoFocus
               disabled={submitting}
             />
             {key.length > 0 && !keyValid && (
-              <div className="mt-1 text-xs text-rose-600">
+              <div className="mt-1 text-xs text-danger">
                 Letters, digits, underscores, dashes only.
               </div>
             )}
           </label>
 
           <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-700">
+            <span className="mb-1 block text-xs font-medium text-fg-muted">
               Value<span className="ml-0.5 text-rose-500">*</span>
             </span>
             <textarea
               value={value}
               onChange={(e) => setValue(e.target.value)}
               rows={3}
-              className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm"
+              className="w-full rounded-md border border-border px-3 py-1.5 text-sm"
               disabled={submitting}
             />
           </label>
 
           <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-700">Kind</span>
+            <span className="mb-1 block text-xs font-medium text-fg-muted">Kind</span>
             <select
               value={kind}
               onChange={(e) => setKind(e.target.value as MemoryKind)}
-              className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm"
+              className="w-full rounded-md border border-border bg-surface px-2 py-1.5 text-sm"
               disabled={submitting}
             >
               <option value="fact">fact</option>
@@ -405,7 +405,7 @@ function AddMemoryDialog({
           </label>
 
           <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-700">
+            <span className="mb-1 block text-xs font-medium text-fg-muted">
               Rationale
             </span>
             <input
@@ -413,13 +413,13 @@ function AddMemoryDialog({
               value={rationale}
               onChange={(e) => setRationale(e.target.value)}
               placeholder="Why this is worth remembering"
-              className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm"
+              className="w-full rounded-md border border-border px-3 py-1.5 text-sm"
               disabled={submitting}
             />
           </label>
 
           {error && (
-            <div className="rounded border border-rose-300 bg-rose-50 p-2 text-xs text-rose-800">
+            <div className="rounded border border-border bg-surface-2 p-2 text-xs text-danger">
               {error}
             </div>
           )}
@@ -429,14 +429,14 @@ function AddMemoryDialog({
               type="button"
               onClick={onClose}
               disabled={submitting}
-              className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium text-fg-muted hover:bg-surface-2 disabled:opacity-50"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={!canSubmit}
-              className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+              className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-fg hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {submitting ? "Saving…" : "Save"}
             </button>

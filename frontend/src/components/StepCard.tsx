@@ -1,4 +1,10 @@
-import type { AgentStep, PlanStep, ValidationVerdict, VerdictPayload } from "../types/agent";
+import { useState } from "react";
+import type {
+  AgentStep,
+  PlanStep,
+  ValidationVerdict,
+  VerdictPayload,
+} from "../types/agent";
 import type { CrisprEditReportOutput } from "../types/crispr";
 import { isCrisprEditReport } from "../types/crispr";
 import type { ScoreGuideOnTargetOutput } from "../types/on_target";
@@ -17,6 +23,10 @@ import type { FetchAlphaFoldOutput } from "../types/structure";
 import { isAlphaFoldOutput } from "../types/structure";
 import type { AlignMsaOutput } from "../types/msa";
 import { isAlignMsaOutput } from "../types/msa";
+import { cn } from "../lib/cn";
+import { Card } from "./ui/Card";
+import { Chip } from "./ui/Chip";
+import { StatusDot } from "./ui/StatusDot";
 import { CompareStructuresCard } from "./CompareStructuresCard";
 import { CrisprReportCard } from "./CrisprReportCard";
 import { OnTargetScoreCard } from "./OnTargetScoreCard";
@@ -29,63 +39,129 @@ import { StructureCard } from "./StructureCard";
 
 interface StepCardProps {
   step: AgentStep;
+  /** When true, the status dot pulses — used by TraceView for the live/last step. */
+  live?: boolean;
 }
 
-const TYPE_STYLES: Record<string, { badge: string; border: string }> = {
-  plan: { badge: "bg-indigo-100 text-indigo-800", border: "border-indigo-200" },
-  replan: { badge: "bg-amber-100 text-amber-800", border: "border-amber-200" },
-  approval_requested: {
-    badge: "bg-orange-100 text-orange-800",
-    border: "border-orange-200",
-  },
-  approval_decision: {
-    badge: "bg-orange-100 text-orange-800",
-    border: "border-orange-200",
-  },
-  llm_call: { badge: "bg-slate-100 text-slate-700", border: "border-slate-200" },
-  tool_call: { badge: "bg-emerald-100 text-emerald-800", border: "border-emerald-200" },
-  tool_error: { badge: "bg-rose-100 text-rose-800", border: "border-rose-200" },
-  refusal: { badge: "bg-rose-100 text-rose-800", border: "border-rose-200" },
-  critique: { badge: "bg-purple-100 text-purple-800", border: "border-purple-200" },
-  validation: { badge: "bg-teal-100 text-teal-800", border: "border-teal-200" },
-  final: { badge: "bg-slate-200 text-slate-800", border: "border-slate-300" },
+// Color of the per-step status dot. The chip stays neutral; the dot carries meaning.
+const DOT_COLOR: Record<string, string> = {
+  plan: "text-accent",
+  replan: "text-warn",
+  approval_requested: "text-warn",
+  approval_decision: "text-warn",
+  llm_call: "text-fg-subtle",
+  tool_call: "text-success",
+  tool_error: "text-danger",
+  refusal: "text-danger",
+  critique: "text-accent",
+  validation: "text-accent",
+  final: "text-fg-muted",
 };
 
-export function StepCard({ step }: StepCardProps) {
-  const style = TYPE_STYLES[step.type] ?? TYPE_STYLES.llm_call;
+// Low-signal steps start collapsed; everything substantive starts expanded.
+const DEFAULT_COLLAPSED: Record<string, boolean> = {
+  llm_call: true,
+};
+
+export function StepCard({ step, live }: StepCardProps) {
+  const [open, setOpen] = useState(!DEFAULT_COLLAPSED[step.type]);
+  const dot = DOT_COLOR[step.type] ?? "text-fg-muted";
 
   return (
-    <div className={`rounded-md border bg-white p-3 shadow-sm ${style.border}`}>
-      <div className="flex items-center justify-between text-xs">
-        <span
-          className={`inline-flex items-center gap-1 rounded px-2 py-0.5 font-mono font-medium ${style.badge}`}
-        >
+    <Card className="animate-fade-in overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-surface-2"
+      >
+        <StatusDot className={dot} pulse={live} />
+        <Chip>
           {step.idx}. {step.type}
+        </Chip>
+        <span className="min-w-0 flex-1 truncate text-xs text-fg-muted">
+          {stepSummary(step)}
         </span>
-        <span className="text-slate-400">{step.duration_ms}ms</span>
-      </div>
-      <div className="mt-2 text-sm text-slate-700">{renderStepBody(step)}</div>
-    </div>
+        <span className="shrink-0 font-mono text-[10px] text-fg-subtle">
+          {step.duration_ms}ms
+        </span>
+        <Chevron
+          className={cn(
+            "h-3.5 w-3.5 shrink-0 text-fg-subtle transition-transform",
+            open && "rotate-90",
+          )}
+        />
+      </button>
+      {open && (
+        <div className="border-t border-border px-3 py-2.5 text-sm text-fg-muted">
+          {renderStepBody(step)}
+        </div>
+      )}
+    </Card>
   );
+}
+
+/**
+ * The one-line, human-readable summary shown on the collapsed step header.
+ * Kept intentionally free of the exact phrasing the detail bodies use, so the
+ * trace reads cleanly and nothing is duplicated when a step is expanded.
+ */
+function stepSummary(step: AgentStep): string {
+  switch (step.type) {
+    case "plan":
+    case "replan": {
+      const n = step.plan?.steps.length ?? 0;
+      const noun = `${n} step${n === 1 ? "" : "s"}`;
+      return step.type === "replan" ? `Revised plan · ${noun}` : `Planned ${noun}`;
+    }
+    case "tool_call":
+      return `Called ${step.tool_name ?? "tool"}`;
+    case "tool_error":
+      return `${step.tool_name ?? "Tool"} failed`;
+    case "llm_call":
+      return `Model call · ${step.stop_reason ?? "?"}`;
+    case "critique": {
+      const v = step.verdict as VerdictPayload | undefined;
+      if (!v) return "Critique";
+      return v.satisfies_goal ? "Critique · passes" : "Critique · needs revision";
+    }
+    case "validation": {
+      const v = step.verdict as ValidationVerdict | undefined;
+      if (!v) return "Grounding check";
+      return v.ok ? "Grounding check · clear" : "Grounding check · flagged";
+    }
+    case "approval_requested":
+      return "Awaiting your approval";
+    case "approval_decision":
+      return step.approved ? "Plan approved" : "Plan declined";
+    case "refusal":
+      return "Agent refused";
+    case "final":
+      return "Run complete";
+    default:
+      return step.type;
+  }
 }
 
 function renderStepBody(step: AgentStep): React.ReactNode {
   switch (step.type) {
     case "plan":
     case "replan":
-      return step.plan ? <PlanBody steps={step.plan.steps} summary={step.plan.summary} /> : null;
+      return step.plan ? (
+        <PlanBody steps={step.plan.steps} summary={step.plan.summary} />
+      ) : null;
     case "tool_call":
       return <ToolCallBody step={step} />;
     case "tool_error":
       return (
-        <div className="font-mono text-xs text-rose-700">
+        <div className="font-mono text-xs text-danger">
           <div className="font-semibold">{step.tool_name ?? "?"}</div>
           <div className="mt-1">{step.error}</div>
         </div>
       );
     case "llm_call":
       return (
-        <div className="font-mono text-xs text-slate-500">
+        <div className="font-mono text-xs text-fg-subtle">
           stop={step.stop_reason ?? "?"} · in={step.input_tokens ?? 0} · out=
           {step.output_tokens ?? 0}
         </div>
@@ -94,12 +170,12 @@ function renderStepBody(step: AgentStep): React.ReactNode {
       const v = step.verdict as VerdictPayload | undefined;
       return v ? (
         <div className="space-y-1">
-          <div className="font-medium">
+          <div className={cn("font-medium", v.satisfies_goal ? "text-success" : "text-warn")}>
             {v.satisfies_goal ? "✓ Satisfies goal" : "✗ Does not satisfy goal"}
           </div>
-          <div className="text-xs text-slate-600">{v.reason}</div>
+          <div className="text-xs text-fg-muted">{v.reason}</div>
           {v.concrete_complaints.length > 0 && (
-            <ul className="ml-4 list-disc text-xs text-slate-600">
+            <ul className="ml-4 list-disc text-xs text-fg-muted">
               {v.concrete_complaints.map((c, i) => (
                 <li key={i}>{c}</li>
               ))}
@@ -114,26 +190,24 @@ function renderStepBody(step: AgentStep): React.ReactNode {
     }
     case "approval_requested":
       return (
-        <div className="text-xs text-slate-600">
+        <div className="text-xs text-fg-muted">
           Awaiting user approval — see the approval card below.
         </div>
       );
     case "approval_decision":
       return (
-        <div className="text-xs text-slate-600">
+        <div className="text-xs text-fg-muted">
           User {step.approved ? "approved" : "declined"} the plan.
         </div>
       );
     case "refusal":
       return (
-        <div className="text-xs italic text-slate-600">
+        <div className="text-xs italic text-fg-muted">
           Agent refused — see final response.
         </div>
       );
     case "final":
-      return (
-        <div className="text-xs italic text-slate-500">Run complete.</div>
-      );
+      return <div className="text-xs italic text-fg-subtle">Run complete.</div>;
     default:
       return null;
   }
@@ -142,16 +216,14 @@ function renderStepBody(step: AgentStep): React.ReactNode {
 function PlanBody({ steps, summary }: { steps: PlanStep[]; summary: string }) {
   return (
     <div>
-      <div className="text-xs italic text-slate-600">{summary}</div>
+      <div className="text-xs italic text-fg-subtle">{summary}</div>
       {steps.length > 0 && (
-        <ol className="mt-2 list-decimal space-y-1 pl-5 text-xs">
+        <ol className="mt-2 list-decimal space-y-1 pl-5 text-xs text-fg-muted">
           {steps.map((s) => (
             <li key={s.idx}>
-              <span className="font-medium">{s.description}</span>
+              <span className="font-medium text-fg">{s.description}</span>
               {s.expected_tool && (
-                <span className="ml-2 font-mono text-emerald-700">
-                  [{s.expected_tool}]
-                </span>
+                <span className="ml-2 font-mono text-accent">[{s.expected_tool}]</span>
               )}
             </li>
           ))}
@@ -168,21 +240,24 @@ function ValidationBody({ v }: { v: ValidationVerdict }) {
     <div className="space-y-1.5">
       <div className="flex flex-wrap items-center gap-2">
         <span
-          className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium ${
-            v.ok ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
-          }`}
+          className={cn(
+            "inline-flex items-center rounded border border-border bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium",
+            v.ok ? "text-success" : "text-warn",
+          )}
         >
           {v.ok ? "✓ grounded" : "⚠ unverifiable claim(s) flagged"}
         </span>
-        <span className="font-mono text-[10px] text-slate-400">
+        <span className="font-mono text-[10px] text-fg-subtle">
           mode: {v.mode}
           {v.enforced ? " · redacted" : ""}
         </span>
       </div>
-      {v.summary && <div className="text-xs text-slate-600">{v.summary}</div>}
+      {v.summary && <div className="text-xs text-fg-muted">{v.summary}</div>}
       {oodFlags.length > 0 && (
-        <div className="rounded border border-amber-200 bg-amber-50 p-1.5 text-xs text-amber-800">
-          <div className="font-medium">Out-of-distribution input(s) — affected scores are extrapolations:</div>
+        <div className="rounded border border-border bg-surface-2 p-1.5 text-xs text-warn">
+          <div className="font-medium">
+            Out-of-distribution input(s) — affected scores are extrapolations:
+          </div>
           <ul className="ml-4 list-disc">
             {oodFlags.map((f, i) => (
               <li key={i}>
@@ -197,10 +272,10 @@ function ValidationBody({ v }: { v: ValidationVerdict }) {
       )}
       {notes.length > 0 && (
         <details className="text-xs">
-          <summary className="cursor-pointer text-slate-500 hover:text-slate-700">
+          <summary className="cursor-pointer text-fg-subtle hover:text-fg-muted">
             model uncertainty ({notes.length})
           </summary>
-          <ul className="ml-4 mt-1 space-y-0.5 text-slate-600">
+          <ul className="ml-4 mt-1 space-y-0.5 text-fg-muted">
             {notes.map((n, i) => (
               <li key={i}>
                 <span className="font-mono">
@@ -259,15 +334,15 @@ function ToolCallBody({ step }: { step: AgentStep }) {
 
   return (
     <div className="space-y-2">
-      <div className="font-mono text-xs font-semibold text-emerald-800">
+      <div className="font-mono text-xs font-semibold text-success">
         {step.tool_name}
       </div>
       {step.tool_input && (
         <details className="text-xs">
-          <summary className="cursor-pointer text-slate-500 hover:text-slate-700">
+          <summary className="cursor-pointer text-fg-subtle hover:text-fg-muted">
             input
           </summary>
-          <pre className="mt-1 max-h-40 overflow-auto rounded bg-slate-50 p-2 font-mono text-[11px] text-slate-700">
+          <pre className="mt-1 max-h-40 overflow-auto rounded border border-border bg-bg p-2 font-mono text-[11px] text-fg-muted">
             {JSON.stringify(step.tool_input, null, 2)}
           </pre>
         </details>
@@ -309,15 +384,32 @@ function ToolCallBody({ step }: { step: AgentStep }) {
         !isInterpro &&
         !isCompare &&
         !isMsa && (
-        <details className="text-xs">
-          <summary className="cursor-pointer text-slate-500 hover:text-slate-700">
-            output
-          </summary>
-          <pre className="mt-1 max-h-60 overflow-auto rounded bg-slate-50 p-2 font-mono text-[11px] text-slate-700">
-            {JSON.stringify(step.tool_output, null, 2)}
-          </pre>
-        </details>
-      )}
+          <details className="text-xs">
+            <summary className="cursor-pointer text-fg-subtle hover:text-fg-muted">
+              output
+            </summary>
+            <pre className="mt-1 max-h-60 overflow-auto rounded border border-border bg-bg p-2 font-mono text-[11px] text-fg-muted">
+              {JSON.stringify(step.tool_output, null, 2)}
+            </pre>
+          </details>
+        )}
     </div>
+  );
+}
+
+function Chevron({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <polyline points="9 6 15 12 9 18" />
+    </svg>
   );
 }

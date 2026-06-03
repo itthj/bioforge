@@ -11,21 +11,21 @@ interface CrisprReportCardProps {
 }
 
 const LABEL_STYLES: Record<RecommendationLabel, string> = {
-  preferred: "bg-emerald-100 text-emerald-800 border-emerald-300",
-  acceptable: "bg-sky-100 text-sky-800 border-sky-300",
-  caution: "bg-amber-100 text-amber-800 border-amber-300",
-  avoid: "bg-rose-100 text-rose-800 border-rose-300",
+  preferred: "bg-surface-2 text-success border-border",
+  acceptable: "bg-surface-2 text-accent border-border",
+  caution: "bg-surface-2 text-warn border-border",
+  avoid: "bg-surface-2 text-danger border-border",
 };
 
 export function CrisprReportCard({ report }: CrisprReportCardProps) {
   return (
-    <div className="space-y-3 rounded-md border border-emerald-200 bg-white p-3 shadow-sm">
+    <div className="space-y-3 rounded-md border border-border bg-surface p-3 shadow-sm">
       <header className="flex flex-wrap items-baseline justify-between gap-2">
         <div>
-          <div className="text-xs font-semibold uppercase tracking-wider text-emerald-700">
+          <div className="text-xs font-semibold uppercase tracking-wider text-success">
             CRISPR edit report
           </div>
-          <div className="font-mono text-xs text-slate-500">
+          <div className="font-mono text-xs text-fg-subtle">
             target {report.target_length} nt · PAM {report.pam} ·{" "}
             {report.num_guides_considered} candidates · tools{" "}
             {report.tool_chain.join(" → ")}
@@ -40,14 +40,14 @@ export function CrisprReportCard({ report }: CrisprReportCardProps) {
       {report.recommended_guide ? (
         <RecommendedGuide guide={report.recommended_guide} />
       ) : (
-        <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-3 text-xs text-slate-600">
+        <div className="rounded-md border border-dashed border-border bg-bg p-3 text-xs text-fg-muted">
           No guide met the recommendation criteria. See per-guide rationales below.
         </div>
       )}
 
       {report.guides.length > 0 && (
         <details>
-          <summary className="cursor-pointer text-xs font-medium text-slate-700 hover:text-slate-900">
+          <summary className="cursor-pointer text-xs font-medium text-fg-muted hover:text-fg">
             All {report.guides.length} candidate guides
           </summary>
           <ol className="mt-2 space-y-2">
@@ -61,7 +61,7 @@ export function CrisprReportCard({ report }: CrisprReportCardProps) {
       )}
 
       {report.caveats.length > 0 && (
-        <div className="rounded border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-900">
+        <div className="rounded border border-border bg-surface-2 p-2 text-[11px] text-warn">
           <div className="mb-1 font-semibold">Caveats</div>
           <ul className="ml-4 list-disc space-y-1">
             {report.caveats.map((c, i) => (
@@ -76,10 +76,10 @@ export function CrisprReportCard({ report }: CrisprReportCardProps) {
 
 function RecommendedGuide({ guide }: { guide: GuideReport }) {
   return (
-    <div className="rounded-md border-2 border-emerald-300 bg-emerald-50/60 p-3">
+    <div className="rounded-md border-2 border-border bg-surface-2/60 p-3">
       <div className="mb-2 flex items-center gap-2 text-xs">
-        <span className="font-semibold text-emerald-800">Recommended</span>
-        <span className="text-slate-400">rank #{guide.rank}</span>
+        <span className="font-semibold text-success">Recommended</span>
+        <span className="text-fg-subtle">rank #{guide.rank}</span>
       </div>
       <GuideRow guide={guide} />
     </div>
@@ -88,12 +88,12 @@ function RecommendedGuide({ guide }: { guide: GuideReport }) {
 
 function GuideRow({ guide, dense = false }: { guide: GuideReport; dense?: boolean }) {
   return (
-    <div className={`${dense ? "" : "space-y-2"} rounded ${dense ? "border border-slate-200 bg-white p-2" : ""}`}>
+    <div className={`${dense ? "" : "space-y-2"} rounded ${dense ? "border border-border bg-surface p-2" : ""}`}>
       <div className="flex flex-wrap items-center gap-2 text-xs">
-        <span className="font-mono font-semibold text-slate-900">
+        <span className="font-mono font-semibold text-fg">
           {guide.protospacer}
         </span>
-        <span className="font-mono text-slate-500">
+        <span className="font-mono text-fg-subtle">
           + {guide.pam_sequence}
         </span>
         <span
@@ -101,7 +101,7 @@ function GuideRow({ guide, dense = false }: { guide: GuideReport; dense?: boolea
         >
           {guide.recommendation_label}
         </span>
-        <span className="font-mono text-[11px] text-slate-500">
+        <span className="font-mono text-[11px] text-fg-subtle">
           strand {guide.strand} · pos {guide.protospacer_start}-{guide.protospacer_end}
         </span>
       </div>
@@ -121,7 +121,7 @@ function GuideRow({ guide, dense = false }: { guide: GuideReport; dense?: boolea
       </div>
 
       {guide.edit_outcome_summary && (
-        <div className="text-[11px] text-slate-600">
+        <div className="text-[11px] text-fg-muted">
           <span className="font-medium">Edit outcomes</span> @ cut{" "}
           {guide.edit_outcome_summary.cut_position_fwd}: frameshift{" "}
           {(guide.edit_outcome_summary.frameshift_probability * 100).toFixed(0)}% ·
@@ -131,13 +131,13 @@ function GuideRow({ guide, dense = false }: { guide: GuideReport; dense?: boolea
       )}
 
       {guide.off_target_summary.searched && (
-        <div className="text-[11px] text-slate-600">
+        <div className="text-[11px] text-fg-muted">
           <span className="font-medium">Off-target</span> ({guide.off_target_summary.database}):{" "}
-          <span className="text-rose-700">{guide.off_target_summary.high_risk_count} high</span>
+          <span className="text-danger">{guide.off_target_summary.high_risk_count} high</span>
           {" · "}
-          <span className="text-amber-700">{guide.off_target_summary.medium_risk_count} medium</span>
+          <span className="text-warn">{guide.off_target_summary.medium_risk_count} medium</span>
           {" · "}
-          <span className="text-slate-500">{guide.off_target_summary.low_risk_count} low</span>
+          <span className="text-fg-subtle">{guide.off_target_summary.low_risk_count} low</span>
         </div>
       )}
 
@@ -148,7 +148,7 @@ function GuideRow({ guide, dense = false }: { guide: GuideReport; dense?: boolea
         )}
 
       {guide.rationale.length > 0 && (
-        <ul className="ml-4 list-disc text-[11px] text-slate-600">
+        <ul className="ml-4 list-disc text-[11px] text-fg-muted">
           {guide.rationale.map((r, i) => (
             <li key={i}>{r}</li>
           ))}
@@ -160,10 +160,10 @@ function GuideRow({ guide, dense = false }: { guide: GuideReport; dense?: boolea
 
 function Metric({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
-    <div className="rounded bg-slate-50 px-2 py-1">
-      <div className="text-[10px] uppercase tracking-wider text-slate-500">{label}</div>
-      <div className="font-mono text-sm text-slate-900">{value}</div>
-      {hint && <div className="text-[10px] italic text-slate-400">{hint}</div>}
+    <div className="rounded bg-bg px-2 py-1">
+      <div className="text-[10px] uppercase tracking-wider text-fg-subtle">{label}</div>
+      <div className="font-mono text-sm text-fg">{value}</div>
+      {hint && <div className="text-[10px] italic text-fg-subtle">{hint}</div>}
     </div>
   );
 }

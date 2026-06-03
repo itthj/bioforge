@@ -69,24 +69,24 @@ export function CreateProjectDialog({
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-slate-900/40 p-4 pt-20">
       <div
-        className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-5 shadow-xl"
+        className="w-full max-w-md rounded-lg border border-border bg-surface p-5 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between">
-          <h2 className="text-base font-semibold text-slate-900">
+          <h2 className="text-base font-semibold text-fg">
             Create project
           </h2>
           <button
             type="button"
             onClick={handleClose}
             disabled={submitting}
-            className="-mr-1 text-slate-400 hover:text-slate-700 disabled:opacity-50"
+            className="-mr-1 text-fg-subtle hover:text-fg-muted disabled:opacity-50"
             aria-label="Close"
           >
             ×
           </button>
         </div>
-        <p className="mt-1 text-xs text-slate-500">
+        <p className="mt-1 text-xs text-fg-subtle">
           The project id is permanent — pick something durable. Lowercase
           letters, digits, dashes.
         </p>
@@ -98,12 +98,12 @@ export function CreateProjectDialog({
               value={id}
               onChange={(e) => setId(e.target.value)}
               placeholder="crispr-screen-2026"
-              className="w-full rounded-md border border-slate-300 px-3 py-1.5 font-mono text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
+              className="w-full rounded-md border border-border px-3 py-1.5 font-mono text-sm focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
               disabled={submitting}
               autoFocus
             />
             {id.length > 0 && !slugValid && (
-              <div className="mt-1 text-xs text-rose-600">
+              <div className="mt-1 text-xs text-danger">
                 Lowercase letters, digits, single dashes between segments.
               </div>
             )}
@@ -115,7 +115,7 @@ export function CreateProjectDialog({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="CRISPR screen 2026"
-              className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
+              className="w-full rounded-md border border-border px-3 py-1.5 text-sm focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
               disabled={submitting}
             />
           </Field>
@@ -127,7 +127,7 @@ export function CreateProjectDialog({
                 value={organism}
                 onChange={(e) => setOrganism(e.target.value)}
                 placeholder="Homo sapiens"
-                className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
+                className="w-full rounded-md border border-border px-3 py-1.5 text-sm focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
                 disabled={submitting}
               />
             </Field>
@@ -137,7 +137,7 @@ export function CreateProjectDialog({
                 value={referenceGenome}
                 onChange={(e) => setReferenceGenome(e.target.value)}
                 placeholder="GRCh38"
-                className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
+                className="w-full rounded-md border border-border px-3 py-1.5 text-sm focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
                 disabled={submitting}
               />
             </Field>
@@ -148,13 +148,13 @@ export function CreateProjectDialog({
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={2}
-              className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
+              className="w-full rounded-md border border-border px-3 py-1.5 text-sm focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
               disabled={submitting}
             />
           </Field>
 
           {error && (
-            <div className="rounded border border-rose-300 bg-rose-50 p-2 text-xs text-rose-800">
+            <div className="rounded border border-border bg-surface-2 p-2 text-xs text-danger">
               {error}
             </div>
           )}
@@ -164,14 +164,14 @@ export function CreateProjectDialog({
               type="button"
               onClick={handleClose}
               disabled={submitting}
-              className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium text-fg-muted hover:bg-surface-2 disabled:opacity-50"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={!canSubmit}
-              className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+              className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-fg hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {submitting ? "Creating…" : "Create"}
             </button>
@@ -193,7 +193,7 @@ function Field({
 }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs font-medium text-slate-700">
+      <span className="mb-1 block text-xs font-medium text-fg-muted">
         {label}
         {required && <span className="ml-0.5 text-rose-500">*</span>}
       </span>

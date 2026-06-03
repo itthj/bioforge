@@ -22,8 +22,8 @@ export function FindBestStructureCard({ result }: FindBestStructureCardProps) {
       <div
         className={`rounded-md border p-2 text-xs ${
           isExperimental
-            ? "border-blue-200 bg-blue-50 text-blue-900"
-            : "border-purple-200 bg-purple-50 text-purple-900"
+            ? "border-border bg-surface-2 text-accent"
+            : "border-border bg-surface-2 text-accent"
         }`}
       >
         <div className="flex items-center justify-between">
@@ -39,12 +39,12 @@ export function FindBestStructureCard({ result }: FindBestStructureCardProps) {
       {result.caveats.length > 0 && (
         <details
           open
-          className="rounded border border-amber-200 bg-amber-50 px-2 py-1.5"
+          className="rounded border border-border bg-surface-2 px-2 py-1.5"
         >
-          <summary className="cursor-pointer text-xs font-semibold text-amber-900">
+          <summary className="cursor-pointer text-xs font-semibold text-warn">
             ⚠ Decision caveats ({result.caveats.length})
           </summary>
-          <ul className="ml-4 mt-1 list-disc space-y-1 text-[11px] text-amber-900">
+          <ul className="ml-4 mt-1 list-disc space-y-1 text-[11px] text-warn">
             {result.caveats.map((c, i) => (
               <li key={i}>{c}</li>
             ))}
@@ -55,13 +55,13 @@ export function FindBestStructureCard({ result }: FindBestStructureCardProps) {
       {/* Alternative candidates table — only when multiple were considered or
           when a prediction was returned despite candidates existing. */}
       {result.experimental_candidates.length > 1 && (
-        <details className="rounded border border-slate-200 bg-white px-2 py-1.5 text-xs">
-          <summary className="cursor-pointer font-semibold text-slate-700">
+        <details className="rounded border border-border bg-surface px-2 py-1.5 text-xs">
+          <summary className="cursor-pointer font-semibold text-fg-muted">
             Alternative experimental candidates ({result.experimental_candidates.length})
           </summary>
           <table className="mt-1 w-full table-fixed border-collapse text-[11px]">
             <thead>
-              <tr className="text-left text-slate-500">
+              <tr className="text-left text-fg-subtle">
                 <th className="px-1 py-0.5">PDB</th>
                 <th className="px-1 py-0.5">Chain</th>
                 <th className="px-1 py-0.5">Coverage</th>
@@ -71,13 +71,13 @@ export function FindBestStructureCard({ result }: FindBestStructureCardProps) {
             </thead>
             <tbody>
               {result.experimental_candidates.map((c) => (
-                <tr key={`${c.pdb_id}-${c.chain_id ?? ""}`} className="border-t border-slate-100">
+                <tr key={`${c.pdb_id}-${c.chain_id ?? ""}`} className="border-t border-border">
                   <td className="px-1 py-0.5 font-mono">
                     <a
                       href={`https://www.rcsb.org/structure/${c.pdb_id}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-blue-700 hover:underline"
+                      className="text-accent hover:underline"
                     >
                       {c.pdb_id}
                     </a>
@@ -89,7 +89,7 @@ export function FindBestStructureCard({ result }: FindBestStructureCardProps) {
                   <td className="px-1 py-0.5">
                     {c.resolution_angstrom !== null ? `${c.resolution_angstrom.toFixed(2)} Å` : "?"}
                   </td>
-                  <td className="px-1 py-0.5 text-slate-600">{c.experimental_method ?? "?"}</td>
+                  <td className="px-1 py-0.5 text-fg-muted">{c.experimental_method ?? "?"}</td>
                 </tr>
               ))}
             </tbody>
@@ -108,12 +108,12 @@ export function FindBestStructureCard({ result }: FindBestStructureCardProps) {
           missing. Shouldn't happen if the backend contract holds, but worth a
           visible error rather than a silent blank panel. */}
       {isExperimental && !result.pdb_result && (
-        <div className="rounded border border-rose-200 bg-rose-50 p-2 text-xs text-rose-800">
+        <div className="rounded border border-border bg-surface-2 p-2 text-xs text-danger">
           Backend returned source='experimental' but no pdb_result. This is a contract bug.
         </div>
       )}
       {!isExperimental && !result.alphafold_result && (
-        <div className="rounded border border-rose-200 bg-rose-50 p-2 text-xs text-rose-800">
+        <div className="rounded border border-border bg-surface-2 p-2 text-xs text-danger">
           Backend returned source='predicted' but no alphafold_result. This is a contract bug.
         </div>
       )}

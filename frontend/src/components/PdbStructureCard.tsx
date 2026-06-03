@@ -20,26 +20,26 @@ interface PdbStructureCardProps {
  */
 export function PdbStructureCard({ structure }: PdbStructureCardProps) {
   return (
-    <div className="space-y-3 rounded-md border border-slate-200 bg-slate-50 p-3">
+    <div className="space-y-3 rounded-md border border-border bg-bg p-3">
       {/* Header */}
       <div className="flex items-baseline justify-between">
         <div>
-          <div className="text-sm font-semibold text-slate-800">
+          <div className="text-sm font-semibold text-fg">
             <a
               href={`https://www.rcsb.org/structure/${structure.pdb_id}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-blue-700 hover:underline"
+              className="text-accent hover:underline"
             >
               {structure.pdb_id}
             </a>
             {structure.title && (
-              <span className="ml-2 font-normal text-slate-700">
+              <span className="ml-2 font-normal text-fg-muted">
                 {structure.title}
               </span>
             )}
           </div>
-          <div className="text-xs text-slate-600">
+          <div className="text-xs text-fg-muted">
             {structure.experimental_method ?? "Unknown method"}
             {structure.resolution_angstrom !== null && (
               <span className="ml-2 font-mono">
@@ -47,7 +47,7 @@ export function PdbStructureCard({ structure }: PdbStructureCardProps) {
               </span>
             )}
             {structure.release_date && (
-              <span className="ml-2 text-slate-400">
+              <span className="ml-2 text-fg-subtle">
                 released {structure.release_date}
               </span>
             )}
@@ -55,19 +55,19 @@ export function PdbStructureCard({ structure }: PdbStructureCardProps) {
         </div>
         <div className="text-right text-xs">
           <div>
-            <span className="font-mono font-semibold text-slate-800">
+            <span className="font-mono font-semibold text-fg">
               {structure.num_chains}
             </span>{" "}
-            <span className="text-slate-500">chains</span>
+            <span className="text-fg-subtle">chains</span>
           </div>
           <div>
-            <span className="font-mono font-semibold text-slate-800">
+            <span className="font-mono font-semibold text-fg">
               {structure.num_residues}
             </span>{" "}
-            <span className="text-slate-500">residues</span>
+            <span className="text-fg-subtle">residues</span>
           </div>
           {structure.mean_b_factor !== null && (
-            <div className="text-[11px] text-slate-500">
+            <div className="text-[11px] text-fg-subtle">
               ⟨B⟩ {structure.mean_b_factor.toFixed(1)} Å²
             </div>
           )}
@@ -76,7 +76,7 @@ export function PdbStructureCard({ structure }: PdbStructureCardProps) {
 
       {/* Keywords */}
       {structure.keywords && (
-        <div className="text-[11px] italic text-slate-600">
+        <div className="text-[11px] italic text-fg-muted">
           {structure.keywords}
         </div>
       )}
@@ -84,17 +84,17 @@ export function PdbStructureCard({ structure }: PdbStructureCardProps) {
       {/* Chain pills */}
       {structure.chain_ids.length > 0 && (
         <div>
-          <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+          <div className="text-[11px] font-medium uppercase tracking-wide text-fg-subtle">
             Chains
           </div>
           <div className="mt-1 flex flex-wrap gap-1">
             {structure.chain_ids.map((chain) => (
               <span
                 key={chain}
-                className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-mono"
+                className="inline-flex items-center gap-1 rounded-full border border-border bg-surface px-2 py-0.5 text-[11px] font-mono"
               >
-                <span className="font-semibold text-slate-800">{chain}</span>
-                <span className="text-slate-500">
+                <span className="font-semibold text-fg">{chain}</span>
+                <span className="text-fg-subtle">
                   {structure.residues_per_chain[chain] ?? 0}aa
                 </span>
               </span>
@@ -106,7 +106,7 @@ export function PdbStructureCard({ structure }: PdbStructureCardProps) {
       {/* Ligand pills */}
       {structure.ligand_ids.length > 0 && (
         <div>
-          <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+          <div className="text-[11px] font-medium uppercase tracking-wide text-fg-subtle">
             Ligands / cofactors ({structure.ligand_ids.length})
           </div>
           <div className="mt-1 flex flex-wrap gap-1">
@@ -116,7 +116,7 @@ export function PdbStructureCard({ structure }: PdbStructureCardProps) {
                 href={`https://www.rcsb.org/ligand/${lig}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-block rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 font-mono text-[11px] text-amber-900 hover:bg-amber-100"
+                className="inline-block rounded border border-border bg-surface-2 px-1.5 py-0.5 font-mono text-[11px] text-warn hover:bg-surface-2"
                 title={`Look up ${lig} in RCSB Ligand Catalog`}
               >
                 {lig}
@@ -129,12 +129,12 @@ export function PdbStructureCard({ structure }: PdbStructureCardProps) {
       {/* Caveats — open by default. */}
       <details
         open
-        className="rounded border border-amber-200 bg-amber-50 px-2 py-1.5"
+        className="rounded border border-border bg-surface-2 px-2 py-1.5"
       >
-        <summary className="cursor-pointer text-xs font-semibold text-amber-900">
+        <summary className="cursor-pointer text-xs font-semibold text-warn">
           ⚠ Interpretation caveats ({structure.caveats.length})
         </summary>
-        <ul className="ml-4 mt-1 list-disc space-y-1 text-[11px] text-amber-900">
+        <ul className="ml-4 mt-1 list-disc space-y-1 text-[11px] text-warn">
           {structure.caveats.map((c, i) => (
             <li key={i}>{c}</li>
           ))}
@@ -165,10 +165,10 @@ export function PdbStructureCard({ structure }: PdbStructureCardProps) {
         if (!rawText) return null;
         return (
           <details className="text-xs">
-            <summary className="cursor-pointer text-slate-500 hover:text-slate-700">
+            <summary className="cursor-pointer text-fg-subtle hover:text-fg-muted">
               Raw {fmt.toUpperCase()} text ({(rawText.length / 1024).toFixed(1)} KB)
             </summary>
-            <pre className="mt-1 max-h-60 overflow-auto rounded bg-white p-2 font-mono text-[10px] text-slate-700">
+            <pre className="mt-1 max-h-60 overflow-auto rounded bg-surface p-2 font-mono text-[10px] text-fg-muted">
               {rawText.slice(0, 8000)}
               {rawText.length > 8000 && "\n…[truncated]"}
             </pre>

@@ -973,6 +973,7 @@ async def run_agent(
     max_iterations: int | None = None,
     enable_critic: bool = True,
     skip_approval_gate: bool = False,
+    autonomy: Literal["auto", "review"] = "auto",
     on_step: OnStep = None,
     planner: Planner | None = None,
     executor: Executor | None = None,
@@ -982,6 +983,11 @@ async def run_agent(
 
     `skip_approval_gate=True` is for tests/CLI tools that want to bypass the pause-for-
     approval semantics. The API path always leaves it `False`.
+
+    `autonomy` is the user-set autonomy level. `"auto"` (default) pauses only when the
+    plan contains an expensive/destructive tool. `"review"` pauses after planning on ANY
+    non-trivial plan, so the user always sees and approves the plan before any tool runs
+    (the "set your own autonomy" pattern). It has no effect when `skip_approval_gate`.
 
     `on_step` is an async callback fired once per `AgentStep` as it lands. Use it for
     SSE streaming. Default `None` is the non-streaming path used by the JSON endpoint
@@ -1070,7 +1076,7 @@ async def run_agent(
         # --- APPROVAL GATE ---
         if plan is not None and not skip_approval_gate:
             with _tracer.start_as_current_span("agent.approval_gate") as approval_span:
-                requirement = requires_approval(plan, REGISTRY)
+                requirement = requires_approval(plan, REGISTRY, force_review=(autonomy == "review"))
                 approval_span.set_attribute("bioforge.approval_required", requirement.required)
                 approval_span.set_attribute("bioforge.approval_reasons_count", len(requirement.reasons))
                 if requirement.required:

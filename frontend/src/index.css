@@ -2,13 +2,53 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  font-family:
-    system-ui,
-    -apple-system,
-    Segoe UI,
-    Roboto,
-    Helvetica,
-    Arial,
-    sans-serif;
+/*
+ * BioForge design tokens — "dark console".
+ * Single source of truth for color. Components reference these via the Tailwind
+ * theme (see tailwind.config.js), never raw hex, so a future light theme is just
+ * a second token set under a `.light` selector.
+ */
+:root {
+  color-scheme: dark;
+
+  --bg: #0d1117; /* app canvas */
+  --surface: #161b22; /* cards */
+  --surface-2: #1c2230; /* hover / raised */
+  --border: #2a3038; /* hairlines */
+
+  --fg: #e6edf3; /* primary text (soft white) */
+  --fg-muted: #9aa4b2; /* secondary */
+  --fg-subtle: #6b7480; /* captions, provenance */
+
+  --accent: #2f9e8f; /* links, active step, focus — muted teal */
+  --accent-fg: #0d1117; /* text on accent fills */
+
+  --success: #3fb950;
+  --warn: #d29922;
+  --danger: #f85149;
+}
+
+@layer base {
+  /* Default every border to the token color so stray `border` utilities stay on-theme. */
+  * {
+    border-color: var(--border);
+  }
+
+  body {
+    background-color: var(--bg);
+    color: var(--fg);
+    font-family:
+      system-ui,
+      -apple-system,
+      Segoe UI,
+      Roboto,
+      Helvetica,
+      Arial,
+      sans-serif;
+  }
+
+  /* Restrained, on-brand scrollbars for the trace column. */
+  * {
+    scrollbar-color: var(--border) transparent;
+  }
 }

@@ -28,45 +28,45 @@ const PLDDT_BIN_META: { key: keyof FetchAlphaFoldOutput["plddt_distribution"]; l
 export function StructureCard({ structure }: StructureCardProps) {
   const total = structure.length_residues || 1;
   return (
-    <div className="space-y-3 rounded-md border border-slate-200 bg-slate-50 p-3">
+    <div className="space-y-3 rounded-md border border-border bg-bg p-3">
       <div className="flex items-baseline justify-between">
         <div>
-          <div className="text-sm font-semibold text-slate-800">
+          <div className="text-sm font-semibold text-fg">
             {structure.gene ?? "Unknown gene"}
-            <span className="ml-2 font-mono text-xs text-slate-500">
+            <span className="ml-2 font-mono text-xs text-fg-subtle">
               {structure.uniprot_id}
             </span>
           </div>
-          <div className="text-xs text-slate-600">
+          <div className="text-xs text-fg-muted">
             {structure.organism ?? "Unknown organism"} ·{" "}
             <span className="font-mono">{structure.entry_id}</span>
             {structure.latest_version !== null && (
-              <span className="ml-1 text-slate-400">v{structure.latest_version}</span>
+              <span className="ml-1 text-fg-subtle">v{structure.latest_version}</span>
             )}
           </div>
         </div>
         <div className="text-right">
-          <div className="text-xs uppercase tracking-wide text-slate-500">
+          <div className="text-xs uppercase tracking-wide text-fg-subtle">
             avg pLDDT
           </div>
-          <div className="font-mono text-lg font-semibold text-slate-800">
+          <div className="font-mono text-lg font-semibold text-fg">
             {structure.average_plddt.toFixed(1)}
           </div>
-          <div className="text-[11px] text-slate-500">
+          <div className="text-[11px] text-fg-subtle">
             {structure.length_residues} residues
           </div>
         </div>
       </div>
 
       {structure.uniprot_description && (
-        <div className="text-xs italic text-slate-600">
+        <div className="text-xs italic text-fg-muted">
           {structure.uniprot_description}
         </div>
       )}
 
       {/* pLDDT distribution bar */}
       <div>
-        <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+        <div className="text-[11px] font-medium uppercase tracking-wide text-fg-subtle">
           pLDDT confidence distribution
         </div>
         <div
@@ -88,7 +88,7 @@ export function StructureCard({ structure }: StructureCardProps) {
             );
           })}
         </div>
-        <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-slate-600">
+        <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-fg-muted">
           {PLDDT_BIN_META.map((bin) => {
             const count = structure.plddt_distribution[bin.key];
             return (
@@ -104,11 +104,11 @@ export function StructureCard({ structure }: StructureCardProps) {
       </div>
 
       {/* Caveats — open by default. These are non-negotiable context. */}
-      <details open className="rounded border border-amber-200 bg-amber-50 px-2 py-1.5">
-        <summary className="cursor-pointer text-xs font-semibold text-amber-900">
+      <details open className="rounded border border-border bg-surface-2 px-2 py-1.5">
+        <summary className="cursor-pointer text-xs font-semibold text-warn">
           ⚠ Prediction caveats ({structure.caveats.length})
         </summary>
-        <ul className="ml-4 mt-1 list-disc space-y-1 text-[11px] text-amber-900">
+        <ul className="ml-4 mt-1 list-disc space-y-1 text-[11px] text-warn">
           {structure.caveats.map((c, i) => (
             <li key={i}>{c}</li>
           ))}
@@ -121,10 +121,10 @@ export function StructureCard({ structure }: StructureCardProps) {
       {/* Raw PDB text collapsible */}
       {structure.pdb_text && (
         <details className="text-xs">
-          <summary className="cursor-pointer text-slate-500 hover:text-slate-700">
+          <summary className="cursor-pointer text-fg-subtle hover:text-fg-muted">
             Raw PDB text ({(structure.pdb_text.length / 1024).toFixed(1)} KB)
           </summary>
-          <pre className="mt-1 max-h-60 overflow-auto rounded bg-white p-2 font-mono text-[10px] text-slate-700">
+          <pre className="mt-1 max-h-60 overflow-auto rounded bg-surface p-2 font-mono text-[10px] text-fg-muted">
             {structure.pdb_text.slice(0, 8000)}
             {structure.pdb_text.length > 8000 && "\n…[truncated]"}
           </pre>
