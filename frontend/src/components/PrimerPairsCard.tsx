@@ -6,13 +6,13 @@ interface PrimerPairsCardProps {
 
 export function PrimerPairsCard({ output }: PrimerPairsCardProps) {
   return (
-    <div className="space-y-3 rounded-md border border-sky-200 bg-white p-3 shadow-sm">
+    <div className="space-y-3 rounded-md border border-border bg-surface p-3 shadow-sm">
       <header className="flex flex-wrap items-baseline justify-between gap-2">
         <div>
-          <div className="text-xs font-semibold uppercase tracking-wider text-sky-700">
+          <div className="text-xs font-semibold uppercase tracking-wider text-accent">
             PCR primer pairs (primer3)
           </div>
-          <div className="font-mono text-xs text-slate-500">
+          <div className="font-mono text-xs text-fg-subtle">
             template {output.template_length} nt
             {output.target_start !== null && output.target_end !== null
               ? ` · target ${output.target_start}-${output.target_end}`
@@ -24,7 +24,7 @@ export function PrimerPairsCard({ output }: PrimerPairsCardProps) {
       </header>
 
       {output.num_returned === 0 ? (
-        <div className="rounded-md border border-dashed border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
+        <div className="rounded-md border border-dashed border-border bg-surface-2 p-3 text-xs text-warn">
           <div className="font-semibold">No primer pairs found</div>
           {output.primer3_warnings.length > 0 && (
             <ul className="mt-1 ml-4 list-disc space-y-1">
@@ -47,7 +47,7 @@ export function PrimerPairsCard({ output }: PrimerPairsCardProps) {
       )}
 
       {output.caveats.length > 0 && (
-        <div className="rounded border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-900">
+        <div className="rounded border border-border bg-surface-2 p-2 text-[11px] text-warn">
           <div className="mb-1 font-semibold">Caveats</div>
           <ul className="ml-4 list-disc space-y-1">
             {output.caveats.map((c, i) => (
@@ -62,10 +62,10 @@ export function PrimerPairsCard({ output }: PrimerPairsCardProps) {
 
 function PrimerPairRow({ pair }: { pair: PrimerPair }) {
   return (
-    <div className="rounded-md border border-slate-200 bg-white p-2 shadow-sm">
+    <div className="rounded-md border border-border bg-surface p-2 shadow-sm">
       <div className="mb-2 flex items-center gap-2 text-xs">
-        <span className="font-semibold text-slate-700">Pair #{pair.rank + 1}</span>
-        <span className="font-mono text-[11px] text-slate-500">
+        <span className="font-semibold text-fg-muted">Pair #{pair.rank + 1}</span>
+        <span className="font-mono text-[11px] text-fg-subtle">
           {pair.product_size} bp · penalty {pair.pair_penalty.toFixed(3)}
         </span>
       </div>
@@ -107,17 +107,17 @@ function PrimerStrand({
   length: number;
 }) {
   return (
-    <div className="rounded bg-slate-50 px-2 py-1.5">
+    <div className="rounded bg-bg px-2 py-1.5">
       <div className="flex items-baseline justify-between">
-        <span className="text-[10px] font-medium uppercase tracking-wider text-slate-500">
+        <span className="text-[10px] font-medium uppercase tracking-wider text-fg-subtle">
           {label}
         </span>
-        <span className="font-mono text-[10px] text-slate-400">
+        <span className="font-mono text-[10px] text-fg-subtle">
           {length} nt @ {start}
         </span>
       </div>
-      <div className="mt-1 break-all font-mono text-xs text-slate-900">{sequence}</div>
-      <div className="mt-1 flex gap-3 font-mono text-[11px] text-slate-600">
+      <div className="mt-1 break-all font-mono text-xs text-fg">{sequence}</div>
+      <div className="mt-1 flex gap-3 font-mono text-[11px] text-fg-muted">
         <span>Tm {tm.toFixed(1)}°C</span>
         <span>GC {gc.toFixed(1)}%</span>
       </div>

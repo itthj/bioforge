@@ -101,7 +101,7 @@ export function IgvGuideViewer({ report }: IgvGuideViewerProps) {
 
   if (state === "missing-sequence") {
     return (
-      <div className="rounded border border-slate-200 bg-white p-2 text-xs text-slate-600">
+      <div className="rounded border border-border bg-surface p-2 text-xs text-fg-muted">
         Genome-browser view unavailable: this report carries no target sequence.
       </div>
     );
@@ -112,36 +112,36 @@ export function IgvGuideViewer({ report }: IgvGuideViewerProps) {
   return (
     <div>
       <div className="flex items-center justify-between">
-        <span className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+        <span className="text-[11px] font-medium uppercase tracking-wide text-fg-subtle">
           Guide map (submitted sequence)
         </span>
         {state === "idle" && (
           <button
             type="button"
             onClick={handleLoad}
-            className="rounded bg-slate-800 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-slate-900"
+            className="rounded bg-accent px-2 py-0.5 text-[11px] font-medium text-accent-fg hover:opacity-90"
           >
             Load genome browser
           </button>
         )}
         {state === "loading" && (
-          <span className="text-[11px] italic text-slate-500">Loading igv.js…</span>
+          <span className="text-[11px] italic text-fg-subtle">Loading igv.js…</span>
         )}
         {state === "ready" && (
-          <span className="text-[11px] italic text-emerald-700">Loaded</span>
+          <span className="text-[11px] italic text-success">Loaded</span>
         )}
         {state === "error" && (
           <button
             type="button"
             onClick={handleLoad}
-            className="text-[11px] text-rose-700 underline"
+            className="text-[11px] text-danger underline"
           >
             Retry
           </button>
         )}
       </div>
       {state === "idle" && (
-        <div className="mt-1 text-[11px] text-slate-500">
+        <div className="mt-1 text-[11px] text-fg-subtle">
           {report.target_length} nt target · {guideCount}{" "}
           {guideCount === 1 ? "guide" : "guides"} · protospacer + PAM
           {report.guides.some((g) => g.edit_outcome_summary) ? " + cut site" : ""}.
@@ -149,13 +149,13 @@ export function IgvGuideViewer({ report }: IgvGuideViewerProps) {
         </div>
       )}
       {state === "error" && (
-        <div className="mt-1 rounded border border-rose-200 bg-rose-50 px-2 py-1 text-[11px] text-rose-800">
+        <div className="mt-1 rounded border border-border bg-surface-2 px-2 py-1 text-[11px] text-danger">
           {errorMsg}
         </div>
       )}
       <div
         ref={containerRef}
-        className={`mt-1 rounded border border-slate-200 bg-white ${
+        className={`mt-1 rounded border border-border bg-surface ${
           state === "ready" ? "min-h-[180px]" : "h-0"
         }`}
       />

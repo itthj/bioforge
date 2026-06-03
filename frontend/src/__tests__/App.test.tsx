@@ -135,11 +135,65 @@ describe("App state machine", () => {
     // The "Completed" status badge is shown on the result card.
     expect(screen.getByText(/^Completed$/i)).toBeInTheDocument();
 
-    // streamAgentRun was called with the goal + default project_id.
+    // streamAgentRun was called with the goal + default project_id + default autonomy.
     expect(streamAgentRun).toHaveBeenCalledWith({
       goal: "GC content of ATGC",
       projectId: "default-project",
+      autonomy: "auto",
     });
+  });
+
+  it("review autonomy: selecting 'Review plan' sends autonomy=review and surfaces the plan", async () => {
+    const { streamAgentRun } = await import("../api/agent");
+    vi.mocked(streamAgentRun).mockImplementationOnce(() =>
+      mockStream([
+        { event: "step", data: makeStep(0, { type: "plan" }) },
+        {
+          event: "step",
+          data: makeStep(1, {
+            type: "approval_requested",
+            approval_reasons: ["Review mode: you chose to approve the plan before any tools run."],
+          }),
+        },
+        {
+          event: "done",
+          data: makeDone({
+            status: "pending_approval",
+            response_text: "Approval required before running this plan.",
+            pending_plan: {
+              is_trivial: false,
+              summary: "GC of the reverse complement.",
+              steps: [
+                { idx: 0, description: "Reverse complement", expected_tool: "reverse_complement", rationale: "x" },
+                { idx: 1, description: "GC content", expected_tool: "gc_content", rationale: "y" },
+              ],
+            },
+            approval_reasons: ["Review mode: you chose to approve the plan before any tools run."],
+          }),
+        },
+      ]),
+    );
+
+    const user = userEvent.setup();
+    render(<App />);
+
+    // Flip autonomy to review, then send.
+    await user.click(screen.getByRole("button", { name: /Review plan/i }));
+    await user.type(
+      screen.getByPlaceholderText(/What do you want BioForge to do/i),
+      "GC of rev comp of ATGC",
+    );
+    await user.click(screen.getByRole("button", { name: /^Send$/i }));
+
+    expect(streamAgentRun).toHaveBeenCalledWith({
+      goal: "GC of rev comp of ATGC",
+      projectId: "default-project",
+      autonomy: "review",
+    });
+
+    // Even though no tool is expensive, the run paused for plan approval.
+    await waitFor(() => expect(screen.getByText(/^Approval$/i)).toBeInTheDocument());
+    expect(screen.getByText(/Review mode/i)).toBeInTheDocument();
   });
 
   it("pending_approval: shows ApprovalCard with the pending plan; clicking Approve resumes the stream", async () => {

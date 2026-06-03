@@ -1,55 +1,103 @@
-import type { AgentDoneEvent } from "../types/agent";
+import type { AgentDoneEvent, ValidationVerdict } from "../types/agent";
+import { Card } from "./ui/Card";
+import { GroundedResponse } from "./GroundedResponse";
 
 interface FinalCardProps {
   done: AgentDoneEvent;
+  // The grounding verdict from the run's `validation` step, if it ran. Drives the inline
+  // hover-to-verify highlighting and the header trust chip.
+  grounding?: ValidationVerdict | null;
 }
 
-const STATUS_STYLES: Record<string, { label: string; classes: string }> = {
-  completed: { label: "Completed", classes: "bg-emerald-100 text-emerald-800" },
+// `text` is a token color class; the badge chrome is shared below.
+const STATUS_STYLES: Record<string, { label: string; text: string }> = {
+  completed: { label: "Completed", text: "text-success" },
   completed_after_replan: {
     label: "Completed (after replan)",
-    classes: "bg-emerald-100 text-emerald-800",
+    text: "text-success",
   },
   critique_failed: {
     label: "Critique failed — review carefully",
-    classes: "bg-amber-100 text-amber-800",
+    text: "text-warn",
   },
-  refused: { label: "Refused", classes: "bg-rose-100 text-rose-800" },
-  error: { label: "Error", classes: "bg-rose-100 text-rose-800" },
-  iteration_cap: { label: "Iteration cap hit", classes: "bg-amber-100 text-amber-800" },
-  cancelled: { label: "Cancelled", classes: "bg-slate-200 text-slate-700" },
-  pending_approval: { label: "Awaiting approval", classes: "bg-orange-100 text-orange-800" },
+  refused: { label: "Refused", text: "text-danger" },
+  error: { label: "Error", text: "text-danger" },
+  iteration_cap: { label: "Iteration cap hit", text: "text-warn" },
+  cancelled: { label: "Cancelled", text: "text-fg-muted" },
+  pending_approval: { label: "Awaiting approval", text: "text-warn" },
 };
 
-export function FinalCard({ done }: FinalCardProps) {
+export function FinalCard({ done, grounding }: FinalCardProps) {
   if (done.status === "pending_approval") return null;
 
   const style = STATUS_STYLES[done.status] ?? {
     label: done.status,
-    classes: "bg-slate-100 text-slate-700",
+    text: "text-fg-muted",
   };
 
+  // Inline grounding highlights only when the validator ran and did NOT redact (enforce
+  // mode rewrites the text, invalidating the offsets).
+  const numericClaims = grounding && !grounding.enforced ? grounding.numeric_claims ?? [] : [];
+  const entityClaims = grounding && !grounding.enforced ? grounding.entity_claims ?? [] : [];
+  const claimCount = numericClaims.length + entityClaims.length;
+  const flaggedCount =
+    numericClaims.filter((c) => c.status === "unsupported").length +
+    entityClaims.filter((c) => c.status === "unsupported").length;
+
   return (
-    <div className="rounded-lg border border-slate-300 bg-white p-4 shadow-sm">
-      <div className="flex items-center justify-between">
-        <span
-          className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-medium ${style.classes}`}
-        >
-          {style.label}
-        </span>
+    <Card className="p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span
+            className={`inline-flex items-center rounded border border-border bg-surface-2 px-2 py-0.5 text-xs font-medium ${style.text}`}
+          >
+            {style.label}
+          </span>
+          {claimCount > 0 && (
+            <span
+              className={`inline-flex items-center rounded border border-border bg-surface-2 px-2 py-0.5 text-[11px] font-medium ${
+                flaggedCount === 0 ? "text-success" : "text-warn"
+              }`}
+              title={
+                flaggedCount === 0
+                  ? "Every checked value traced to a tool result this run."
+                  : `${flaggedCount} value(s) could not be traced to a tool result this run.`
+              }
+            >
+              {flaggedCount === 0 ? "✓ grounded" : `⚠ ${flaggedCount} to check`}
+            </span>
+          )}
+        </div>
         {done.usage && (
-          <span className="font-mono text-xs text-slate-500">
+          <span className="font-mono text-xs text-fg-subtle">
             {done.usage.input_tokens + done.usage.output_tokens} tok · $
             {done.usage.cost_usd.toFixed(4)}
           </span>
         )}
       </div>
-      <div className="mt-3 whitespace-pre-wrap text-sm text-slate-900">
-        {done.response_text}
+
+      <div className="mt-3">
+        {claimCount > 0 ? (
+          <GroundedResponse
+            text={done.response_text}
+            numericClaims={numericClaims}
+            entityClaims={entityClaims}
+          />
+        ) : (
+          <div className="whitespace-pre-wrap text-sm text-fg">{done.response_text}</div>
+        )}
       </div>
-      <div className="mt-3 font-mono text-[11px] text-slate-400">
+
+      {claimCount > 0 && (
+        <div className="mt-2 text-[11px] text-fg-subtle">
+          Underlined values were checked against this run's tool results — hover any one to
+          see its source.
+        </div>
+      )}
+
+      <div className="mt-3 font-mono text-[11px] text-fg-subtle">
         trace_id: {done.trace_id} · model: {done.model}
       </div>
-    </div>
+    </Card>
   );
 }

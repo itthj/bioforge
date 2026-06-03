@@ -61,15 +61,15 @@ export function ProjectSwitcher({
           type="button"
           onClick={() => !disabled && setOpen(!open)}
           disabled={disabled}
-          className="flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+          className="flex items-center gap-2 rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium text-fg-muted shadow-sm hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          <span className="font-mono text-xs text-slate-500">project:</span>
+          <span className="font-mono text-xs text-fg-subtle">project:</span>
           <span>{current?.name ?? currentProjectId}</span>
           <svg
             xmlns="http://www.w3.org/2000/svg"
             viewBox="0 0 20 20"
             fill="currentColor"
-            className="h-4 w-4 text-slate-400"
+            className="h-4 w-4 text-fg-subtle"
           >
             <path
               fillRule="evenodd"
@@ -80,16 +80,16 @@ export function ProjectSwitcher({
         </button>
 
         {open && (
-          <div className="absolute right-0 z-40 mt-1 w-72 rounded-md border border-slate-200 bg-white shadow-lg">
+          <div className="absolute right-0 z-40 mt-1 w-72 rounded-md border border-border bg-surface shadow-lg">
             <div className="max-h-72 overflow-auto py-1">
               {loading && (
-                <div className="px-3 py-2 text-xs text-slate-500">Loading…</div>
+                <div className="px-3 py-2 text-xs text-fg-subtle">Loading…</div>
               )}
               {error && (
-                <div className="px-3 py-2 text-xs text-rose-700">{error}</div>
+                <div className="px-3 py-2 text-xs text-danger">{error}</div>
               )}
               {!loading && !error && projects.length === 0 && (
-                <div className="px-3 py-2 text-xs text-slate-500">
+                <div className="px-3 py-2 text-xs text-fg-subtle">
                   No projects. Create one below.
                 </div>
               )}
@@ -101,28 +101,28 @@ export function ProjectSwitcher({
                     onChange(p);
                     setOpen(false);
                   }}
-                  className={`block w-full px-3 py-2 text-left text-sm hover:bg-slate-50 ${
-                    p.id === currentProjectId ? "bg-slate-100" : ""
+                  className={`block w-full px-3 py-2 text-left text-sm hover:bg-surface-2 ${
+                    p.id === currentProjectId ? "bg-surface-2" : ""
                   }`}
                 >
-                  <div className="font-medium text-slate-900">{p.name}</div>
-                  <div className="font-mono text-[11px] text-slate-500">{p.id}</div>
+                  <div className="font-medium text-fg">{p.name}</div>
+                  <div className="font-mono text-[11px] text-fg-subtle">{p.id}</div>
                   {(p.organism || p.reference_genome) && (
-                    <div className="text-[11px] text-slate-500">
+                    <div className="text-[11px] text-fg-subtle">
                       {[p.organism, p.reference_genome].filter(Boolean).join(" · ")}
                     </div>
                   )}
                 </button>
               ))}
             </div>
-            <div className="border-t border-slate-200">
+            <div className="border-t border-border">
               <button
                 type="button"
                 onClick={() => {
                   setCreating(true);
                   setOpen(false);
                 }}
-                className="block w-full px-3 py-2 text-left text-sm font-medium text-slate-900 hover:bg-slate-50"
+                className="block w-full px-3 py-2 text-left text-sm font-medium text-fg hover:bg-surface-2"
               >
                 + New project
               </button>

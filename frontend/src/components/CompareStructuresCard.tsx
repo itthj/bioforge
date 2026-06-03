@@ -68,7 +68,7 @@ export function CompareStructuresCard({ result }: CompareStructuresCardProps) {
   return (
     <div className="space-y-3">
       {/* Banner */}
-      <div className="rounded-md border border-emerald-200 bg-emerald-50 p-2 text-xs text-emerald-900">
+      <div className="rounded-md border border-border bg-surface-2 p-2 text-xs text-success">
         <div className="flex items-center justify-between">
           <span className="font-semibold uppercase tracking-wide">
             Structure comparison
@@ -79,11 +79,11 @@ export function CompareStructuresCard({ result }: CompareStructuresCardProps) {
       </div>
 
       {/* Overlap bar */}
-      <div className="rounded-md border border-slate-200 bg-white p-2">
-        <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+      <div className="rounded-md border border-border bg-surface p-2">
+        <div className="text-[11px] font-medium uppercase tracking-wide text-fg-subtle">
           Sequence coverage (AlphaFold: {af_len} residues)
         </div>
-        <div className="mt-1 relative h-4 rounded bg-slate-100">
+        <div className="mt-1 relative h-4 rounded bg-surface-2">
           {segments.map((seg, i) => (
             <div
               key={i}
@@ -93,7 +93,7 @@ export function CompareStructuresCard({ result }: CompareStructuresCardProps) {
             />
           ))}
         </div>
-        <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-slate-700">
+        <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-fg-muted">
           <div className="flex items-center gap-1">
             <span className="inline-block h-2 w-2 rounded-sm bg-emerald-500" />
             Validated overlap: {overlap.overlap_residues} aa
@@ -115,12 +115,12 @@ export function CompareStructuresCard({ result }: CompareStructuresCardProps) {
       {result.caveats.length > 0 && (
         <details
           open
-          className="rounded border border-amber-200 bg-amber-50 px-2 py-1.5"
+          className="rounded border border-border bg-surface-2 px-2 py-1.5"
         >
-          <summary className="cursor-pointer text-xs font-semibold text-amber-900">
+          <summary className="cursor-pointer text-xs font-semibold text-warn">
             ⚠ Comparison caveats ({result.caveats.length})
           </summary>
-          <ul className="ml-4 mt-1 list-disc space-y-1 text-[11px] text-amber-900">
+          <ul className="ml-4 mt-1 list-disc space-y-1 text-[11px] text-warn">
             {result.caveats.map((c, i) => (
               <li key={i}>{c}</li>
             ))}
@@ -129,7 +129,7 @@ export function CompareStructuresCard({ result }: CompareStructuresCardProps) {
       )}
 
       {/* Tabs */}
-      <div className="flex gap-1 border-b border-slate-200 text-xs">
+      <div className="flex gap-1 border-b border-border text-xs">
         {(["side-by-side", "experimental", "predicted"] as Tab[]).map((t) => (
           <button
             key={t}
@@ -137,8 +137,8 @@ export function CompareStructuresCard({ result }: CompareStructuresCardProps) {
             onClick={() => setTab(t)}
             className={`-mb-px border-b-2 px-3 py-1 ${
               tab === t
-                ? "border-slate-800 font-semibold text-slate-800"
-                : "border-transparent text-slate-500 hover:text-slate-700"
+                ? "border-accent font-semibold text-fg"
+                : "border-transparent text-fg-subtle hover:text-fg-muted"
             }`}
           >
             {t === "side-by-side"

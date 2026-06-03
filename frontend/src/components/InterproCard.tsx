@@ -47,21 +47,21 @@ export function InterproCard({ output, proteinLength }: InterproCardProps) {
   const totalLen = proteinLength && proteinLength > 0 ? proteinLength : null;
 
   return (
-    <div className="space-y-3 rounded-md border border-slate-200 bg-slate-50 p-3">
+    <div className="space-y-3 rounded-md border border-border bg-bg p-3">
       <div className="flex items-baseline justify-between">
-        <div className="text-sm font-semibold text-slate-800">
+        <div className="text-sm font-semibold text-fg">
           InterPro annotations
-          <span className="ml-2 font-mono text-xs text-slate-500">
+          <span className="ml-2 font-mono text-xs text-fg-subtle">
             {output.uniprot_id}
           </span>
         </div>
-        <div className="text-xs text-slate-600">
+        <div className="text-xs text-fg-muted">
           {output.num_entries} entries
         </div>
       </div>
 
       {/* Type legend */}
-      <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-700">
+      <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-fg-muted">
         {Array.from(new Set(output.domains.map((d) => d.type))).map((t) => (
           <div key={t} className="flex items-center gap-1">
             <span className={`inline-block h-2 w-2 rounded-sm ${colorFor(t)}`} />
@@ -79,11 +79,11 @@ export function InterproCard({ output, proteinLength }: InterproCardProps) {
 
       {/* Caveats */}
       {output.caveats.length > 0 && (
-        <details className="rounded border border-amber-200 bg-amber-50 px-2 py-1.5">
-          <summary className="cursor-pointer text-xs font-semibold text-amber-900">
+        <details className="rounded border border-border bg-surface-2 px-2 py-1.5">
+          <summary className="cursor-pointer text-xs font-semibold text-warn">
             ⚠ Caveats ({output.caveats.length})
           </summary>
-          <ul className="ml-4 mt-1 list-disc space-y-1 text-[11px] text-amber-900">
+          <ul className="ml-4 mt-1 list-disc space-y-1 text-[11px] text-warn">
             {output.caveats.map((c, i) => (
               <li key={i}>{c}</li>
             ))}
@@ -101,7 +101,7 @@ interface DomainRowProps {
 
 function DomainRow({ domain, totalLength }: DomainRowProps) {
   return (
-    <li className="rounded border border-slate-200 bg-white px-2 py-1">
+    <li className="rounded border border-border bg-surface px-2 py-1">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="truncate text-xs">
@@ -109,13 +109,13 @@ function DomainRow({ domain, totalLength }: DomainRowProps) {
               href={`https://www.ebi.ac.uk/interpro/entry/InterPro/${domain.interpro_id}/`}
               target="_blank"
               rel="noopener noreferrer"
-              className="font-mono font-semibold text-blue-700 hover:underline"
+              className="font-mono font-semibold text-accent hover:underline"
             >
               {domain.interpro_id}
             </a>
-            <span className="ml-2 text-slate-800">{domain.name}</span>
+            <span className="ml-2 text-fg">{domain.name}</span>
           </div>
-          <div className="mt-0.5 text-[11px] text-slate-500">
+          <div className="mt-0.5 text-[11px] text-fg-subtle">
             {TYPE_LABELS[domain.type] ?? domain.type} ·{" "}
             {domain.regions.length} region
             {domain.regions.length === 1 ? "" : "s"} ·{" "}
@@ -127,7 +127,7 @@ function DomainRow({ domain, totalLength }: DomainRowProps) {
       </div>
       {totalLength && (
         <div
-          className="mt-1 relative h-2 rounded bg-slate-100"
+          className="mt-1 relative h-2 rounded bg-surface-2"
           role="img"
           aria-label={`Domain ${domain.name} positions`}
         >

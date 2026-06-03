@@ -106,13 +106,13 @@ export function MolstarViewer(props: MolstarViewerProps) {
 
   if (state === "missing-structure") {
     return (
-      <div className="rounded border border-slate-200 bg-white p-2 text-xs text-slate-600">
+      <div className="rounded border border-border bg-surface p-2 text-xs text-fg-muted">
         No structure text in this response. Download directly from{" "}
         <a
           href={url}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-blue-700 underline"
+          className="text-accent underline"
         >
           {url}
         </a>
@@ -124,42 +124,42 @@ export function MolstarViewer(props: MolstarViewerProps) {
   return (
     <div>
       <div className="flex items-center justify-between">
-        <span className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+        <span className="text-[11px] font-medium uppercase tracking-wide text-fg-subtle">
           3D viewer
         </span>
         {state === "idle" && (
           <button
             type="button"
             onClick={handleLoad}
-            className="rounded bg-slate-800 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-slate-900"
+            className="rounded bg-accent px-2 py-0.5 text-[11px] font-medium text-accent-fg hover:opacity-90"
           >
             Load Mol* viewer{format === "cif" ? " (mmCIF)" : ""}
           </button>
         )}
         {state === "loading" && (
-          <span className="text-[11px] italic text-slate-500">Loading Mol*…</span>
+          <span className="text-[11px] italic text-fg-subtle">Loading Mol*…</span>
         )}
         {state === "ready" && (
-          <span className="text-[11px] italic text-emerald-700">Loaded</span>
+          <span className="text-[11px] italic text-success">Loaded</span>
         )}
         {state === "error" && (
           <button
             type="button"
             onClick={handleLoad}
-            className="text-[11px] text-rose-700 underline"
+            className="text-[11px] text-danger underline"
           >
             Retry
           </button>
         )}
       </div>
       {state === "error" && (
-        <div className="mt-1 rounded border border-rose-200 bg-rose-50 px-2 py-1 text-[11px] text-rose-800">
+        <div className="mt-1 rounded border border-border bg-surface-2 px-2 py-1 text-[11px] text-danger">
           {errorMsg}
         </div>
       )}
       <div
         ref={containerRef}
-        className={`mt-1 rounded border border-slate-200 bg-black ${
+        className={`mt-1 rounded border border-border bg-black ${
           state === "ready" ? "h-72" : "h-0"
         }`}
       />

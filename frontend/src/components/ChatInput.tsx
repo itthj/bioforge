@@ -106,7 +106,7 @@ export function ChatInput({ onSubmit, disabled }: ChatInputProps) {
             type="button"
             onClick={() => setText(action.goal)}
             disabled={disabled}
-            className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-600 shadow-sm hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-full border border-border bg-surface px-2.5 py-1 text-[11px] font-medium text-fg-muted shadow-sm transition-colors hover:border-accent hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
             title={action.goal}
           >
             {action.label}
@@ -120,14 +120,14 @@ export function ChatInput({ onSubmit, disabled }: ChatInputProps) {
         disabled={disabled}
         rows={3}
         placeholder="What do you want BioForge to do? e.g. 'GC content of the reverse complement of ATGCATGC'"
-        className="w-full rounded-md border border-slate-300 bg-white p-3 font-mono text-sm shadow-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500 disabled:bg-slate-100"
+        className="w-full rounded-md border border-border bg-surface p-3 font-mono text-sm text-fg shadow-sm placeholder:text-fg-subtle focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-60"
       />
-      <div className="flex items-center justify-between text-xs text-slate-500">
+      <div className="flex items-center justify-between text-xs text-fg-subtle">
         <span>Ctrl/Cmd + Enter to send · click a chip to pre-fill</span>
         <button
           type="submit"
           disabled={disabled || !text.trim()}
-          className="rounded-md bg-slate-900 px-4 py-1.5 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+          className="rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-accent-fg shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {disabled ? "Running…" : "Send"}
         </button>

@@ -8,7 +8,7 @@
 //   for await (const ev of streamAgentRun({ goal, projectId })) { ... }
 // The async generator yields strongly-typed SseEvent values.
 
-import type { SseEvent } from "../types/agent";
+import type { Autonomy, SseEvent } from "../types/agent";
 
 const SSE_BLOCK_DELIMITER = "\n\n";
 
@@ -97,6 +97,7 @@ async function* streamSse(
 export interface AgentRunInput {
   goal: string;
   projectId?: string;
+  autonomy?: Autonomy;
 }
 
 export async function* streamAgentRun(
@@ -108,6 +109,7 @@ export async function* streamAgentRun(
     body: JSON.stringify({
       goal: input.goal,
       project_id: input.projectId ?? "default-project",
+      autonomy: input.autonomy ?? "auto",
     }),
   });
   yield* streamSse(response);

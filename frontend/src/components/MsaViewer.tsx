@@ -83,7 +83,7 @@ interface MsaViewerProps {
 
 export function MsaViewer({ aligned, alignmentLength }: MsaViewerProps) {
   if (aligned.length === 0) {
-    return <div className="text-xs text-slate-500">No aligned sequences to display.</div>;
+    return <div className="text-xs text-fg-subtle">No aligned sequences to display.</div>;
   }
   const nucleotide = isNucleotideAlignment(aligned);
   const conservation = columnConservation(aligned, alignmentLength);
@@ -99,7 +99,7 @@ export function MsaViewer({ aligned, alignmentLength }: MsaViewerProps) {
   }
 
   return (
-    <div className="overflow-x-auto rounded border border-slate-200 bg-white p-2">
+    <div className="overflow-x-auto rounded border border-border bg-white p-2">
       <div className="inline-block font-mono text-[11px] leading-tight">
         {/* ruler */}
         <div className="flex whitespace-pre text-[9px] text-slate-400">

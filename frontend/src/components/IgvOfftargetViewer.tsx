@@ -94,29 +94,29 @@ export function IgvOfftargetViewer({ hits }: IgvOfftargetViewerProps) {
   return (
     <div className="mt-1">
       <div className="flex items-center justify-between">
-        <span className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+        <span className="text-[11px] font-medium uppercase tracking-wide text-fg-subtle">
           Off-targets on GRCh38 (hg38)
         </span>
         {placeable.length > 0 && state === "idle" && (
           <button
             type="button"
             onClick={handleLoad}
-            className="rounded bg-slate-800 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-slate-900"
+            className="rounded bg-accent px-2 py-0.5 text-[11px] font-medium text-accent-fg hover:opacity-90"
           >
             Load hg38 browser
           </button>
         )}
         {state === "loading" && (
-          <span className="text-[11px] italic text-slate-500">Loading hg38…</span>
+          <span className="text-[11px] italic text-fg-subtle">Loading hg38…</span>
         )}
         {state === "ready" && (
-          <span className="text-[11px] italic text-emerald-700">Loaded</span>
+          <span className="text-[11px] italic text-success">Loaded</span>
         )}
         {state === "error" && (
           <button
             type="button"
             onClick={handleLoad}
-            className="text-[11px] text-rose-700 underline"
+            className="text-[11px] text-danger underline"
           >
             Retry
           </button>
@@ -124,43 +124,43 @@ export function IgvOfftargetViewer({ hits }: IgvOfftargetViewerProps) {
       </div>
 
       {placeable.length > 0 ? (
-        <div className="mt-1 text-[11px] text-slate-500">
+        <div className="mt-1 text-[11px] text-fg-subtle">
           {placeable.length} of {typed.length} hit(s) sit on a GRCh38 chromosome and
           can be shown on hg38 (loaded from igv.js's hosted reference).
         </div>
       ) : (
-        <div className="mt-1 rounded border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-600">
+        <div className="mt-1 rounded border border-border bg-bg px-2 py-1 text-[11px] text-fg-muted">
           None of the {typed.length} returned hit(s) sit on a GRCh38 primary chromosome,
           so there is nothing to place on hg38. See the accessions below.
         </div>
       )}
 
       {state === "error" && (
-        <div className="mt-1 rounded border border-rose-200 bg-rose-50 px-2 py-1 text-[11px] text-rose-800">
+        <div className="mt-1 rounded border border-border bg-surface-2 px-2 py-1 text-[11px] text-danger">
           {errorMsg}
         </div>
       )}
 
       <div
         ref={containerRef}
-        className={`mt-1 rounded border border-slate-200 bg-white ${
+        className={`mt-1 rounded border border-border bg-surface ${
           state === "ready" ? "min-h-[160px]" : "h-0"
         }`}
       />
 
       {nonPlaceable.length > 0 && (
         <details className="mt-1">
-          <summary className="cursor-pointer text-[11px] font-medium text-slate-600 hover:text-slate-800">
+          <summary className="cursor-pointer text-[11px] font-medium text-fg-muted hover:text-fg">
             {nonPlaceable.length} hit(s) not on hg38 (not a GRCh38 chromosome — not placed)
           </summary>
-          <ul className="ml-4 mt-1 list-disc space-y-0.5 text-[11px] text-slate-600">
+          <ul className="ml-4 mt-1 list-disc space-y-0.5 text-[11px] text-fg-muted">
             {nonPlaceable.map((h, i) => (
               <li key={`${h.accession}-${i}`}>
                 <span className="font-mono">{h.accession || "(no accession)"}</span>{" "}
                 — {h.risk_label} risk, {h.mismatch_count}mm
                 {h.organism ? ` · ${h.organism}` : ""}
                 {h.genomic_placement_note && (
-                  <span className="block text-slate-500">{h.genomic_placement_note}</span>
+                  <span className="block text-fg-subtle">{h.genomic_placement_note}</span>
                 )}
               </li>
             ))}
