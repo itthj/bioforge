@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
-from dataclasses import asdict
+from dataclasses import asdict, fields
 from datetime import UTC, datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import select
@@ -20,6 +20,7 @@ from bioforge.api.sse import format_event, format_keepalive
 from bioforge.constants import DEFAULT_PROJECT_ID
 from bioforge.db.engine import get_session
 from bioforge.db.models import Trace
+from bioforge.provenance import build_run_manifest, render_methods_report, to_ro_crate
 
 router = APIRouter()
 
@@ -495,3 +496,67 @@ async def get_trace(trace_id: str, session: AsyncSession = Depends(get_session))
         "created_at": trace.created_at.isoformat(),
         "completed_at": trace.completed_at.isoformat(),
     }
+
+
+# --- Provenance / research-object export (§10) ---------------------------------------
+#
+# build_run_manifest / to_ro_crate / render_methods_report all consume an AgentResult, but
+# what we persist is a Trace row whose `steps` is a JSON list of dicts. _result_from_trace
+# rehydrates the dataclass. Trace.steps was produced by `asdict(AgentStep)` so the keys
+# line up; we filter to the dataclass's known fields so an older stored trace that predates
+# a newly-added optional field still rehydrates cleanly instead of raising.
+
+_AGENT_STEP_FIELDS = {f.name for f in fields(AgentStep)}
+
+
+def _result_from_trace(trace: Trace) -> AgentResult:
+    steps = [AgentStep(**{k: v for k, v in d.items() if k in _AGENT_STEP_FIELDS}) for d in (trace.steps or [])]
+    return AgentResult(
+        goal=trace.goal,
+        project_id=trace.project_id,
+        response_text=trace.response_text,
+        steps=steps,
+        status=trace.status,
+        model=trace.model,
+    )
+
+
+async def _load_trace_or_404(trace_id: str, session: AsyncSession) -> Trace:
+    result = await session.execute(select(Trace).where(Trace.id == trace_id))
+    trace = result.scalar_one_or_none()
+    if trace is None:
+        raise HTTPException(status_code=404, detail=f"Trace {trace_id!r} not found")
+    return trace
+
+
+@router.get("/traces/{trace_id}/manifest")
+async def get_trace_manifest(trace_id: str, session: AsyncSession = Depends(get_session)) -> dict:
+    """Content-addressed run manifest (machine-readable JSON)."""
+    trace = await _load_trace_or_404(trace_id, session)
+    manifest = build_run_manifest(_result_from_trace(trace))
+    return manifest.model_dump()
+
+
+@router.get("/traces/{trace_id}/ro-crate")
+async def get_trace_ro_crate(trace_id: str, session: AsyncSession = Depends(get_session)) -> JSONResponse:
+    """RO-Crate 1.1 metadata document (JSON-LD) for the run."""
+    trace = await _load_trace_or_404(trace_id, session)
+    crate = to_ro_crate(build_run_manifest(_result_from_trace(trace)))
+    return JSONResponse(
+        content=crate,
+        media_type="application/ld+json",
+        headers={"Content-Disposition": f'attachment; filename="ro-crate-metadata-{trace_id}.json"'},
+    )
+
+
+@router.get("/traces/{trace_id}/report", response_class=PlainTextResponse)
+async def get_trace_report(trace_id: str, session: AsyncSession = Depends(get_session)) -> PlainTextResponse:
+    """Publication-grade Markdown methods/reproducibility record for the run."""
+    trace = await _load_trace_or_404(trace_id, session)
+    result = _result_from_trace(trace)
+    report = render_methods_report(build_run_manifest(result), result)
+    return PlainTextResponse(
+        content=report,
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="bioforge-methods-{trace_id}.md"'},
+    )
