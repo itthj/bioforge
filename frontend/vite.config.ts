@@ -1,4 +1,5 @@
 /// <reference types="vitest/config" />
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
@@ -8,6 +9,16 @@ import react from "@vitejs/plugin-react";
 // already allows that origin (configured in main.py).
 export default defineConfig({
   plugins: [react()],
+  // Multi-page: the main app + a standalone /showcase.html that renders the real
+  // components with mock data (a no-backend visual demo, deployable to a static host).
+  build: {
+    rollupOptions: {
+      input: {
+        main: fileURLToPath(new URL("./index.html", import.meta.url)),
+        showcase: fileURLToPath(new URL("./showcase.html", import.meta.url)),
+      },
+    },
+  },
   server: {
     port: 5173,
     proxy: {
