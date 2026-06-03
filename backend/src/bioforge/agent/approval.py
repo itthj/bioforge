@@ -34,7 +34,19 @@ class ApprovalRequirement(BaseModel):
     )
 
 
-def requires_approval(plan: Plan | None, registry: dict[str, ToolSpec]) -> ApprovalRequirement:
+def requires_approval(
+    plan: Plan | None,
+    registry: dict[str, ToolSpec],
+    *,
+    force_review: bool = False,
+) -> ApprovalRequirement:
+    """Decide whether `plan` needs human sign-off before the executor runs.
+
+    `force_review` is the user-set "review every plan" autonomy level (see the loop's
+    `autonomy` arg). When True, any plan that actually does something (non-empty steps)
+    pauses — even an all-cheap one — so the user always sees the plan before any tool
+    runs. An empty/no-op plan still never pauses; there is nothing to approve.
+    """
     if plan is None or not plan.steps:
         return ApprovalRequirement(required=False)
 
@@ -54,5 +66,9 @@ def requires_approval(plan: Plan | None, registry: dict[str, ToolSpec]) -> Appro
             reasons.append(
                 f"Step {step.idx} ({step.expected_tool}): expensive — long runtime and/or external API cost."
             )
+
+    # Review autonomy: pause even when no step is independently expensive/destructive.
+    if force_review and not reasons:
+        reasons.append("Review mode: you chose to approve the plan before any tools run.")
 
     return ApprovalRequirement(required=bool(reasons), reasons=reasons)

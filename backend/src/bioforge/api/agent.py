@@ -4,6 +4,7 @@ import asyncio
 from collections.abc import AsyncIterator
 from dataclasses import asdict
 from datetime import UTC, datetime
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -31,6 +32,14 @@ _SSE_KEEPALIVE_SECONDS = 15.0
 class AgentRunRequest(BaseModel):
     goal: str = Field(min_length=1, max_length=10_000)
     project_id: str = Field(default=DEFAULT_PROJECT_ID, max_length=64)
+    autonomy: Literal["auto", "review"] = Field(
+        default="auto",
+        description=(
+            "Autonomy level. 'auto' pauses only for expensive/destructive plans; "
+            "'review' pauses after planning on any non-trivial plan so the user "
+            "approves the plan before any tool runs."
+        ),
+    )
 
 
 class AgentApproveRequest(BaseModel):
@@ -121,7 +130,7 @@ async def agent_run(
     llm: LLM = Depends(get_llm),
 ) -> AgentRunResponse:
     with AgentContextScope(project_id=body.project_id, session=session):
-        result = await run_agent(body.goal, project_id=body.project_id, llm=llm)
+        result = await run_agent(body.goal, project_id=body.project_id, llm=llm, autonomy=body.autonomy)
     trace = await _persist_new_trace(session, result)
     return _trace_to_response(trace, result)
 
@@ -144,6 +153,7 @@ async def _stream_agent_run(
     *,
     goal: str,
     project_id: str,
+    autonomy: Literal["auto", "review"],
     session: AsyncSession,
     llm: LLM,
 ) -> AsyncIterator[str]:
@@ -162,7 +172,9 @@ async def _stream_agent_run(
     async def runner() -> None:
         try:
             with AgentContextScope(project_id=project_id, session=session):
-                result = await run_agent(goal, project_id=project_id, llm=llm, on_step=emit_step)
+                result = await run_agent(
+                    goal, project_id=project_id, llm=llm, autonomy=autonomy, on_step=emit_step
+                )
             await queue.put(("result", result))
         except Exception as e:  # noqa: BLE001 — caught & reported, then re-emitted
             await queue.put(("error", f"{type(e).__name__}: {e}"))
@@ -207,7 +219,13 @@ async def agent_run_stream(
     `done` event carrying the trace_id, response_text, usage, and (if applicable)
     pending_plan + approval_reasons for the approval-gate path."""
     return StreamingResponse(
-        _stream_agent_run(goal=body.goal, project_id=body.project_id, session=session, llm=llm),
+        _stream_agent_run(
+            goal=body.goal,
+            project_id=body.project_id,
+            autonomy=body.autonomy,
+            session=session,
+            llm=llm,
+        ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

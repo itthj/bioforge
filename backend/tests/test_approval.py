@@ -267,3 +267,54 @@ async def test_run_agent_does_not_pause_for_non_expensive_plan(
     result = await run_agent("GC of rev comp of ATGCATGC", project_id=DEFAULT_PROJECT_ID, llm=llm)
     assert result.status == "completed"
     assert all(s.type != "approval_requested" for s in result.steps)
+
+
+# --- Review autonomy (user-set "approve every plan") ----------------------------------
+
+
+def test_requires_approval_forced_in_review_mode() -> None:
+    """Review autonomy pauses an all-cheap plan that auto mode would let run."""
+    plan = Plan(
+        is_trivial=False,
+        summary="cheap pipeline",
+        steps=[
+            PlanStep(idx=0, description="rev comp", expected_tool="reverse_complement", rationale="x"),
+            PlanStep(idx=1, description="gc", expected_tool="gc_content", rationale="y"),
+        ],
+    )
+    assert requires_approval(plan, REGISTRY).required is False
+    review = requires_approval(plan, REGISTRY, force_review=True)
+    assert review.required is True
+    assert any("Review mode" in r for r in review.reasons)
+
+
+def test_force_review_still_false_for_empty_plan() -> None:
+    """Nothing to run -> nothing to approve, even in review mode."""
+    plan = Plan(is_trivial=True, summary="empty", steps=[])
+    assert requires_approval(plan, REGISTRY, force_review=True).required is False
+
+
+async def test_run_agent_review_mode_pauses_on_cheap_plan(
+    fake_llm_factory, make_submit_plan_response, multi_step_plan
+) -> None:
+    """autonomy='review' pauses after planning even when no tool is expensive — the
+    executor never starts until the user approves."""
+    plan_dict = multi_step_plan(
+        [("reverse_complement", "Reverse complement."), ("gc_content", "GC of the result.")],
+        summary="GC of the reverse complement.",
+    )
+    llm = fake_llm_factory([make_submit_plan_response(plan_dict)])
+
+    result = await run_agent(
+        "GC of rev comp of ATGCATGC",
+        project_id=DEFAULT_PROJECT_ID,
+        llm=llm,
+        autonomy="review",
+    )
+
+    assert result.status == "pending_approval"
+    assert result.pending_plan is not None
+    assert any("Review mode" in r for r in result.approval_reasons)
+    assert [s.type for s in result.steps] == ["plan", "approval_requested"]
+    # Only the planner ran; the executor never started.
+    assert len(llm.calls) == 1
