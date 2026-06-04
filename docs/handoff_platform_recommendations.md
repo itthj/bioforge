@@ -7,19 +7,21 @@ Read this together with the authoritative `docs/handoff.md` (backend/grounding s
 > **START HERE (first actions, in order):**
 > 1. Read this doc + `docs/handoff.md`.
 > 2. `git status` / `git branch` — confirm state (below).
-> 3. **Merge P1b**: open a PR for `feat/stop-recovery` → `main` and merge via `gh` in WSL
->    Ubuntu (see "Workflow"), then sync local `main`.
-> 4. Start **P2a** (linked viewers + figure/data export) on a fresh `feat/*` branch.
+> 3. **P1b is MERGED** (PR #5 → `main` @ `1d2eb98`). **P2a is BUILT** on
+>    `feat/p2a-linked-export` (PR #6, open — merge gate is the user's).
+> 4. Once P2a merges, start **P2b** (edit the plan before approving) on a fresh `feat/*`
+>    branch — see §5.
 
 ---
 
 ## 1. Where things stand (git)
 
 - **Remote:** `https://github.com/itthj/bioforge.git` (owner `itthj`). Repo is **public**.
-- **`main`** is at the PR #4 merge (`feat: provenance exports + run history + reproduce-in-code`).
-- **`feat/stop-recovery`** (HEAD ~`4bb9f67`) — **P1b stop/recovery, PUSHED but UNMERGED, no PR yet.**
+- **`main`** is at the PR #5 merge (`P1b: stop button + recovery routing`), HEAD `1d2eb98`.
+- **`feat/p2a-linked-export`** — **P2a (linked selection + figure/data export), BUILT, PR #6 open,
+  awaiting the user's merge gate.** Two commits: `93fff35` (linked selection) + the export slice.
 - Merged already: PR #1 dark-console redesign, PR #2 showcase page, PR #3 methods-report
-  backend, PR #4 provenance links + run history + reproduce-in-code.
+  backend, PR #4 provenance links + run history + reproduce-in-code, PR #5 P1b stop/recovery.
 - **Live public showcase:** https://itthj.github.io/bioforge/showcase.html (served from the
   `gh-pages` branch; it's a static build of `frontend/showcase.html`, rebuild+force-push to update).
 - Untracked `docs/plan_edit_outcome_benchmark.md` is **pre-existing, not ours — leave it.**
@@ -30,9 +32,9 @@ Read this together with the authoritative `docs/handoff.md` (backend/grounding s
 |---|---|---|---|
 | **P0** | Run history + permalink (browsable runs) | ✅ DONE, merged (PR #4) | see §4 |
 | **P1a** | Reproduce-in-code (runnable script from a run) | ✅ DONE, merged (PR #4) | see §4 |
-| **P1b** | Stop button + recovery routing | ✅ DONE, on `feat/stop-recovery`, **needs PR+merge** | see §4 |
-| **P2a** | Linked viewers + figure/data export | ⏳ TODO (next) | see §5 |
-| **P2b** | Edit the plan before approving | ⏳ TODO | see §5 |
+| **P1b** | Stop button + recovery routing | ✅ DONE, merged (PR #5) | see §4 |
+| **P2a** | Linked viewers + figure/data export | ✅ DONE, PR #6 open (merge gate = user) | see §4/§5 |
+| **P2b** | Edit the plan before approving | ⏳ TODO (next) | see §5 |
 | **P3** | File/dataset upload + registry | ⛔ **BLOCKED on auth** — do NOT build yet | see §5 |
 | **P3** | Durable job model + queue (Celery) | ⏳ TODO, phase-sized (roadmap Phase 1) | see §5 |
 
@@ -129,15 +131,29 @@ typed everything (Pydantic v2 / TS strict); real-biology test fixtures; no faked
 - `src/api/agent.ts` (SSE consumer + optional `AbortSignal`), `src/api/traces.ts`
   (`listTraces`, `getTrace`). Types in `src/types/agent.ts`, `src/types/traces.ts`.
 - `frontend/showcase.html` + `src/showcase.tsx`: standalone mock-data demo (the gh-pages site).
-  Multi-page entry is wired in `vite.config.ts` (`rollupOptions.input`).
+  Multi-page entry is wired in `vite.config.ts` (`rollupOptions.input`). NOTE: it mounts only
+  TraceView/FinalCard/ApprovalCard/ChatInput — it does NOT render the CRISPR/accuracy cards, so
+  P2a's linked-selection + export buttons aren't visible there (they need the backend-driven main
+  app to render a real report). A future tweak could add a CrisprReportCard demo to the showcase.
+
+**Frontend P2a (on `feat/p2a-linked-export`, PR #6):**
+- Linked selection: `igvGuideTrack.ts` `guideLocus()` (0-based half-open → igv 1-based locus);
+  `IgvGuideViewer` accepts `selectedGuideId` and, once loaded, guarded `browser.search(locus)`
+  centers it; `CrisprReportCard` lifts `selectedGuideId`, guide headers are buttons (aria-pressed),
+  toggle-select highlights every instance + drives the viewer.
+- Figure/data export: `lib/download.ts` (`downloadBlob`, `toCsv` RFC-4180, `svgToString` inlining
+  computed fill/stroke) + `ui/ExportButton`. CSV on guide table / on-target scorers / primer pairs /
+  reliability bins / TVD histogram bins; SVG on the reliability curve + the TVD histogram. Pure
+  serializers exported + unit-tested. 162 vitest, tsc --strict, production build all green.
 
 ## 5. What to build next (concrete guidance)
 
-### P1b — merge it first (already implemented on `feat/stop-recovery`)
-PR + merge via `gh`, sync `main`. Then:
+### P1b — DONE (merged via PR #5).
 
-### P2a — Linked viewers + figure/data export (do next)
-Two parts; can be split into sub-slices.
+### P2a — DONE (built on `feat/p2a-linked-export`, PR #6 open; merge gate = user).
+Shipped both parts as two commits on one branch (see §4 for the file-level summary). Original
+guidance kept below for reference / future polish (e.g. adding a CrisprReportCard demo to the
+showcase so the linked-selection + export UI is visible without the backend).
 - **Linked selection:** clicking a guide row in `CrisprReportCard.tsx` highlights/centers that
   guide in the embedded `IgvGuideViewer.tsx`. The IGV track builder is `igvGuideTrack.ts`
   (off-target equivalent: `igvOfftargetTrack.ts`). Lift selection state to the card; pass a
@@ -184,5 +200,5 @@ infra-sized — design it as its own phase, not a quick slice.
 - **FAIR/RO-Crate** → already on the right standard (provenance work shipped); P0 added the
   Findable piece (stable, browsable, shareable run identity).
 
-The single highest-leverage move was P0 (runs first-class) — done. Next-highest open item is
-P2a (make the science viz feel first-class and exportable).
+The single highest-leverage move was P0 (runs first-class) — done. P2a (science viz first-class
+and exportable) is now done too. Next open item is P2b (edit the plan before approving).
