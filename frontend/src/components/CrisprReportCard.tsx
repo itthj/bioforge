@@ -4,11 +4,56 @@ import type {
   GuideReport,
   RecommendationLabel,
 } from "../types/crispr";
+import { downloadBlob, toCsv } from "../lib/download";
 import { IgvGuideViewer } from "./IgvGuideViewer";
 import { IgvOfftargetViewer } from "./IgvOfftargetViewer";
+import { ExportButton } from "./ui/ExportButton";
 
 interface CrisprReportCardProps {
   report: CrisprEditReportOutput;
+}
+
+/** Flatten the candidate guides to a CSV (one row per guide) for export to a paper/sheet. */
+export function guidesToCsv(report: CrisprEditReportOutput): string {
+  const header = [
+    "rank",
+    "protospacer",
+    "pam",
+    "strand",
+    "protospacer_start",
+    "protospacer_end",
+    "recommendation_label",
+    "recommendation_score",
+    "on_target_score",
+    "heuristic_score",
+    "cut_position_fwd",
+    "frameshift_probability",
+    "no_edit_probability",
+    "off_target_searched",
+    "high_risk",
+    "medium_risk",
+    "low_risk",
+  ];
+  const rows = report.guides.map((g) => [
+    g.rank,
+    g.protospacer,
+    g.pam_sequence,
+    g.strand,
+    g.protospacer_start,
+    g.protospacer_end,
+    g.recommendation_label,
+    g.recommendation_score,
+    g.on_target_score,
+    g.heuristic_score,
+    g.edit_outcome_summary?.cut_position_fwd ?? null,
+    g.edit_outcome_summary?.frameshift_probability ?? null,
+    g.edit_outcome_summary?.no_edit_probability ?? null,
+    g.off_target_summary.searched,
+    g.off_target_summary.high_risk_count,
+    g.off_target_summary.medium_risk_count,
+    g.off_target_summary.low_risk_count,
+  ]);
+  return toCsv([header, ...rows]);
 }
 
 const LABEL_STYLES: Record<RecommendationLabel, string> = {
@@ -39,6 +84,15 @@ export function CrisprReportCard({ report }: CrisprReportCardProps) {
             {report.tool_chain.join(" → ")}
           </div>
         </div>
+        {report.guides.length > 0 && (
+          <ExportButton
+            label="Export CSV"
+            title="Download the candidate guide table as CSV"
+            onClick={() =>
+              downloadBlob("crispr_guides.csv", "text/csv;charset=utf-8", guidesToCsv(report))
+            }
+          />
+        )}
       </header>
 
       {report.guides.length > 0 && report.target_sequence && (

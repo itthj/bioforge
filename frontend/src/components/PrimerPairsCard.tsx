@@ -1,7 +1,44 @@
 import type { DesignPrimersOutput, PrimerPair } from "../types/primers";
+import { downloadBlob, toCsv } from "../lib/download";
+import { ExportButton } from "./ui/ExportButton";
 
 interface PrimerPairsCardProps {
   output: DesignPrimersOutput;
+}
+
+/** One CSV row per primer pair, both strands flattened — the shape an ordering sheet wants. */
+export function primersToCsv(output: DesignPrimersOutput): string {
+  const header = [
+    "pair",
+    "product_size",
+    "pair_penalty",
+    "forward_sequence",
+    "forward_tm",
+    "forward_gc_percent",
+    "forward_start",
+    "forward_length",
+    "reverse_sequence",
+    "reverse_tm",
+    "reverse_gc_percent",
+    "reverse_start",
+    "reverse_length",
+  ];
+  const rows = output.primer_pairs.map((p) => [
+    p.rank + 1,
+    p.product_size,
+    p.pair_penalty,
+    p.forward_sequence,
+    p.forward_tm,
+    p.forward_gc_percent,
+    p.forward_start,
+    p.forward_length,
+    p.reverse_sequence,
+    p.reverse_tm,
+    p.reverse_gc_percent,
+    p.reverse_start,
+    p.reverse_length,
+  ]);
+  return toCsv([header, ...rows]);
 }
 
 export function PrimerPairsCard({ output }: PrimerPairsCardProps) {
@@ -21,6 +58,15 @@ export function PrimerPairsCard({ output }: PrimerPairsCardProps) {
             {output.num_returned} pair{output.num_returned === 1 ? "" : "s"}
           </div>
         </div>
+        {output.num_returned > 0 && (
+          <ExportButton
+            label="Export CSV"
+            title="Download the primer pairs as CSV"
+            onClick={() =>
+              downloadBlob("primer_pairs.csv", "text/csv;charset=utf-8", primersToCsv(output))
+            }
+          />
+        )}
       </header>
 
       {output.num_returned === 0 ? (

@@ -8,9 +8,17 @@
 
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
-import { CrisprReportCard } from "../CrisprReportCard";
+import { describe, expect, it, vi } from "vitest";
+import { CrisprReportCard, guidesToCsv } from "../CrisprReportCard";
+import { downloadBlob } from "../../lib/download";
 import type { CrisprEditReportOutput, GuideReport } from "../../types/crispr";
+
+// Keep the real serializer (toCsv) so we assert the actual CSV content; stub only the
+// download side-effect so no file is written during the test.
+vi.mock("../../lib/download", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../lib/download")>()),
+  downloadBlob: vi.fn(),
+}));
 
 function makeGuide(overrides: Partial<GuideReport> = {}): GuideReport {
   return {
@@ -137,6 +145,26 @@ describe("CrisprReportCard", () => {
     expect(
       screen.getByText(/Probabilities are literature averages/i),
     ).toBeInTheDocument();
+  });
+
+  it("builds a guide CSV with a header and one row per guide", () => {
+    const csv = guidesToCsv(makeReport());
+    const lines = csv.split("\r\n");
+    expect(lines[0]).toMatch(/^rank,protospacer,pam,strand,/);
+    // makeReport has 2 candidate guides -> header + 2 rows.
+    expect(lines).toHaveLength(3);
+    expect(lines[1]).toMatch(/^1,ACGTACGTACGTACGTACGG,AGG,\+,10,30,preferred/);
+  });
+
+  it("exports the guide table as CSV when the export button is clicked", async () => {
+    vi.mocked(downloadBlob).mockClear();
+    render(<CrisprReportCard report={makeReport()} />);
+    await userEvent.click(screen.getByRole("button", { name: /export csv/i }));
+    expect(downloadBlob).toHaveBeenCalledTimes(1);
+    const [filename, mime, data] = vi.mocked(downloadBlob).mock.calls[0];
+    expect(filename).toBe("crispr_guides.csv");
+    expect(mime).toContain("text/csv");
+    expect(String(data)).toMatch(/rank,protospacer,pam/);
   });
 
   it("toggles a guide's selected (pressed) state when its row is clicked", async () => {

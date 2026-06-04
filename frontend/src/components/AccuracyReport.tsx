@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getAccuracyReport } from "../api/benchmarks";
 import { ApiError } from "../api/projects";
 import type {
@@ -9,7 +9,14 @@ import type {
   PublishedGiabBenchmark,
   ValidatorGate,
 } from "../types/benchmarks";
+import { downloadBlob, svgToString, toCsv } from "../lib/download";
 import { ReliabilityDiagram } from "./ReliabilityDiagram";
+import { ExportButton } from "./ui/ExportButton";
+
+/** lowercase a benchmark name into a filesystem-safe slug for export filenames. */
+function slug(name: string): string {
+  return name.replace(/[^a-z0-9]+/gi, "_").replace(/^_+|_+$/g, "").toLowerCase() || "histogram";
+}
 
 /** Container: fetches the live report on mount, handles loading/error. */
 export function AccuracyReport() {
@@ -121,7 +128,7 @@ function EditOutcomeResults({ published }: { published: PublishedEditOutcomeBenc
                 {eo.sample} · {eo.direction}-strand · ≥{eo.min_reads} reads · {eo.model_version} ·
                 measured {new Date(eo.generated_at).toISOString().slice(0, 10)}
               </div>
-              <TvdHistogram bins={eo.tvd_histogram} />
+              <TvdHistogram bins={eo.tvd_histogram} name={eo.name} />
               <p className="mt-2 text-[11px] text-fg-muted">{eo.interpretation}</p>
               <p className="mt-1 text-[11px] italic text-warn">{eo.leakage_caveat}</p>
             </div>
@@ -134,15 +141,27 @@ function EditOutcomeResults({ published }: { published: PublishedEditOutcomeBenc
 
 /** Per-guide TVD distribution as a lean inline-SVG histogram (no chart dependency). Lower TVD =
  *  better agreement, so mass toward the left is good. */
-function TvdHistogram({ bins }: { bins: PublishedEditOutcomeBenchmark["tvd_histogram"] }) {
+function TvdHistogram({
+  bins,
+  name,
+}: {
+  bins: PublishedEditOutcomeBenchmark["tvd_histogram"];
+  name: string;
+}) {
+  const svgRef = useRef<SVGSVGElement | null>(null);
   if (bins.length === 0) return null;
   const max = Math.max(1, ...bins.map((b) => b.count));
   const W = 240;
   const H = 60;
   const bw = W / bins.length;
+  const exportCsv = () => {
+    const header = ["tvd_lo", "tvd_hi", "count"];
+    const rows = bins.map((b) => [b.lo, b.hi, b.count]);
+    downloadBlob(`${slug(name)}_tvd_histogram.csv`, "text/csv;charset=utf-8", toCsv([header, ...rows]));
+  };
   return (
     <figure className="mt-2">
-      <svg viewBox={`0 0 ${W} ${H + 14}`} className="w-full max-w-xs" role="img" aria-label="Per-guide TVD distribution">
+      <svg ref={svgRef} viewBox={`0 0 ${W} ${H + 14}`} className="w-full max-w-xs" role="img" aria-label="Per-guide TVD distribution">
         {bins.map((b, i) => {
           const h = (b.count / max) * H;
           return (
@@ -168,8 +187,22 @@ function TvdHistogram({ bins }: { bins: PublishedEditOutcomeBenchmark["tvd_histo
           1
         </text>
       </svg>
-      <figcaption className="text-[10px] text-fg-subtle">
-        Per-guide TVD (left = better agreement)
+      <figcaption className="flex items-center gap-3 text-[10px] text-fg-subtle">
+        <span>Per-guide TVD (left = better agreement)</span>
+        <ExportButton label="CSV" title="Download the TVD histogram bins as CSV" onClick={exportCsv} />
+        <ExportButton
+          label="SVG"
+          title="Download the TVD histogram as SVG"
+          onClick={() => {
+            if (svgRef.current) {
+              downloadBlob(
+                `${slug(name)}_tvd_histogram.svg`,
+                "image/svg+xml;charset=utf-8",
+                svgToString(svgRef.current),
+              );
+            }
+          }}
+        />
       </figcaption>
     </figure>
   );

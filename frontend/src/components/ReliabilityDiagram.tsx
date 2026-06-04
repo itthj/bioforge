@@ -1,7 +1,23 @@
+import { useRef } from "react";
 import type { ReliabilityCurve } from "../types/benchmarks";
+import { downloadBlob, svgToString, toCsv } from "../lib/download";
+import { ExportButton } from "./ui/ExportButton";
 
 interface ReliabilityDiagramProps {
   curve: ReliabilityCurve;
+}
+
+/** Per-bin reliability data as CSV — the numbers behind the curve, for a paper/sheet. */
+export function reliabilityToCsv(curve: ReliabilityCurve): string {
+  const header = ["bin_index", "n", "predicted_mean", "observed_mean", "observed_sem"];
+  const rows = curve.bins.map((b) => [
+    b.bin_index,
+    b.n,
+    b.predicted_mean,
+    b.observed_mean,
+    b.observed_sem,
+  ]);
+  return toCsv([header, ...rows]);
 }
 
 const W = 320;
@@ -19,6 +35,7 @@ const M = { top: 14, right: 14, bottom: 38, left: 44 };
  * the bins the backend produced are rendered; nothing is fabricated.
  */
 export function ReliabilityDiagram({ curve }: ReliabilityDiagramProps) {
+  const svgRef = useRef<SVGSVGElement | null>(null);
   const yLo = curve.bins.map((b) => b.observed_mean - b.observed_sem);
   const yHi = curve.bins.map((b) => b.observed_mean + b.observed_sem);
   const xMin = Math.min(...curve.bins.map((b) => b.predicted_mean));
@@ -38,12 +55,38 @@ export function ReliabilityDiagram({ curve }: ReliabilityDiagramProps) {
         <h3 className="text-sm font-semibold text-fg">
           Reliability curve <span className="font-normal text-fg-subtle">· §6 / calibration</span>
         </h3>
-        <span className="font-mono text-xs text-fg-subtle" title="Spearman rho of per-bin predicted vs observed">
-          monotonicity ρ = {curve.monotonicity_rho.toFixed(3)}
-        </span>
+        <div className="flex items-baseline gap-3">
+          <span className="font-mono text-xs text-fg-subtle" title="Spearman rho of per-bin predicted vs observed">
+            monotonicity ρ = {curve.monotonicity_rho.toFixed(3)}
+          </span>
+          <ExportButton
+            label="CSV"
+            title="Download the per-bin reliability data as CSV"
+            onClick={() =>
+              downloadBlob(
+                "reliability_curve.csv",
+                "text/csv;charset=utf-8",
+                reliabilityToCsv(curve),
+              )
+            }
+          />
+          <ExportButton
+            label="SVG"
+            title="Download the reliability figure as SVG"
+            onClick={() => {
+              if (svgRef.current) {
+                downloadBlob(
+                  "reliability_curve.svg",
+                  "image/svg+xml;charset=utf-8",
+                  svgToString(svgRef.current),
+                );
+              }
+            }}
+          />
+        </div>
       </div>
 
-      <svg viewBox={`0 0 ${W} ${H}`} className="mt-2 w-full" role="img" aria-label="reliability curve">
+      <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} className="mt-2 w-full" role="img" aria-label="reliability curve">
         <line x1={M.left} y1={H - M.bottom} x2={W - M.right} y2={H - M.bottom} stroke="#2a3038" strokeWidth={1} />
         <line x1={M.left} y1={M.top} x2={M.left} y2={H - M.bottom} stroke="#2a3038" strokeWidth={1} />
         <polyline points={polyline} fill="none" stroke="#2f9e8f" strokeWidth={1.5} />

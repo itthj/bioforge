@@ -7,9 +7,16 @@
  */
 
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it, vi } from "vitest";
 import { OnTargetScoreCard } from "../OnTargetScoreCard";
+import { downloadBlob } from "../../lib/download";
 import type { ScoreGuideOnTargetOutput } from "../../types/on_target";
+
+vi.mock("../../lib/download", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../lib/download")>()),
+  downloadBlob: vi.fn(),
+}));
 
 function makeOutput(
   overrides: Partial<ScoreGuideOnTargetOutput> = {},
@@ -74,5 +81,25 @@ describe("OnTargetScoreCard", () => {
     render(<OnTargetScoreCard output={makeOutput()} />);
     expect(screen.getByText("Caveats")).toBeInTheDocument();
     expect(screen.getByText(/transparent rule-based proxy/i)).toBeInTheDocument();
+  });
+
+  it("exports the side-by-side scorers as CSV", async () => {
+    vi.mocked(downloadBlob).mockClear();
+    render(
+      <OnTargetScoreCard
+        output={makeOutput({
+          deepcrispr_on_target_score: 0.71,
+          deepcrispr_model_version: "deepcrispr-ontar-cnn-reg-seq@abc",
+        })}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: /^csv$/i }));
+    expect(downloadBlob).toHaveBeenCalledTimes(1);
+    const [filename, , data] = vi.mocked(downloadBlob).mock.calls[0];
+    expect(filename).toBe("on_target_scores.csv");
+    expect(String(data)).toMatch(/scorer,label,score,version/);
+    // Both the rule-based and the opt-in DeepCRISPR scorer are present in the CSV.
+    expect(String(data)).toMatch(/rule_based/);
+    expect(String(data)).toMatch(/deepcrispr,.*,0\.71/);
   });
 });

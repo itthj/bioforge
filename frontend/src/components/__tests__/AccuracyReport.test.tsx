@@ -8,9 +8,16 @@
  */
 
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it, vi } from "vitest";
 import { AccuracyReportView } from "../AccuracyReport";
+import { downloadBlob } from "../../lib/download";
 import type { AccuracyReport } from "../../types/benchmarks";
+
+vi.mock("../../lib/download", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../lib/download")>()),
+  downloadBlob: vi.fn(),
+}));
 
 function makeReport(overrides: Partial<AccuracyReport> = {}): AccuracyReport {
   return {
@@ -260,5 +267,16 @@ describe("AccuracyReportView", () => {
   it("omits the edit-outcome section entirely when nothing is published (no faked row)", () => {
     render(<AccuracyReportView report={makeReport()} />);
     expect(screen.queryByText(/Edit-outcome distribution agreement/i)).not.toBeInTheDocument();
+  });
+
+  it("exports the edit-outcome TVD histogram as CSV", async () => {
+    vi.mocked(downloadBlob).mockClear();
+    render(<AccuracyReportView report={makeReport({ published_edit_outcome: [makeEditOutcome()] })} />);
+    await userEvent.click(screen.getByRole("button", { name: /^csv$/i }));
+    expect(downloadBlob).toHaveBeenCalledTimes(1);
+    const [filename, mime, data] = vi.mocked(downloadBlob).mock.calls[0];
+    expect(filename).toMatch(/_tvd_histogram\.csv$/);
+    expect(mime).toContain("text/csv");
+    expect(String(data)).toMatch(/^tvd_lo,tvd_hi,count/);
   });
 });
