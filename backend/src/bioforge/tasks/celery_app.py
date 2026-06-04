@@ -17,12 +17,13 @@ redis://redis:6379/0 matches the docker-compose service name.
 from __future__ import annotations
 
 import asyncio
-import os
 from typing import Any
 
 from celery import Celery
 
-REDIS_URL = os.environ.get("BIOFORGE_REDIS_URL", "redis://redis:6379/0")
+from bioforge.config import settings
+
+REDIS_URL = settings.redis_url
 
 celery_app = Celery(
     "bioforge",
@@ -30,15 +31,16 @@ celery_app = Celery(
     backend=REDIS_URL,
 )
 
-# Tunables. Defaults follow Celery 5.x best practices for long-running tasks.
+# Tunables. Defaults follow Celery 5.x best practices for long-running tasks; the time
+# limits come from Settings (BIOFORGE_CELERY_TASK_*_TIME_LIMIT).
 celery_app.conf.update(
     task_acks_late=True,
     worker_prefetch_multiplier=1,  # one task at a time per worker — fair for slow tools
     task_serializer="json",
     result_serializer="json",
     accept_content=["json"],
-    task_time_limit=15 * 60,  # 15-minute hard cap per task
-    task_soft_time_limit=14 * 60,
+    task_time_limit=settings.celery_task_time_limit,
+    task_soft_time_limit=settings.celery_task_soft_time_limit,
 )
 
 

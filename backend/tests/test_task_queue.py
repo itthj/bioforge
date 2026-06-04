@@ -12,6 +12,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pytest
+from bioforge.config import Settings, settings
 from bioforge.tasks import (
     CeleryTaskQueue,
     InlineTaskQueue,
@@ -51,15 +52,16 @@ def test_celery_queue_satisfies_protocol() -> None:
 
 
 def test_default_selection_is_inline(monkeypatch) -> None:
-    monkeypatch.delenv("BIOFORGE_TASK_QUEUE", raising=False)
+    # Selection now reads the typed Settings singleton (BIOFORGE_TASK_QUEUE alias).
+    monkeypatch.setattr(settings, "task_queue", "inline")
     reset_task_queue()
     q = get_task_queue()
     assert isinstance(q, InlineTaskQueue)
     assert q.backend_name == "inline"
 
 
-def test_celery_selection_when_env_set(monkeypatch) -> None:
-    monkeypatch.setenv("BIOFORGE_TASK_QUEUE", "celery")
+def test_celery_selection_when_setting_is_celery(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "task_queue", "celery")
     reset_task_queue()
     # Construction of CeleryTaskQueue lazily imports celery_app; we patch the
     # import so the test doesn't need a real broker.
@@ -71,10 +73,20 @@ def test_celery_selection_when_env_set(monkeypatch) -> None:
 
 
 def test_unknown_value_falls_back_to_inline(monkeypatch) -> None:
-    monkeypatch.setenv("BIOFORGE_TASK_QUEUE", "kubernetes-someday")
+    monkeypatch.setattr(settings, "task_queue", "kubernetes-someday")
     reset_task_queue()
     q = get_task_queue()
     assert isinstance(q, InlineTaskQueue)
+
+
+def test_settings_declare_queue_config_defaults() -> None:
+    """Slice 1: the queue config lives on the typed Settings (single source of truth),
+    defaulting to zero-infra inline. Asserts the declared field defaults (env-independent)."""
+    f = Settings.model_fields
+    assert f["task_queue"].default == "inline"
+    assert f["redis_url"].default.startswith("redis://")
+    # Soft limit must fire before the hard kill so a task can flush a partial result.
+    assert f["celery_task_soft_time_limit"].default < f["celery_task_time_limit"].default
 
 
 # --- Inline end-to-end --------------------------------------------------------
