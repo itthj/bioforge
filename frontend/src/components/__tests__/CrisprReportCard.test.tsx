@@ -7,9 +7,18 @@
  */
 
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
-import { CrisprReportCard } from "../CrisprReportCard";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it, vi } from "vitest";
+import { CrisprReportCard, guidesToCsv } from "../CrisprReportCard";
+import { downloadBlob } from "../../lib/download";
 import type { CrisprEditReportOutput, GuideReport } from "../../types/crispr";
+
+// Keep the real serializer (toCsv) so we assert the actual CSV content; stub only the
+// download side-effect so no file is written during the test.
+vi.mock("../../lib/download", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../lib/download")>()),
+  downloadBlob: vi.fn(),
+}));
 
 function makeGuide(overrides: Partial<GuideReport> = {}): GuideReport {
   return {
@@ -136,5 +145,49 @@ describe("CrisprReportCard", () => {
     expect(
       screen.getByText(/Probabilities are literature averages/i),
     ).toBeInTheDocument();
+  });
+
+  it("builds a guide CSV with a header and one row per guide", () => {
+    const csv = guidesToCsv(makeReport());
+    const lines = csv.split("\r\n");
+    expect(lines[0]).toMatch(/^rank,protospacer,pam,strand,/);
+    // makeReport has 2 candidate guides -> header + 2 rows.
+    expect(lines).toHaveLength(3);
+    expect(lines[1]).toMatch(/^1,ACGTACGTACGTACGTACGG,AGG,\+,10,30,preferred/);
+  });
+
+  it("exports the guide table as CSV when the export button is clicked", async () => {
+    vi.mocked(downloadBlob).mockClear();
+    render(<CrisprReportCard report={makeReport()} />);
+    await userEvent.click(screen.getByRole("button", { name: /export csv/i }));
+    expect(downloadBlob).toHaveBeenCalledTimes(1);
+    const [filename, mime, data] = vi.mocked(downloadBlob).mock.calls[0];
+    expect(filename).toBe("crispr_guides.csv");
+    expect(mime).toContain("text/csv");
+    expect(String(data)).toMatch(/rank,protospacer,pam/);
+  });
+
+  it("toggles a guide's selected (pressed) state when its row is clicked", async () => {
+    render(<CrisprReportCard report={makeReport()} />);
+    const guideButtons = () => screen.getAllByTitle(/center this guide/i);
+
+    expect(guideButtons().length).toBeGreaterThanOrEqual(1);
+    // Nothing is selected on first render.
+    expect(
+      guideButtons().every((b) => b.getAttribute("aria-pressed") === "false"),
+    ).toBe(true);
+
+    await userEvent.click(guideButtons()[0]);
+    // The clicked guide is now pressed (rank 1 appears in both the recommended card and the
+    // candidate list, so both instances reflect the selection).
+    expect(
+      guideButtons().some((b) => b.getAttribute("aria-pressed") === "true"),
+    ).toBe(true);
+
+    // Clicking it again clears the selection (toggle).
+    await userEvent.click(guideButtons()[0]);
+    expect(
+      guideButtons().every((b) => b.getAttribute("aria-pressed") === "false"),
+    ).toBe(true);
   });
 });

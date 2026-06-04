@@ -1,4 +1,6 @@
 import type { ScoreGuideOnTargetOutput } from "../types/on_target";
+import { downloadBlob, toCsv } from "../lib/download";
+import { ExportButton } from "./ui/ExportButton";
 
 interface OnTargetScoreCardProps {
   output: ScoreGuideOnTargetOutput;
@@ -49,15 +51,33 @@ export function OnTargetScoreCard({ output }: OnTargetScoreCardProps) {
   }
   const multiple = scorers.length > 1;
 
+  function exportCsv() {
+    const header = ["scorer", "label", "score", "version"];
+    const rows = scorers.map((s) => [s.key, s.label, s.value, s.version]);
+    const meta = [["protospacer", output.protospacer], ["pam", output.pam]];
+    downloadBlob(
+      "on_target_scores.csv",
+      "text/csv;charset=utf-8",
+      toCsv([...meta, [], header, ...rows]),
+    );
+  }
+
   return (
     <div className="space-y-3 rounded-md border border-border bg-surface p-3 shadow-sm">
       <header className="flex flex-wrap items-baseline justify-between gap-2">
         <div className="text-xs font-semibold uppercase tracking-wider text-success">
           On-target score
         </div>
-        <div className="font-mono text-xs text-fg-subtle">
-          {output.protospacer}
-          {output.pam ? ` + ${output.pam}` : ""}
+        <div className="flex items-baseline gap-3">
+          <span className="font-mono text-xs text-fg-subtle">
+            {output.protospacer}
+            {output.pam ? ` + ${output.pam}` : ""}
+          </span>
+          <ExportButton
+            label="CSV"
+            title="Download the on-target scores as CSV"
+            onClick={exportCsv}
+          />
         </div>
       </header>
 

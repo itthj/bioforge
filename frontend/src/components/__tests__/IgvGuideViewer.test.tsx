@@ -112,6 +112,32 @@ describe("IgvGuideViewer", () => {
     expect(config.tracks[0].features).toHaveLength(2);
   });
 
+  it("centers a selected guide once the browser is loaded (linked selection)", async () => {
+    const searchMock = vi.fn();
+    createBrowserMock.mockResolvedValue({ search: searchMock, dispose: vi.fn() });
+    const report = makeReport();
+    const { rerender } = render(
+      <IgvGuideViewer report={report} selectedGuideId={null} />,
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /load genome browser/i }),
+    );
+    await waitFor(() => expect(screen.getByText(/^Loaded$/)).toBeInTheDocument());
+
+    // Selecting guide rank 1 navigates to its 1-based locus (protospacer [10,30) + PAM
+    // [30,33) -> span 11-33, padded by the default flank of 8 -> target:3-41).
+    rerender(<IgvGuideViewer report={report} selectedGuideId={1} />);
+    await waitFor(() => expect(searchMock).toHaveBeenCalledWith("target:3-41"));
+  });
+
+  it("does not navigate before the browser is loaded", () => {
+    const searchMock = vi.fn();
+    createBrowserMock.mockResolvedValue({ search: searchMock, dispose: vi.fn() });
+    // Pre-selected, but the user never clicked Load -> nothing to navigate.
+    render(<IgvGuideViewer report={makeReport()} selectedGuideId={1} />);
+    expect(searchMock).not.toHaveBeenCalled();
+  });
+
   it("degrades gracefully when igv.js fails to initialize", async () => {
     createBrowserMock.mockRejectedValue(new Error("no canvas in this env"));
     render(<IgvGuideViewer report={makeReport()} />);

@@ -7,9 +7,16 @@
  */
 
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
-import { ReliabilityDiagram } from "../ReliabilityDiagram";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it, vi } from "vitest";
+import { ReliabilityDiagram, reliabilityToCsv } from "../ReliabilityDiagram";
+import { downloadBlob } from "../../lib/download";
 import type { ReliabilityCurve } from "../../types/benchmarks";
+
+vi.mock("../../lib/download", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../lib/download")>()),
+  downloadBlob: vi.fn(),
+}));
 
 function makeCurve(overrides: Partial<ReliabilityCurve> = {}): ReliabilityCurve {
   return {
@@ -69,5 +76,28 @@ describe("ReliabilityDiagram", () => {
     render(<ReliabilityDiagram curve={makeCurve()} />);
     expect(screen.getByText(/2 quantile bins over 4 predictions/i)).toBeInTheDocument();
     expect(screen.getByText(/not a probability calibration/i)).toBeInTheDocument();
+  });
+
+  it("serializes the per-bin reliability data to CSV", () => {
+    const csv = reliabilityToCsv(makeCurve());
+    const lines = csv.split("\r\n");
+    expect(lines[0]).toBe("bin_index,n,predicted_mean,observed_mean,observed_sem");
+    expect(lines).toHaveLength(3); // header + 2 bins
+    expect(lines[1]).toBe("0,2,0.2,0.1,0");
+    expect(lines[2]).toBe("1,2,0.8,0.5,0.05");
+  });
+
+  it("exports the bin data as CSV and the figure as SVG", async () => {
+    vi.mocked(downloadBlob).mockClear();
+    render(<ReliabilityDiagram curve={makeCurve()} />);
+
+    await userEvent.click(screen.getByRole("button", { name: /^csv$/i }));
+    expect(vi.mocked(downloadBlob).mock.calls[0][0]).toBe("reliability_curve.csv");
+
+    await userEvent.click(screen.getByRole("button", { name: /^svg$/i }));
+    const [svgName, svgMime, svgData] = vi.mocked(downloadBlob).mock.calls[1];
+    expect(svgName).toBe("reliability_curve.svg");
+    expect(svgMime).toContain("image/svg+xml");
+    expect(String(svgData)).toContain("<svg");
   });
 });

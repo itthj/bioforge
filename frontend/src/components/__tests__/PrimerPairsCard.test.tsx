@@ -7,9 +7,16 @@
  */
 
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
-import { PrimerPairsCard } from "../PrimerPairsCard";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it, vi } from "vitest";
+import { PrimerPairsCard, primersToCsv } from "../PrimerPairsCard";
+import { downloadBlob } from "../../lib/download";
 import type { DesignPrimersOutput, PrimerPair } from "../../types/primers";
+
+vi.mock("../../lib/download", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../lib/download")>()),
+  downloadBlob: vi.fn(),
+}));
 
 function makePair(overrides: Partial<PrimerPair> = {}): PrimerPair {
   return {
@@ -95,6 +102,28 @@ describe("PrimerPairsCard", () => {
     render(<PrimerPairsCard output={makeOutput()} />);
     expect(screen.getByText(/^Caveats$/i)).toBeInTheDocument();
     expect(screen.getByText(/does not verify specificity/i)).toBeInTheDocument();
+  });
+
+  it("builds a primer CSV with one row per pair (1-based pair numbers, both strands)", () => {
+    const csv = primersToCsv(makeOutput());
+    const lines = csv.split("\r\n");
+    expect(lines[0]).toMatch(/^pair,product_size,pair_penalty,forward_sequence,/);
+    expect(lines).toHaveLength(2); // header + 1 pair
+    expect(lines[1]).toMatch(/^1,103,1\.234,GCAATTCCCAATGGCAAAGGT,60,47\.6/);
+    expect(lines[1]).toContain("ATTAAGCCACGTTCACCGGT");
+  });
+
+  it("exports the primer pairs as CSV when the export button is clicked", async () => {
+    vi.mocked(downloadBlob).mockClear();
+    render(<PrimerPairsCard output={makeOutput()} />);
+    await userEvent.click(screen.getByRole("button", { name: /export csv/i }));
+    expect(downloadBlob).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(downloadBlob).mock.calls[0][0]).toBe("primer_pairs.csv");
+  });
+
+  it("offers no CSV export when there are no pairs", () => {
+    render(<PrimerPairsCard output={makeOutput({ num_returned: 0, primer_pairs: [] })} />);
+    expect(screen.queryByRole("button", { name: /export csv/i })).not.toBeInTheDocument();
   });
 
   it("ranks pairs as #1, #2, etc.", () => {

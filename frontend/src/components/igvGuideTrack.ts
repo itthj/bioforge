@@ -9,7 +9,11 @@
 // strand of target_sequence. That is exactly igv.js's feature convention (BED-like:
 // 0-based start, exclusive end), so the fields pass straight through with no math.
 
-import type { CrisprEditReportOutput, RecommendationLabel } from "../types/crispr";
+import type {
+  CrisprEditReportOutput,
+  GuideReport,
+  RecommendationLabel,
+} from "../types/crispr";
 
 /** Single-contig name for the submitted-sequence "genome". Features reference this. */
 export const TARGET_CONTIG = "target";
@@ -97,6 +101,28 @@ export function buildGuideFeatures(
     }
   }
   return features;
+}
+
+/**
+ * igv.js `search()` locus string ("contig:start-end", 1-based inclusive) spanning a guide's
+ * protospacer through its PAM, with a little flanking context. Converts the backend's 0-based
+ * half-open coordinates (start inclusive, end exclusive) to igv's 1-based inclusive convention
+ * (lo = start + 1, hi = end), so navigating to it lands on exactly the rendered feature. Used to
+ * center the genome browser on a selected guide (linked selection).
+ */
+export function guideLocus(
+  guide: Pick<
+    GuideReport,
+    "protospacer_start" | "protospacer_end" | "pam_start" | "pam_end"
+  >,
+  contig: string = TARGET_CONTIG,
+  flank: number = 8,
+): string {
+  const start0 = Math.min(guide.protospacer_start, guide.pam_start);
+  const end0 = Math.max(guide.protospacer_end, guide.pam_end);
+  const lo = Math.max(1, start0 + 1 - flank);
+  const hi = end0 + flank;
+  return `${contig}:${lo}-${hi}`;
 }
 
 /** igv.js reference descriptor for an inline (non-indexed) single-contig FASTA. */
