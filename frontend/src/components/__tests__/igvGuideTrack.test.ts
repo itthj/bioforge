@@ -200,4 +200,12 @@ describe("buildIgvConfig", () => {
     expect((config.tracks[0].features as unknown[]).length).toBe(2);
     expect(config.locus).toBe(TARGET_CONTIG);
   });
+
+  it("suppresses igv's hosted default-genome registry (offline-safe; the view is its own reference)", () => {
+    // Without this, igv fetches its hosted genome list on startup — pointless here (we never
+    // offer a genome dropdown) and a real failure mode: offline it times out and the viewer
+    // renders nothing. The e2e smoke (e2e/genome-browser.spec.ts) guards the rendered result.
+    const config = buildIgvConfig(makeReport([makeGuide()]), "blob:fake-url");
+    expect(config.loadDefaultGenomes).toBe(false);
+  });
 });
