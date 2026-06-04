@@ -55,6 +55,38 @@ class AgentApproveRequest(BaseModel):
         max_length=2000,
         description="Optional user note recorded in the trace.",
     )
+    plan: dict | None = Field(
+        default=None,
+        description=(
+            "Optionally-edited plan to resume with (same shape as the proposed plan). "
+            "When provided on an approval, it REPLACES the originally-proposed plan as the "
+            "guidance fed to the executor. Note: the executor is a free-form tool-use loop "
+            "that treats the plan as guidance and may adapt it, so editing steers the run "
+            "rather than hard-constraining it. Omit to approve the plan as proposed."
+        ),
+    )
+
+
+def _resolve_resume_plan(
+    trace: Trace, body: AgentApproveRequest
+) -> tuple[Plan | None, tuple[int, str] | None]:
+    """Pick + validate the plan to resume an approved run with.
+
+    Prefers the user's edited plan (`body.plan`) when supplied, else the originally-proposed
+    plan persisted on the trace. Returns ``(plan, None)`` on success or ``(None, (status, detail))``
+    so each caller can map the failure to its own protocol (HTTP error vs SSE error event). An
+    invalid EDITED plan is a 400 (client error); a persisted plan that fails re-validation is a
+    500 (we stored something bad).
+    """
+    raw_plan = body.plan if body.plan is not None else trace.awaiting_approval_plan
+    if raw_plan is None:
+        return None, (500, "Trace was pending_approval but no plan was persisted; cannot resume.")
+    try:
+        return Plan.model_validate(raw_plan), None
+    except PydanticValidationError as e:
+        if body.plan is not None:
+            return None, (400, f"Edited plan is invalid: {e}")
+        return None, (500, f"Persisted plan failed re-validation: {e}")
 
 
 class AgentRunResponse(BaseModel):
@@ -261,6 +293,7 @@ async def agent_approve(
         "duration_ms": 0,
         "approved": body.approved,
         "error": body.reason if body.reason else None,
+        "plan_edited": bool(body.approved and body.plan is not None),
     }
 
     if not body.approved:
@@ -272,20 +305,14 @@ async def agent_approve(
         await session.flush()
         return _trace_to_response(trace)
 
-    # Approved — resume execution. Validate the persisted plan back into a typed Plan.
-    raw_plan = trace.awaiting_approval_plan
-    if raw_plan is None:
-        raise HTTPException(
-            status_code=500,
-            detail="Trace was pending_approval but no plan was persisted; cannot resume.",
-        )
-    try:
-        plan = Plan.model_validate(raw_plan)
-    except PydanticValidationError as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Persisted plan failed re-validation: {e}",
-        ) from e
+    # Approved — resume with the edited plan if supplied, else the proposed one.
+    plan, error = _resolve_resume_plan(trace, body)
+    if error is not None:
+        raise HTTPException(status_code=error[0], detail=error[1])
+    assert plan is not None  # error is None => plan is set
+    # Persist the approved (possibly edited) plan before resuming, so a failure mid-run leaves
+    # the trace reflecting exactly what the user signed off on.
+    trace.awaiting_approval_plan = plan.model_dump()
 
     step_idx_start = len(trace.steps) + 1  # +1 because we're about to append decision_step
 
@@ -341,6 +368,7 @@ async def _stream_agent_approve(
     trace_id: str,
     approved: bool,
     reason: str | None,
+    edited_plan: dict | None,
     session: AsyncSession,
     llm: LLM,
 ) -> AsyncIterator[str]:
@@ -364,6 +392,7 @@ async def _stream_agent_approve(
         "duration_ms": 0,
         "approved": approved,
         "error": reason if reason else None,
+        "plan_edited": bool(approved and edited_plan is not None),
     }
     yield format_event("step", decision_step_dict)
 
@@ -377,19 +406,16 @@ async def _stream_agent_approve(
         yield format_event("done", _done_payload_from_trace(trace))
         return
 
-    # Approved — resume execution streamed.
-    raw_plan = trace.awaiting_approval_plan
-    if raw_plan is None:
-        yield format_event(
-            "error",
-            {"message": "Trace was pending_approval but no plan was persisted."},
-        )
+    # Approved — resume with the edited plan if supplied, else the proposed one.
+    plan, error = _resolve_resume_plan(
+        trace, AgentApproveRequest(approved=True, reason=reason, plan=edited_plan)
+    )
+    if error is not None:
+        yield format_event("error", {"message": error[1]})
         return
-    try:
-        plan = Plan.model_validate(raw_plan)
-    except PydanticValidationError as e:
-        yield format_event("error", {"message": f"Persisted plan failed re-validation: {e}"})
-        return
+    assert plan is not None  # error is None => plan is set
+    # Persist the approved (possibly edited) plan before resuming (see the sync handler).
+    trace.awaiting_approval_plan = plan.model_dump()
 
     step_idx_start = len(trace.steps) + 1  # +1 for decision_step we just yielded
 
@@ -469,6 +495,7 @@ async def agent_approve_stream(
             trace_id=trace_id,
             approved=body.approved,
             reason=body.reason,
+            edited_plan=body.plan,
             session=session,
             llm=llm,
         ),
