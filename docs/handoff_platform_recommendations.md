@@ -7,21 +7,23 @@ Read this together with the authoritative `docs/handoff.md` (backend/grounding s
 > **START HERE (first actions, in order):**
 > 1. Read this doc + `docs/handoff.md`.
 > 2. `git status` / `git branch` — confirm state (below).
-> 3. **P1b is MERGED** (PR #5 → `main` @ `1d2eb98`). **P2a is BUILT** on
->    `feat/p2a-linked-export` (PR #6, open — merge gate is the user's).
-> 4. Once P2a merges, start **P2b** (edit the plan before approving) on a fresh `feat/*`
->    branch — see §5.
+> 3. **The platform deep-dive thread is COMPLETE on the buildable surface.** P0, P1a, P1b,
+>    P2a, and P2b are all MERGED to `main` (HEAD `866aa52`; P2a = PR #6, P2b = PR #7).
+> 4. The only remaining items are **P3** (both phase-sized / blocked): file-upload is BLOCKED
+>    on auth (do not build); the durable job model + Celery queue is a deliberate future phase
+>    (roadmap Phase 1) — design it as its own phase, not a quick slice. See §5.
 
 ---
 
 ## 1. Where things stand (git)
 
 - **Remote:** `https://github.com/itthj/bioforge.git` (owner `itthj`). Repo is **public**.
-- **`main`** is at the PR #5 merge (`P1b: stop button + recovery routing`), HEAD `1d2eb98`.
-- **`feat/p2a-linked-export`** — **P2a (linked selection + figure/data export), BUILT, PR #6 open,
-  awaiting the user's merge gate.** Two commits: `93fff35` (linked selection) + the export slice.
-- Merged already: PR #1 dark-console redesign, PR #2 showcase page, PR #3 methods-report
-  backend, PR #4 provenance links + run history + reproduce-in-code, PR #5 P1b stop/recovery.
+- **`main`** is at the PR #7 merge (`P2b: edit the plan before approving`), HEAD `866aa52`.
+- **No open PRs.** Merged main is green: backend P2b suite + ruff clean; frontend **170 vitest** +
+  `tsc --strict` + production build all green.
+- Merged: PR #1 dark-console redesign, PR #2 showcase page, PR #3 methods-report backend,
+  PR #4 provenance links + run history + reproduce-in-code, PR #5 P1b stop/recovery,
+  **PR #6 P2a linked selection + figure/data export, PR #7 P2b edit-the-plan-before-approving.**
 - **Live public showcase:** https://itthj.github.io/bioforge/showcase.html (served from the
   `gh-pages` branch; it's a static build of `frontend/showcase.html`, rebuild+force-push to update).
 - Untracked `docs/plan_edit_outcome_benchmark.md` is **pre-existing, not ours — leave it.**
@@ -33,8 +35,8 @@ Read this together with the authoritative `docs/handoff.md` (backend/grounding s
 | **P0** | Run history + permalink (browsable runs) | ✅ DONE, merged (PR #4) | see §4 |
 | **P1a** | Reproduce-in-code (runnable script from a run) | ✅ DONE, merged (PR #4) | see §4 |
 | **P1b** | Stop button + recovery routing | ✅ DONE, merged (PR #5) | see §4 |
-| **P2a** | Linked viewers + figure/data export | ✅ DONE, PR #6 open (merge gate = user) | see §4/§5 |
-| **P2b** | Edit the plan before approving | ⏳ TODO (next) | see §5 |
+| **P2a** | Linked viewers + figure/data export | ✅ DONE, merged (PR #6) | see §4/§5 |
+| **P2b** | Edit the plan before approving | ✅ DONE, merged (PR #7) | see §4/§5 |
 | **P3** | File/dataset upload + registry | ⛔ **BLOCKED on auth** — do NOT build yet | see §5 |
 | **P3** | Durable job model + queue (Celery) | ⏳ TODO, phase-sized (roadmap Phase 1) | see §5 |
 
@@ -166,17 +168,15 @@ showcase so the linked-selection + export UI is visible without the backend).
   Geneious/IGV set the bar here — scientists need figures/data out for papers.
 - Keep it on-token (accent links like the provenance footer). Add focused vitest per card.
 
-### P2b — Edit the plan before approving (Review mode)
-- Backend: `AgentApproveRequest` (in `api/agent.py`) currently has `approved` + `reason`. Add an
-  optional `plan: dict | None`; in `agent_approve` / `_stream_agent_approve`, if a (validated)
-  edited plan is supplied, persist it as `trace.awaiting_approval_plan` before calling
-  `resume_agent` (which already takes a `Plan`). Re-validate with `Plan.model_validate`.
-- Frontend: in `ApprovalCard.tsx`, make the plan steps editable (edit description / delete /
-  reorder) before Approve; thread the edited plan through `App.tsx` `handleApproval` →
-  `streamAgentApprove`.
-- **Honesty note:** the executor is a free-form tool-use loop (the plan is *context*, "you may
-  deviate"), so an edited plan changes guidance, not hard control. Represent this honestly in the
-  UI copy (don't imply the executor is constrained to the edited steps).
+### P2b — DONE (merged via PR #7).
+Backend: `AgentApproveRequest` gained an optional `plan`; `_resolve_resume_plan` prefers the edited
+plan, re-validates it (invalid edit -> 400, corrupt persisted plan -> 500), wired into both
+`agent_approve` + `_stream_agent_approve`; the `approval_decision` step records `plan_edited`.
+Frontend: `ApprovalCard.tsx` steps are editable (reword / reorder / delete) before Approve, `idx`
+renumbered to visible order, Approve disabled when empty, card keyed by `trace_id`; threaded through
+`App.handleApproval` -> `streamAgentApprove`. Honesty held: the copy states editing STEERS the
+free-form executor ("not a hard constraint on which tools run"); tests assert the edit is threaded
+to `resume_agent`, not that it constrains it.
 
 ### P3 — File/dataset upload + registry (BLOCKED — do not build yet)
 Needs auth. The storage layer exists (`backend/src/bioforge/storage/adapter.py`: Protocol +
@@ -200,5 +200,7 @@ infra-sized — design it as its own phase, not a quick slice.
 - **FAIR/RO-Crate** → already on the right standard (provenance work shipped); P0 added the
   Findable piece (stable, browsable, shareable run identity).
 
-The single highest-leverage move was P0 (runs first-class) — done. P2a (science viz first-class
-and exportable) is now done too. Next open item is P2b (edit the plan before approving).
+The single highest-leverage move was P0 (runs first-class) — done. P2a (science viz first-class and
+exportable) and P2b (edit-the-plan-before-approving) are now done and merged too. **Every buildable
+deep-dive recommendation (P0, P1a, P1b, P2a, P2b) is shipped on `main`.** What remains is P3 only:
+file-upload (BLOCKED on auth) and the durable job model + Celery queue (a deliberate future phase).
