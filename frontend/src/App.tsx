@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AccuracyReport } from "./components/AccuracyReport";
 import { ApprovalCard } from "./components/ApprovalCard";
 import { ChatInput } from "./components/ChatInput";
@@ -20,7 +20,13 @@ import type {
 } from "./types/agent";
 import type { TraceDetail } from "./types/traces";
 
-type RunState = "idle" | "running" | "done" | "pending_approval" | "error";
+type RunState =
+  | "idle"
+  | "running"
+  | "done"
+  | "pending_approval"
+  | "error"
+  | "cancelled";
 type Tab = "chat" | "history" | "memory" | "accuracy";
 
 const DEFAULT_PROJECT_ID = "default-project";
@@ -34,6 +40,11 @@ export function App() {
   const [done, setDone] = useState<AgentDoneEvent | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [runState, setRunState] = useState<RunState>("idle");
+
+  // Aborts the in-flight run (closes the SSE -> backend cancels the agent task).
+  const abortRef = useRef<AbortController | null>(null);
+  // Last submitted goal, so the user can Retry after an error or a Stop.
+  const [lastGoal, setLastGoal] = useState("");
 
   // History tab: the currently-opened past run (null = show the list), plus load errors.
   const [openedRun, setOpenedRun] = useState<TraceDetail | null>(null);
@@ -73,27 +84,53 @@ export function App() {
   }
 
   async function handleSubmit(goal: string) {
+    setLastGoal(goal);
+    const controller = new AbortController();
+    abortRef.current = controller;
     setSteps([]);
     setDone(null);
     setError(null);
     setRunState("running");
     try {
-      await consume(streamAgentRun({ goal, projectId, autonomy }));
+      await consume(streamAgentRun({ goal, projectId, autonomy }, controller.signal));
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : String(e));
-      setRunState("error");
+      if (controller.signal.aborted) {
+        setRunState("cancelled"); // user pressed Stop — partial trace stays visible
+      } else {
+        setError(e instanceof Error ? e.message : String(e));
+        setRunState("error");
+      }
+    } finally {
+      abortRef.current = null;
     }
   }
 
   async function handleApproval(approved: boolean) {
     if (!done?.trace_id) return;
+    const controller = new AbortController();
+    abortRef.current = controller;
     setRunState("running");
     try {
-      await consume(streamAgentApprove({ traceId: done.trace_id, approved }));
+      await consume(streamAgentApprove({ traceId: done.trace_id, approved }, controller.signal));
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : String(e));
-      setRunState("error");
+      if (controller.signal.aborted) {
+        setRunState("cancelled");
+      } else {
+        setError(e instanceof Error ? e.message : String(e));
+        setRunState("error");
+      }
+    } finally {
+      abortRef.current = null;
     }
+  }
+
+  function handleStop() {
+    // Closes the SSE; the backend cancels the in-flight agent task on disconnect.
+    abortRef.current?.abort();
+  }
+
+  function handleRetry() {
+    if (lastGoal) handleSubmit(lastGoal);
   }
 
   function reset() {
@@ -151,7 +188,26 @@ export function App() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {runState !== "idle" && tab === "chat" && (
+          {tab === "chat" && runState === "running" && (
+            <button
+              type="button"
+              onClick={handleStop}
+              className="rounded-md border border-danger bg-surface-2 px-3 py-1.5 text-xs font-medium text-danger shadow-sm transition-colors hover:bg-surface"
+            >
+              ■ Stop
+            </button>
+          )}
+          {tab === "chat" && (runState === "error" || runState === "cancelled") && (
+            <button
+              type="button"
+              onClick={handleRetry}
+              disabled={!lastGoal}
+              className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-accent-fg shadow-sm transition hover:opacity-90 disabled:opacity-50"
+            >
+              ↻ Retry
+            </button>
+          )}
+          {tab === "chat" && runState !== "idle" && runState !== "running" && (
             <button
               type="button"
               onClick={reset}
@@ -279,6 +335,13 @@ function ChatPanel({
       {error && (
         <div className="mt-4 rounded-md border border-danger bg-surface p-3 text-sm text-danger">
           {error}
+        </div>
+      )}
+
+      {runState === "cancelled" && (
+        <div className="mt-4 rounded-md border border-border bg-surface-2 p-3 text-sm text-fg-muted">
+          Run stopped. The partial trace below is what finished before you stopped it —
+          press <span className="font-medium text-fg">Retry</span> to run the goal again.
         </div>
       )}
 

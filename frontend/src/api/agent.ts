@@ -102,7 +102,10 @@ export interface AgentRunInput {
 
 export async function* streamAgentRun(
   input: AgentRunInput,
+  signal?: AbortSignal,
 ): AsyncGenerator<SseEvent, void, unknown> {
+  // `signal` lets the caller abort the run: aborting closes the SSE connection, which the
+  // backend detects as a client disconnect and cancels the in-flight agent task.
   const response = await fetch("/agent/run/stream", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -111,6 +114,7 @@ export async function* streamAgentRun(
       project_id: input.projectId ?? "default-project",
       autonomy: input.autonomy ?? "auto",
     }),
+    signal,
   });
   yield* streamSse(response);
 }
@@ -123,6 +127,7 @@ export interface ApprovalInput {
 
 export async function* streamAgentApprove(
   input: ApprovalInput,
+  signal?: AbortSignal,
 ): AsyncGenerator<SseEvent, void, unknown> {
   const response = await fetch(`/agent/${input.traceId}/approve/stream`, {
     method: "POST",
@@ -131,6 +136,7 @@ export async function* streamAgentApprove(
       approved: input.approved,
       reason: input.reason,
     }),
+    signal,
   });
   yield* streamSse(response);
 }

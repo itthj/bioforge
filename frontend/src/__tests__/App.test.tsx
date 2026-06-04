@@ -135,12 +135,16 @@ describe("App state machine", () => {
     // The "Completed" status badge is shown on the result card.
     expect(screen.getByText(/^Completed$/i)).toBeInTheDocument();
 
-    // streamAgentRun was called with the goal + default project_id + default autonomy.
-    expect(streamAgentRun).toHaveBeenCalledWith({
-      goal: "GC content of ATGC",
-      projectId: "default-project",
-      autonomy: "auto",
-    });
+    // streamAgentRun was called with the goal + default project_id + default autonomy
+    // (plus an AbortSignal so the run can be stopped).
+    expect(streamAgentRun).toHaveBeenCalledWith(
+      {
+        goal: "GC content of ATGC",
+        projectId: "default-project",
+        autonomy: "auto",
+      },
+      expect.anything(),
+    );
   });
 
   it("review autonomy: selecting 'Review plan' sends autonomy=review and surfaces the plan", async () => {
@@ -185,11 +189,14 @@ describe("App state machine", () => {
     );
     await user.click(screen.getByRole("button", { name: /^Send$/i }));
 
-    expect(streamAgentRun).toHaveBeenCalledWith({
-      goal: "GC of rev comp of ATGC",
-      projectId: "default-project",
-      autonomy: "review",
-    });
+    expect(streamAgentRun).toHaveBeenCalledWith(
+      {
+        goal: "GC of rev comp of ATGC",
+        projectId: "default-project",
+        autonomy: "review",
+      },
+      expect.anything(),
+    );
 
     // Even though no tool is expensive, the run paused for plan approval.
     await waitFor(() => expect(screen.getByText(/^Approval$/i)).toBeInTheDocument());
@@ -245,10 +252,10 @@ describe("App state machine", () => {
 
     // Click Approve — streamAgentApprove is called with the trace id
     await user.click(screen.getByRole("button", { name: /^Approve$/i }));
-    expect(streamAgentApprove).toHaveBeenCalledWith({
-      traceId: "trace_test",
-      approved: true,
-    });
+    expect(streamAgentApprove).toHaveBeenCalledWith(
+      { traceId: "trace_test", approved: true },
+      expect.anything(),
+    );
 
     // After resumption, the final response replaces the approval card
     await waitFor(() =>
@@ -285,5 +292,38 @@ describe("App state machine", () => {
     ) as HTMLTextAreaElement;
     expect(textarea.value).toBe("");
     expect(textarea).not.toBeDisabled();
+  });
+
+  it("recovery: after an error, Retry re-runs the same goal", async () => {
+    const { streamAgentRun } = await import("../api/agent");
+    vi.mocked(streamAgentRun)
+      .mockImplementationOnce(() => mockStream([{ event: "error", data: { message: "boom" } }]))
+      .mockImplementationOnce(() =>
+        mockStream([
+          { event: "step", data: makeStep(0, { type: "final" }) },
+          { event: "done", data: makeDone({ response_text: "recovered output" }) },
+        ]),
+      );
+
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.type(
+      screen.getByPlaceholderText(/What do you want BioForge to do/i),
+      "GC content of ATGC",
+    );
+    await user.click(screen.getByRole("button", { name: /^Send$/i }));
+
+    // Error is surfaced and a Retry control appears.
+    await waitFor(() => expect(screen.getByText(/boom/)).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: /Retry/i }));
+
+    // The same goal was re-run and the second attempt's result lands.
+    await waitFor(() => expect(screen.getByText(/recovered output/)).toBeInTheDocument());
+    expect(streamAgentRun).toHaveBeenCalledTimes(2);
+    expect(streamAgentRun).toHaveBeenLastCalledWith(
+      { goal: "GC content of ATGC", projectId: "default-project", autonomy: "auto" },
+      expect.anything(),
+    );
   });
 });
