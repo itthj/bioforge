@@ -300,3 +300,69 @@ async def test_sse_approve_stream_cancel_path(
     assert done2["status"] == "cancelled"
     # No LLM call burned to cancel.
     assert cancel_llm.calls == []
+
+
+async def test_sse_approve_stream_with_edited_plan(
+    streaming_client,
+    fake_llm_factory,
+    make_submit_plan_response,
+    multi_step_plan,
+    monkeypatch,
+) -> None:
+    """Approving with an EDITED plan: the edit reaches resume_agent intact and the approval
+    decision step is flagged plan_edited. (resume_agent is stubbed so the test stays hermetic;
+    the executor is a free-form loop, so we assert the edit is THREADED, not that it constrains.)"""
+    from bioforge.agent import AgentResult
+    from bioforge.api import agent as agent_api
+    from bioforge.main import app
+
+    plan_llm = fake_llm_factory([make_submit_plan_response(multi_step_plan([("blast", "Search NCBI nt.")]))])
+    app.dependency_overrides[get_llm] = lambda: plan_llm
+
+    # 1. Pause for approval on a BLAST plan.
+    raw1 = ""
+    async with streaming_client.stream(
+        "POST", "/agent/run/stream", json={"goal": "BLAST ATGCATGCATGCATGCATGC against nt"}
+    ) as response:
+        async for chunk in response.aiter_text():
+            raw1 += chunk
+    done1 = [d for n, d in _parse_sse_blocks(raw1) if n == "done"][0]
+    assert done1["status"] == "pending_approval"
+    trace_id = done1["trace_id"]
+
+    # 2. Stub resume_agent to capture the plan it receives, then approve with an EDITED plan.
+    captured: dict = {}
+
+    async def fake_resume(*, goal, plan, project_id, step_idx_start, llm, on_step=None, **kwargs):
+        captured["plan"] = plan
+        return AgentResult(
+            goal=goal, project_id=project_id, response_text="done (stubbed).", status="completed", steps=[]
+        )
+
+    monkeypatch.setattr(agent_api, "resume_agent", fake_resume)
+    app.dependency_overrides[get_llm] = lambda: fake_llm_factory([])
+
+    edited_plan = {
+        "is_trivial": False,
+        "summary": "Edited: BLAST only, reworded.",
+        "steps": [
+            {"idx": 0, "description": "Run BLAST (edited wording).", "expected_tool": "blast", "rationale": "homologs"}
+        ],
+    }
+    raw2 = ""
+    async with streaming_client.stream(
+        "POST", f"/agent/{trace_id}/approve/stream", json={"approved": True, "plan": edited_plan}
+    ) as response:
+        async for chunk in response.aiter_text():
+            raw2 += chunk
+
+    events2 = _parse_sse_blocks(raw2)
+    decision = next(
+        d for n, d in events2 if n == "step" and isinstance(d, dict) and d.get("type") == "approval_decision"
+    )
+    assert decision["plan_edited"] is True
+    done2 = [d for n, d in events2 if n == "done"][0]
+    assert done2["status"] == "completed"
+    # The edited plan reached the executor entrypoint exactly as the user shaped it.
+    assert captured["plan"].summary == "Edited: BLAST only, reworded."
+    assert captured["plan"].steps[0].description == "Run BLAST (edited wording)."

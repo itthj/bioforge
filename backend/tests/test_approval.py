@@ -294,6 +294,67 @@ def test_force_review_still_false_for_empty_plan() -> None:
     assert requires_approval(plan, REGISTRY, force_review=True).required is False
 
 
+# --- Edit-the-plan-before-approving: _resolve_resume_plan (P2b) ------------------------
+
+_ORIGINAL_PLAN_DICT = {
+    "is_trivial": False,
+    "summary": "original plan",
+    "steps": [{"idx": 0, "description": "BLAST the query.", "expected_tool": "blast", "rationale": "r"}],
+}
+
+
+def _trace_with_plan(plan_dict: dict | None) -> SimpleNamespace:
+    """A stand-in Trace carrying just the field _resolve_resume_plan reads."""
+    return SimpleNamespace(awaiting_approval_plan=plan_dict)
+
+
+def test_resolve_resume_plan_uses_original_when_no_edit() -> None:
+    from bioforge.api.agent import AgentApproveRequest, _resolve_resume_plan
+
+    plan, error = _resolve_resume_plan(
+        _trace_with_plan(_ORIGINAL_PLAN_DICT), AgentApproveRequest(approved=True)
+    )
+    assert error is None
+    assert plan is not None and plan.summary == "original plan"
+
+
+def test_resolve_resume_plan_prefers_the_edited_plan() -> None:
+    from bioforge.api.agent import AgentApproveRequest, _resolve_resume_plan
+
+    edited = {
+        "is_trivial": False,
+        "summary": "edited plan",
+        "steps": [{"idx": 0, "description": "EDITED step.", "expected_tool": "blast", "rationale": "r"}],
+    }
+    plan, error = _resolve_resume_plan(
+        _trace_with_plan(_ORIGINAL_PLAN_DICT), AgentApproveRequest(approved=True, plan=edited)
+    )
+    assert error is None
+    assert plan is not None
+    assert plan.summary == "edited plan"
+    assert plan.steps[0].description == "EDITED step."
+
+
+def test_resolve_resume_plan_rejects_invalid_edited_plan_as_400() -> None:
+    """A malformed EDITED plan is a client error (400), never silently ignored."""
+    from bioforge.api.agent import AgentApproveRequest, _resolve_resume_plan
+
+    bad = {"is_trivial": False, "summary": "x", "steps": "not-a-list"}
+    plan, error = _resolve_resume_plan(
+        _trace_with_plan(_ORIGINAL_PLAN_DICT), AgentApproveRequest(approved=True, plan=bad)
+    )
+    assert plan is None
+    assert error is not None and error[0] == 400
+
+
+def test_resolve_resume_plan_missing_persisted_plan_is_500() -> None:
+    from bioforge.api.agent import AgentApproveRequest, _resolve_resume_plan
+
+    plan, error = _resolve_resume_plan(_trace_with_plan(None), AgentApproveRequest(approved=True))
+    assert plan is None
+    assert error is not None and error[0] == 500
+
+
 async def test_run_agent_review_mode_pauses_on_cheap_plan(
     fake_llm_factory, make_submit_plan_response, multi_step_plan
 ) -> None:

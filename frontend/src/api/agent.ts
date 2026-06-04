@@ -8,7 +8,7 @@
 //   for await (const ev of streamAgentRun({ goal, projectId })) { ... }
 // The async generator yields strongly-typed SseEvent values.
 
-import type { Autonomy, SseEvent } from "../types/agent";
+import type { Autonomy, PlanPayload, SseEvent } from "../types/agent";
 
 const SSE_BLOCK_DELIMITER = "\n\n";
 
@@ -123,6 +123,8 @@ export interface ApprovalInput {
   traceId: string;
   approved: boolean;
   reason?: string;
+  /** Optionally-edited plan to resume with. Omitted => approve the plan as proposed. */
+  plan?: PlanPayload;
 }
 
 export async function* streamAgentApprove(
@@ -135,6 +137,7 @@ export async function* streamAgentApprove(
     body: JSON.stringify({
       approved: input.approved,
       reason: input.reason,
+      plan: input.plan,
     }),
     signal,
   });

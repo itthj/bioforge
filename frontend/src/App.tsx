@@ -15,6 +15,7 @@ import type {
   AgentDoneEvent,
   AgentStep,
   Autonomy,
+  PlanPayload,
   SseEvent,
   ValidationVerdict,
 } from "./types/agent";
@@ -105,13 +106,18 @@ export function App() {
     }
   }
 
-  async function handleApproval(approved: boolean) {
+  async function handleApproval(approved: boolean, editedPlan?: PlanPayload) {
     if (!done?.trace_id) return;
     const controller = new AbortController();
     abortRef.current = controller;
     setRunState("running");
     try {
-      await consume(streamAgentApprove({ traceId: done.trace_id, approved }, controller.signal));
+      await consume(
+        streamAgentApprove(
+          { traceId: done.trace_id, approved, plan: editedPlan },
+          controller.signal,
+        ),
+      );
     } catch (e: unknown) {
       if (controller.signal.aborted) {
         setRunState("cancelled");
@@ -314,7 +320,7 @@ function ChatPanel({
   autonomy: Autonomy;
   onAutonomyChange: (a: Autonomy) => void;
   onSubmit: (goal: string) => void;
-  onApproval: (approved: boolean) => void;
+  onApproval: (approved: boolean, editedPlan?: PlanPayload) => void;
 }) {
   // The grounding verdict (with per-claim offsets + provenance) rides on the validation
   // step; FinalCard uses it to highlight grounded/flagged values inline.
@@ -361,6 +367,7 @@ function ChatPanel({
           </h2>
           {done.status === "pending_approval" ? (
             <ApprovalCard
+              key={done.trace_id}
               done={done}
               onDecision={onApproval}
               disabled={runState === "running"}
