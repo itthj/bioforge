@@ -25,7 +25,9 @@ Read this together with the authoritative `docs/handoff.md` (backend/grounding s
   PR #4 provenance links + run history + reproduce-in-code, PR #5 P1b stop/recovery,
   **PR #6 P2a linked selection + figure/data export, PR #7 P2b edit-the-plan-before-approving.**
 - **Live public showcase:** https://itthj.github.io/bioforge/showcase.html (served from the
-  `gh-pages` branch; it's a static build of `frontend/showcase.html`, rebuild+force-push to update).
+  `gh-pages` branch; a static build of `frontend/showcase.html`). **Auto-deployed** by
+  `.github/workflows/deploy-showcase.yml` on every push to `main` that touches `frontend/` (and
+  on-demand via that workflow's `workflow_dispatch`) — no manual rebuild/force-push needed.
 - Untracked `docs/plan_edit_outcome_benchmark.md` is **pre-existing, not ours — leave it.**
 
 ## 2. The recommendations and their status

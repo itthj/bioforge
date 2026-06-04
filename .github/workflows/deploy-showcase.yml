@@ -1,0 +1,62 @@
+name: deploy-showcase
+
+# Auto-build and publish the standalone /showcase.html demo to the gh-pages branch
+# (served at https://itthj.github.io/bioforge/showcase.html) on every push to main that
+# touches the frontend. Replaces the manual "rebuild + force-push gh-pages" step.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "frontend/**"
+      - ".github/workflows/deploy-showcase.yml"
+  workflow_dispatch: {}
+
+# Only one deploy at a time; a newer push supersedes an in-flight older one.
+concurrency:
+  group: deploy-showcase
+  cancel-in-progress: true
+
+permissions:
+  contents: write # push the built static site to the gh-pages branch
+
+jobs:
+  deploy:
+    name: build + publish showcase
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build (GitHub Pages base path)
+        # The project Pages site is served from /bioforge/, so assets must use that base.
+        run: npx vite build --base=/bioforge/
+
+      - name: Publish dist/ to gh-pages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd dist
+          touch .nojekyll   # serve /assets + any _-prefixed files (skip Jekyll processing)
+          git init -q -b gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -qm "deploy: showcase ${GITHUB_SHA}"
+          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" gh-pages:gh-pages
