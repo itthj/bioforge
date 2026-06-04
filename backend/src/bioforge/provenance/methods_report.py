@@ -319,13 +319,10 @@ def render_methods_report(manifest: RunManifest, result: AgentResult | None = No
         )
     elif manifest.grounding.get("enforced") is False:
         limitations.append(
-            "Grounding validation ran in shadow mode (not enforced); flagged claims were not removed "
-            "from the result."
+            "Grounding validation ran in shadow mode (not enforced); flagged claims were not removed from the result."
         )
     if not manifest.tools:
-        limitations.append(
-            "No analysis tools were invoked, so the result has no tool-level computational provenance."
-        )
+        limitations.append("No analysis tools were invoked, so the result has no tool-level computational provenance.")
     limitations.append(
         "Point estimates produced by predictive models are reported without per-prediction "
         "uncertainty intervals unless a tool explicitly emits them."
