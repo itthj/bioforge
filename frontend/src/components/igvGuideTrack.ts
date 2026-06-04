@@ -149,6 +149,7 @@ export function buildIgvConfig(
   locus: string;
   showChromosomeWidget: boolean;
   showCenterGuide: boolean;
+  loadDefaultGenomes: boolean;
 } {
   return {
     reference: {
@@ -170,5 +171,10 @@ export function buildIgvConfig(
     locus: contig,
     showChromosomeWidget: false,
     showCenterGuide: false,
+    // The view uses the submitted sequence as its OWN reference and never offers a genome
+    // dropdown, so suppress igv's startup fetch of its hosted default-genome registry. That
+    // network call is pointless here and (when it times out, e.g. offline) leaves the viewer
+    // empty — this keeps the guide view fully self-contained and offline-safe.
+    loadDefaultGenomes: false,
   };
 }
