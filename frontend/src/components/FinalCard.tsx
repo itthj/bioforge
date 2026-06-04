@@ -104,6 +104,17 @@ export function FinalCard({ done, grounding }: FinalCardProps) {
             Provenance
           </span>
           <a
+            href={`/traces/${done.trace_id}/script`}
+            download
+            className="text-accent hover:underline"
+            title="Runnable Python script that re-executes this run's deterministic tool pipeline"
+          >
+            Reproduce (.py)
+          </a>
+          <span className="text-fg-subtle" aria-hidden>
+            ·
+          </span>
+          <a
             href={`/traces/${done.trace_id}/report`}
             download
             className="text-accent hover:underline"

@@ -1,12 +1,15 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AccuracyReport } from "./components/AccuracyReport";
 import { ApprovalCard } from "./components/ApprovalCard";
 import { ChatInput } from "./components/ChatInput";
 import { FinalCard } from "./components/FinalCard";
 import { MemoryInspector } from "./components/MemoryInspector";
 import { ProjectSwitcher } from "./components/ProjectSwitcher";
+import { RunDetail } from "./components/RunDetail";
+import { RunHistory } from "./components/RunHistory";
 import { TraceView } from "./components/TraceView";
 import { streamAgentApprove, streamAgentRun } from "./api/agent";
+import { getTrace } from "./api/traces";
 import { cn } from "./lib/cn";
 import type {
   AgentDoneEvent,
@@ -15,9 +18,10 @@ import type {
   SseEvent,
   ValidationVerdict,
 } from "./types/agent";
+import type { TraceDetail } from "./types/traces";
 
 type RunState = "idle" | "running" | "done" | "pending_approval" | "error";
-type Tab = "chat" | "memory" | "accuracy";
+type Tab = "chat" | "history" | "memory" | "accuracy";
 
 const DEFAULT_PROJECT_ID = "default-project";
 
@@ -30,6 +34,20 @@ export function App() {
   const [done, setDone] = useState<AgentDoneEvent | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [runState, setRunState] = useState<RunState>("idle");
+
+  // History tab: the currently-opened past run (null = show the list), plus load errors.
+  const [openedRun, setOpenedRun] = useState<TraceDetail | null>(null);
+  const [runError, setRunError] = useState<string | null>(null);
+
+  // Deep-link: ?run=<trace_id> opens that run on load (shareable permalink).
+  useEffect(() => {
+    const runId = new URLSearchParams(window.location.search).get("run");
+    if (!runId) return;
+    setTab("history");
+    getTrace(runId)
+      .then(setOpenedRun)
+      .catch((e) => setRunError(e instanceof Error ? e.message : String(e)));
+  }, []);
 
   async function consume(generator: AsyncGenerator<SseEvent>) {
     for await (const ev of generator) {
@@ -91,6 +109,28 @@ export function App() {
     // Switching projects clears the current run — its trace lives under the previous
     // project and the new one has its own context the planner will read.
     reset();
+    setOpenedRun(null); // the opened run belongs to the previous project's history
+  }
+
+  function handleOpenRun(traceId: string) {
+    setRunError(null);
+    setTab("history");
+    getTrace(traceId)
+      .then((t) => {
+        setOpenedRun(t);
+        const url = new URL(window.location.href);
+        url.searchParams.set("run", traceId);
+        window.history.pushState({}, "", url);
+      })
+      .catch((e) => setRunError(e instanceof Error ? e.message : String(e)));
+  }
+
+  function handleBackToRuns() {
+    setOpenedRun(null);
+    setRunError(null);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("run");
+    window.history.pushState({}, "", url);
   }
 
   const inputDisabled = runState === "running" || runState === "pending_approval";
@@ -132,6 +172,9 @@ export function App() {
         <TabButton active={tab === "chat"} onClick={() => setTab("chat")}>
           Chat
         </TabButton>
+        <TabButton active={tab === "history"} onClick={() => setTab("history")}>
+          History
+        </TabButton>
         <TabButton active={tab === "memory"} onClick={() => setTab("memory")}>
           Memory
         </TabButton>
@@ -153,6 +196,19 @@ export function App() {
           onApproval={handleApproval}
         />
       )}
+      {tab === "history" &&
+        (openedRun ? (
+          <RunDetail trace={openedRun} onBack={handleBackToRuns} />
+        ) : (
+          <>
+            {runError && (
+              <div className="mb-3 rounded-md border border-danger bg-surface p-3 text-sm text-danger">
+                {runError}
+              </div>
+            )}
+            <RunHistory projectId={projectId} onOpen={handleOpenRun} />
+          </>
+        ))}
       {tab === "memory" && <MemoryInspector projectId={projectId} />}
       {tab === "accuracy" && <AccuracyReport />}
     </div>

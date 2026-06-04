@@ -31,6 +31,10 @@ describe("FinalCard", () => {
   it("surfaces provenance export links pointing at the trace endpoints", () => {
     render(<FinalCard done={done({ trace_id: "trace_xyz" })} />);
 
+    const reproduce = screen.getByRole("link", { name: /Reproduce/i });
+    expect(reproduce).toHaveAttribute("href", "/traces/trace_xyz/script");
+    expect(reproduce).toHaveAttribute("download");
+
     const report = screen.getByRole("link", { name: /Methods report/i });
     expect(report).toHaveAttribute("href", "/traces/trace_xyz/report");
     expect(report).toHaveAttribute("download");
