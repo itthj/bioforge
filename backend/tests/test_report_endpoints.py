@@ -109,7 +109,21 @@ async def test_report_endpoint_is_markdown_methods_record(streaming_client, _see
     assert "top BLAST hit is Homo sapiens" in md
 
 
+async def test_script_endpoint_is_runnable_python(streaming_client, _seed_trace) -> None:
+    resp = await streaming_client.get(f"/traces/{_TRACE_ID}/script")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/x-python")
+    assert "attachment; filename=" in resp.headers["content-disposition"]
+    body = resp.text
+    assert "import asyncio" in body
+    assert "from bioforge.tools.registry import execute_tool" in body
+    # The two recorded tool calls are reproduced, in order.
+    assert "execute_tool('gc_content'" in body
+    assert "execute_tool('blast'" in body
+    assert body.index("gc_content") < body.index("blast")
+
+
 async def test_missing_trace_is_404(streaming_client) -> None:
-    for suffix in ("manifest", "ro-crate", "report"):
+    for suffix in ("manifest", "ro-crate", "report", "script"):
         resp = await streaming_client.get(f"/traces/does-not-exist/{suffix}")
         assert resp.status_code == 404

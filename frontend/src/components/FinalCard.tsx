@@ -95,8 +95,57 @@ export function FinalCard({ done, grounding }: FinalCardProps) {
         </div>
       )}
 
-      <div className="mt-3 font-mono text-[11px] text-fg-subtle">
-        trace_id: {done.trace_id} · model: {done.model}
+      <div className="mt-3 border-t border-border pt-3">
+        <div className="font-mono text-[11px] text-fg-subtle">
+          trace_id: {done.trace_id} · model: {done.model}
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
+          <span className="font-semibold uppercase tracking-wider text-fg-subtle">
+            Provenance
+          </span>
+          <a
+            href={`/traces/${done.trace_id}/script`}
+            download
+            className="text-accent hover:underline"
+            title="Runnable Python script that re-executes this run's deterministic tool pipeline"
+          >
+            Reproduce (.py)
+          </a>
+          <span className="text-fg-subtle" aria-hidden>
+            ·
+          </span>
+          <a
+            href={`/traces/${done.trace_id}/report`}
+            download
+            className="text-accent hover:underline"
+            title="Publication-grade Markdown methods & reproducibility record"
+          >
+            Methods report (.md)
+          </a>
+          <span className="text-fg-subtle" aria-hidden>
+            ·
+          </span>
+          <a
+            href={`/traces/${done.trace_id}/ro-crate`}
+            download
+            className="text-accent hover:underline"
+            title="RO-Crate 1.1 research object (JSON-LD)"
+          >
+            RO-Crate (.json)
+          </a>
+          <span className="text-fg-subtle" aria-hidden>
+            ·
+          </span>
+          <a
+            href={`/traces/${done.trace_id}/manifest`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-accent hover:underline"
+            title="Content-addressed run manifest (JSON)"
+          >
+            Manifest (JSON)
+          </a>
+        </div>
       </div>
     </Card>
   );

@@ -6,7 +6,7 @@ from dataclasses import asdict, fields
 from datetime import UTC, datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from pydantic import ValidationError as PydanticValidationError
@@ -20,7 +20,12 @@ from bioforge.api.sse import format_event, format_keepalive
 from bioforge.constants import DEFAULT_PROJECT_ID
 from bioforge.db.engine import get_session
 from bioforge.db.models import Trace
-from bioforge.provenance import build_run_manifest, render_methods_report, to_ro_crate
+from bioforge.provenance import (
+    build_run_manifest,
+    render_methods_report,
+    render_reproduce_script,
+    to_ro_crate,
+)
 
 router = APIRouter()
 
@@ -560,3 +565,64 @@ async def get_trace_report(trace_id: str, session: AsyncSession = Depends(get_se
         media_type="text/markdown; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="bioforge-methods-{trace_id}.md"'},
     )
+
+
+@router.get("/traces/{trace_id}/script", response_class=PlainTextResponse)
+async def get_trace_script(trace_id: str, session: AsyncSession = Depends(get_session)) -> PlainTextResponse:
+    """Runnable Python script that re-executes the run's deterministic tool pipeline."""
+    trace = await _load_trace_or_404(trace_id, session)
+    script = render_reproduce_script(_result_from_trace(trace))
+    return PlainTextResponse(
+        content=script,
+        media_type="text/x-python; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="bioforge-reproduce-{trace_id}.py"'},
+    )
+
+
+# --- Run history (P0) ----------------------------------------------------------------
+
+
+class TraceSummary(BaseModel):
+    trace_id: str
+    project_id: str
+    goal: str
+    status: str
+    model: str
+    cost_usd: float
+    response_preview: str = Field(description="First ~140 chars of the answer, for the history list.")
+    created_at: str
+    completed_at: str
+
+
+def _to_trace_summary(t: Trace) -> TraceSummary:
+    preview = (t.response_text or "").strip().replace("\n", " ")
+    if len(preview) > 140:
+        preview = preview[:140].rstrip() + "…"
+    return TraceSummary(
+        trace_id=t.id,
+        project_id=t.project_id,
+        goal=t.goal,
+        status=t.status,
+        model=t.model,
+        cost_usd=t.cost_usd,
+        response_preview=preview,
+        created_at=t.created_at.isoformat(),
+        completed_at=t.completed_at.isoformat(),
+    )
+
+
+@router.get("/projects/{project_id}/traces", response_model=list[TraceSummary])
+async def list_project_traces(
+    project_id: str,
+    session: AsyncSession = Depends(get_session),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    q: str | None = Query(default=None, max_length=200, description="Case-insensitive substring match on the goal."),
+) -> list[TraceSummary]:
+    """List a project's runs, newest first — the run-history feed. Read-only; paginated."""
+    stmt = select(Trace).where(Trace.project_id == project_id)
+    if q:
+        stmt = stmt.where(Trace.goal.ilike(f"%{q}%"))
+    stmt = stmt.order_by(Trace.created_at.desc()).limit(limit).offset(offset)
+    rows = (await session.execute(stmt)).scalars().all()
+    return [_to_trace_summary(t) for t in rows]
