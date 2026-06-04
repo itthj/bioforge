@@ -7,6 +7,7 @@
  */
 
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { CrisprReportCard } from "../CrisprReportCard";
 import type { CrisprEditReportOutput, GuideReport } from "../../types/crispr";
@@ -136,5 +137,29 @@ describe("CrisprReportCard", () => {
     expect(
       screen.getByText(/Probabilities are literature averages/i),
     ).toBeInTheDocument();
+  });
+
+  it("toggles a guide's selected (pressed) state when its row is clicked", async () => {
+    render(<CrisprReportCard report={makeReport()} />);
+    const guideButtons = () => screen.getAllByTitle(/center this guide/i);
+
+    expect(guideButtons().length).toBeGreaterThanOrEqual(1);
+    // Nothing is selected on first render.
+    expect(
+      guideButtons().every((b) => b.getAttribute("aria-pressed") === "false"),
+    ).toBe(true);
+
+    await userEvent.click(guideButtons()[0]);
+    // The clicked guide is now pressed (rank 1 appears in both the recommended card and the
+    // candidate list, so both instances reflect the selection).
+    expect(
+      guideButtons().some((b) => b.getAttribute("aria-pressed") === "true"),
+    ).toBe(true);
+
+    // Clicking it again clears the selection (toggle).
+    await userEvent.click(guideButtons()[0]);
+    expect(
+      guideButtons().every((b) => b.getAttribute("aria-pressed") === "false"),
+    ).toBe(true);
   });
 });

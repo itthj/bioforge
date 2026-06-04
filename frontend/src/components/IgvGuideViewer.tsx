@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import type { CrisprEditReportOutput } from "../types/crispr";
-import { buildIgvConfig, buildTargetFasta } from "./igvGuideTrack";
+import { buildIgvConfig, buildTargetFasta, guideLocus } from "./igvGuideTrack";
 
 interface IgvGuideViewerProps {
   report: CrisprEditReportOutput;
+  /** Rank of the guide the card has selected; centers it in the browser when loaded. */
+  selectedGuideId?: number | null;
 }
 
 type ViewerState = "idle" | "loading" | "ready" | "error" | "missing-sequence";
@@ -21,7 +23,7 @@ type ViewerState = "idle" | "loading" | "ready" | "error" | "missing-sequence";
  * bundle stays small and still works if igv isn't installed (the catch path renders an
  * install hint). Same posture as MolstarViewer.
  */
-export function IgvGuideViewer({ report }: IgvGuideViewerProps) {
+export function IgvGuideViewer({ report, selectedGuideId }: IgvGuideViewerProps) {
   const sequence = report.target_sequence ?? "";
   const containerRef = useRef<HTMLDivElement | null>(null);
   const browserRef = useRef<unknown>(null);
@@ -55,6 +57,24 @@ export function IgvGuideViewer({ report }: IgvGuideViewerProps) {
       }
     };
   }, []);
+
+  // Linked selection: when the card selects a guide (and the browser is loaded), center it.
+  // Navigation is a convenience layered on top of the already-rendered features, so any
+  // failure here must never break the view — hence the guarded, best-effort call.
+  useEffect(() => {
+    if (state !== "ready" || selectedGuideId == null) return;
+    const guide = report.guides.find((g) => g.rank === selectedGuideId);
+    if (!guide) return;
+    const browser = browserRef.current as {
+      search?: (locus: string) => unknown;
+    } | null;
+    if (!browser || typeof browser.search !== "function") return;
+    try {
+      browser.search(guideLocus(guide));
+    } catch {
+      // A navigation failure is non-fatal; the features remain visible.
+    }
+  }, [selectedGuideId, state, report.guides]);
 
   async function handleLoad() {
     if (!sequence || !containerRef.current) return;

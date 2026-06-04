@@ -11,6 +11,7 @@ import {
   buildGuideFeatures,
   buildIgvConfig,
   buildTargetFasta,
+  guideLocus,
 } from "../igvGuideTrack";
 import type { CrisprEditReportOutput, GuideReport } from "../../types/crispr";
 
@@ -148,6 +149,40 @@ describe("buildGuideFeatures", () => {
     );
     expect(features.filter((f) => f.name.startsWith("g1 "))).toHaveLength(2);
     expect(features.filter((f) => f.name.startsWith("g2 "))).toHaveLength(2);
+  });
+});
+
+describe("guideLocus", () => {
+  it("converts 0-based half-open coords to a 1-based inclusive igv locus, with flank", () => {
+    // protospacer [10,30), PAM [30,33) -> span [10,33) -> 1-based [11,33], padded by flank.
+    expect(guideLocus(makeGuide(), TARGET_CONTIG, 0)).toBe("target:11-33");
+    expect(guideLocus(makeGuide(), TARGET_CONTIG, 8)).toBe("target:3-41");
+  });
+
+  it("spans protospacer through PAM regardless of strand (uses min start / max end)", () => {
+    // A '-' guide: PAM sits 5' of the protospacer, so min/max still bracket the whole guide.
+    const minus = makeGuide({
+      strand: "-",
+      protospacer_start: 23,
+      protospacer_end: 43,
+      pam_start: 20,
+      pam_end: 23,
+    });
+    expect(guideLocus(minus, TARGET_CONTIG, 0)).toBe("target:21-43");
+  });
+
+  it("clamps the lower bound to 1 (igv loci are 1-based, never 0 or negative)", () => {
+    const atStart = makeGuide({
+      protospacer_start: 0,
+      protospacer_end: 20,
+      pam_start: 20,
+      pam_end: 23,
+    });
+    expect(guideLocus(atStart, TARGET_CONTIG, 8)).toBe("target:1-31");
+  });
+
+  it("honors a custom contig name", () => {
+    expect(guideLocus(makeGuide(), "locus1", 0).startsWith("locus1:")).toBe(true);
   });
 });
 

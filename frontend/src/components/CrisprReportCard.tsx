@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type {
   CrisprEditReportOutput,
   GuideReport,
@@ -18,6 +19,13 @@ const LABEL_STYLES: Record<RecommendationLabel, string> = {
 };
 
 export function CrisprReportCard({ report }: CrisprReportCardProps) {
+  // Linked selection: clicking a guide row selects it (toggle), highlights every instance of
+  // that guide, and centers it in the embedded genome browser. Keyed by the guide's rank,
+  // which is unique within a report.
+  const [selectedGuideId, setSelectedGuideId] = useState<number | null>(null);
+  const toggleSelected = (rank: number) =>
+    setSelectedGuideId((cur) => (cur === rank ? null : rank));
+
   return (
     <div className="space-y-3 rounded-md border border-border bg-surface p-3 shadow-sm">
       <header className="flex flex-wrap items-baseline justify-between gap-2">
@@ -34,11 +42,15 @@ export function CrisprReportCard({ report }: CrisprReportCardProps) {
       </header>
 
       {report.guides.length > 0 && report.target_sequence && (
-        <IgvGuideViewer report={report} />
+        <IgvGuideViewer report={report} selectedGuideId={selectedGuideId} />
       )}
 
       {report.recommended_guide ? (
-        <RecommendedGuide guide={report.recommended_guide} />
+        <RecommendedGuide
+          guide={report.recommended_guide}
+          selected={selectedGuideId === report.recommended_guide.rank}
+          onSelect={() => toggleSelected(report.recommended_guide!.rank)}
+        />
       ) : (
         <div className="rounded-md border border-dashed border-border bg-bg p-3 text-xs text-fg-muted">
           No guide met the recommendation criteria. See per-guide rationales below.
@@ -53,7 +65,12 @@ export function CrisprReportCard({ report }: CrisprReportCardProps) {
           <ol className="mt-2 space-y-2">
             {report.guides.map((guide) => (
               <li key={`${guide.rank}-${guide.protospacer}`}>
-                <GuideRow guide={guide} dense />
+                <GuideRow
+                  guide={guide}
+                  dense
+                  selected={selectedGuideId === guide.rank}
+                  onSelect={() => toggleSelected(guide.rank)}
+                />
               </li>
             ))}
           </ol>
@@ -74,22 +91,52 @@ export function CrisprReportCard({ report }: CrisprReportCardProps) {
   );
 }
 
-function RecommendedGuide({ guide }: { guide: GuideReport }) {
+function RecommendedGuide({
+  guide,
+  selected,
+  onSelect,
+}: {
+  guide: GuideReport;
+  selected: boolean;
+  onSelect: () => void;
+}) {
   return (
     <div className="rounded-md border-2 border-border bg-surface-2/60 p-3">
       <div className="mb-2 flex items-center gap-2 text-xs">
         <span className="font-semibold text-success">Recommended</span>
         <span className="text-fg-subtle">rank #{guide.rank}</span>
       </div>
-      <GuideRow guide={guide} />
+      <GuideRow guide={guide} selected={selected} onSelect={onSelect} />
     </div>
   );
 }
 
-function GuideRow({ guide, dense = false }: { guide: GuideReport; dense?: boolean }) {
+function GuideRow({
+  guide,
+  dense = false,
+  selected = false,
+  onSelect,
+}: {
+  guide: GuideReport;
+  dense?: boolean;
+  selected?: boolean;
+  onSelect?: () => void;
+}) {
   return (
-    <div className={`${dense ? "" : "space-y-2"} rounded ${dense ? "border border-border bg-surface p-2" : ""}`}>
-      <div className="flex flex-wrap items-center gap-2 text-xs">
+    <div
+      className={`${dense ? "" : "space-y-2"} rounded ${dense ? "border bg-surface p-2" : ""} ${
+        dense && selected ? "border-accent" : dense ? "border-border" : ""
+      }`}
+    >
+      <button
+        type="button"
+        onClick={onSelect}
+        aria-pressed={selected}
+        title="Center this guide in the genome browser"
+        className={`-m-1 flex w-full flex-wrap items-center gap-2 rounded p-1 text-left text-xs transition-colors hover:bg-surface-2 ${
+          selected ? "bg-surface-2 ring-1 ring-accent" : ""
+        }`}
+      >
         <span className="font-mono font-semibold text-fg">
           {guide.protospacer}
         </span>
@@ -104,7 +151,7 @@ function GuideRow({ guide, dense = false }: { guide: GuideReport; dense?: boolea
         <span className="font-mono text-[11px] text-fg-subtle">
           strand {guide.strand} · pos {guide.protospacer_start}-{guide.protospacer_end}
         </span>
-      </div>
+      </button>
 
       <div className="grid grid-cols-3 gap-2 text-[11px]">
         <Metric label="recommendation" value={guide.recommendation_score.toFixed(3)} />
