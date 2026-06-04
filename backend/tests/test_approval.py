@@ -311,9 +311,7 @@ def _trace_with_plan(plan_dict: dict | None) -> SimpleNamespace:
 def test_resolve_resume_plan_uses_original_when_no_edit() -> None:
     from bioforge.api.agent import AgentApproveRequest, _resolve_resume_plan
 
-    plan, error = _resolve_resume_plan(
-        _trace_with_plan(_ORIGINAL_PLAN_DICT), AgentApproveRequest(approved=True)
-    )
+    plan, error = _resolve_resume_plan(_trace_with_plan(_ORIGINAL_PLAN_DICT), AgentApproveRequest(approved=True))
     assert error is None
     assert plan is not None and plan.summary == "original plan"
 

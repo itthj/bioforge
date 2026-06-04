@@ -67,9 +67,7 @@ class AgentApproveRequest(BaseModel):
     )
 
 
-def _resolve_resume_plan(
-    trace: Trace, body: AgentApproveRequest
-) -> tuple[Plan | None, tuple[int, str] | None]:
+def _resolve_resume_plan(trace: Trace, body: AgentApproveRequest) -> tuple[Plan | None, tuple[int, str] | None]:
     """Pick + validate the plan to resume an approved run with.
 
     Prefers the user's edited plan (`body.plan`) when supplied, else the originally-proposed
@@ -210,9 +208,7 @@ async def _stream_agent_run(
     async def runner() -> None:
         try:
             with AgentContextScope(project_id=project_id, session=session):
-                result = await run_agent(
-                    goal, project_id=project_id, llm=llm, autonomy=autonomy, on_step=emit_step
-                )
+                result = await run_agent(goal, project_id=project_id, llm=llm, autonomy=autonomy, on_step=emit_step)
             await queue.put(("result", result))
         except Exception as e:  # noqa: BLE001 — caught & reported, then re-emitted
             await queue.put(("error", f"{type(e).__name__}: {e}"))
@@ -407,9 +403,7 @@ async def _stream_agent_approve(
         return
 
     # Approved — resume with the edited plan if supplied, else the proposed one.
-    plan, error = _resolve_resume_plan(
-        trace, AgentApproveRequest(approved=True, reason=reason, plan=edited_plan)
-    )
+    plan, error = _resolve_resume_plan(trace, AgentApproveRequest(approved=True, reason=reason, plan=edited_plan))
     if error is not None:
         yield format_event("error", {"message": error[1]})
         return
