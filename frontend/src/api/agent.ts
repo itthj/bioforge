@@ -119,6 +119,20 @@ export async function* streamAgentRun(
   yield* streamSse(response);
 }
 
+/**
+ * Cancel a durable (Celery-backed) run: revokes the worker task and marks the trace cancelled.
+ * Only meaningful in celery mode -- inline runs are cancelled by aborting the SSE fetch. Errors
+ * are swallowed: Stop already aborts the stream locally, so a failed/duplicate revoke must not
+ * surface to the user (e.g. the run finished a beat before Stop, giving a 409).
+ */
+export async function cancelRun(traceId: string): Promise<void> {
+  try {
+    await fetch(`/agent/${traceId}/cancel`, { method: "POST" });
+  } catch {
+    // Best-effort; the local abort is what the user sees.
+  }
+}
+
 export interface ApprovalInput {
   traceId: string;
   approved: boolean;

@@ -12,6 +12,8 @@ Three layers, all hermetic (no Redis, no real broker):
 
 from __future__ import annotations
 
+import json
+import re
 from typing import Any
 
 import pytest_asyncio
@@ -251,3 +253,126 @@ async def test_celery_eager_run_persists_terminal_trace(
         assert row.started_at is not None
         assert row.response_text
         assert any(st["type"] == "tool_call" for st in row.steps)
+
+
+# --- 4. Cancellation (slice 5) ------------------------------------------------------
+
+
+async def _make_trace(maker, *, status: str, backend: str, task_id: str | None) -> str:
+    async with maker() as s:
+        trace = Trace(
+            project_id=DEFAULT_PROJECT_ID,
+            goal="cancel me",
+            status=status,
+            model="claude-sonnet-4-6",
+            job_backend=backend,
+            task_id=task_id,
+            steps=[{"idx": 0, "type": "plan", "duration_ms": 0}],
+        )
+        s.add(trace)
+        await s.commit()
+        return trace.id
+
+
+async def test_cancel_revokes_celery_task_and_marks_cancelled(
+    streaming_client, test_session_maker, monkeypatch
+) -> None:
+    from bioforge.tasks import celery_app as celery_mod
+
+    revoked: dict[str, Any] = {}
+
+    def fake_revoke(task_id, terminate=False, signal=None, **kwargs):  # noqa: ANN001
+        revoked["task_id"] = task_id
+        revoked["terminate"] = terminate
+        revoked["signal"] = signal
+
+    monkeypatch.setattr(celery_mod.celery_app.control, "revoke", fake_revoke)
+
+    trace_id = await _make_trace(test_session_maker, status="running", backend="celery", task_id="task-xyz")
+
+    resp = await streaming_client.post(f"/agent/{trace_id}/cancel")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "cancelled"
+
+    # The worker task was revoked with a hard terminate.
+    assert revoked == {"task_id": "task-xyz", "terminate": True, "signal": "SIGTERM"}
+
+    async with test_session_maker() as s:
+        row = (await s.execute(select(Trace).where(Trace.id == trace_id))).scalar_one()
+        assert row.status == "cancelled"
+        assert row.response_text  # a human-readable note, not empty
+
+
+async def test_cancel_inline_run_is_rejected(streaming_client, test_session_maker) -> None:
+    trace_id = await _make_trace(test_session_maker, status="running", backend="inline", task_id=None)
+    resp = await streaming_client.post(f"/agent/{trace_id}/cancel")
+    assert resp.status_code == 409
+
+
+async def test_cancel_terminal_run_is_rejected(streaming_client, test_session_maker) -> None:
+    trace_id = await _make_trace(test_session_maker, status="completed", backend="celery", task_id="task-done")
+    resp = await streaming_client.post(f"/agent/{trace_id}/cancel")
+    assert resp.status_code == 409
+
+
+async def test_cancel_missing_trace_is_404(streaming_client) -> None:
+    resp = await streaming_client.post("/agent/nope/cancel")
+    assert resp.status_code == 404
+
+
+# --- 5. /agent/run/stream celery bridge (slice 5) -----------------------------------
+
+
+_SSE_BLOCK_RE = re.compile(r"event: (\S+)\n((?:data: .*\n)+)\n", re.MULTILINE)
+
+
+def _parse_sse(raw: str) -> list[tuple[str, dict | str]]:
+    blocks: list[tuple[str, dict | str]] = []
+    for match in _SSE_BLOCK_RE.finditer(raw):
+        name = match.group(1)
+        payload = "\n".join(line[len("data: ") :] for line in match.group(2).strip().split("\n"))
+        try:
+            parsed: dict | str = json.loads(payload)
+        except json.JSONDecodeError:
+            parsed = payload
+        blocks.append((name, parsed))
+    return blocks
+
+
+async def test_run_stream_celery_emits_queued_then_streams_to_done(
+    celery_eager_client,
+    monkeypatch,
+    fake_llm_factory,
+    make_submit_plan_response,
+    make_tool_use_response,
+    make_text_response,
+    trivial_plan,
+) -> None:
+    """In celery mode the SSE entrypoint enqueues + streams: a `queued` event carrying the
+    trace_id (so Stop can /cancel), then the worker's steps, then `done`."""
+    client, _maker = celery_eager_client
+    fake = fake_llm_factory(
+        [
+            make_submit_plan_response(trivial_plan(tool_name="gc_content")),
+            make_tool_use_response("gc_content", {"sequence": "ATGCATGC"}),
+            make_text_response("GC content is 50%."),
+        ]
+    )
+    monkeypatch.setattr("bioforge.agent.loop.LLM", lambda: fake)
+
+    raw = ""
+    async with client.stream("POST", "/agent/run/stream", json={"goal": "GC of ATGCATGC"}) as resp:
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("text/event-stream")
+        async for chunk in resp.aiter_text():
+            raw += chunk
+
+    events = _parse_sse(raw)
+    names = [n for n, _ in events]
+    assert names[0] == "queued"
+    queued = events[0][1]
+    assert queued["trace_id"] and queued["job_backend"] == "celery"
+    assert "step" in names
+    done = next(d for n, d in events if n == "done")
+    assert done["status"] == "completed"
+    assert done["trace_id"] == queued["trace_id"]

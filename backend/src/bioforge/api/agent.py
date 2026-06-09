@@ -200,6 +200,29 @@ async def _enqueue_agent_run(body: AgentRunRequest, session: AsyncSession) -> Ag
     return _trace_to_response(trace)
 
 
+async def _enqueue_and_stream(body: AgentRunRequest, session: AsyncSession) -> AsyncIterator[str]:
+    """Celery mode for the SSE entrypoint: enqueue the run, announce its trace_id immediately via
+    a ``queued`` event (so the client can wire Stop -> /cancel), then DELEGATE to the same Trace
+    poller the standalone /stream endpoint uses. This keeps the frontend's run entrypoint identical
+    between inline and celery -- only the transport changes."""
+    trace = await create_queued_trace(session, goal=body.goal, project_id=body.project_id, backend="celery")
+    await session.commit()  # durable before the worker (another process) loads it.
+
+    from bioforge.tasks.celery_app import run_agent_job_task
+
+    async_result = run_agent_job_task.apply_async(
+        args=[trace.id, body.goal, body.project_id, body.autonomy],
+    )
+    trace.task_id = async_result.id
+    await session.commit()
+
+    # The client learns the trace_id here (the poller's step events don't carry it), which is what
+    # the Stop button needs to revoke the right Celery task.
+    yield format_event("queued", {"trace_id": trace.id, "status": "queued", "job_backend": "celery"})
+    async for event in _stream_trace_progress(trace_id=trace.id, session=session):
+        yield event
+
+
 @router.post("/agent/run", response_model=AgentRunResponse)
 async def agent_run(
     body: AgentRunRequest,
@@ -294,15 +317,23 @@ async def agent_run_stream(
 ) -> StreamingResponse:
     """SSE variant of /agent/run. Emits `step` events as they happen, ends with a
     `done` event carrying the trace_id, response_text, usage, and (if applicable)
-    pending_plan + approval_reasons for the approval-gate path."""
-    return StreamingResponse(
-        _stream_agent_run(
+    pending_plan + approval_reasons for the approval-gate path.
+
+    In celery mode the run executes in a worker and we stream its persisted progress (preceded by
+    a `queued` event); inline mode runs it in-process as before."""
+    generator = (
+        _enqueue_and_stream(body, session)
+        if _celery_mode()
+        else _stream_agent_run(
             goal=body.goal,
             project_id=body.project_id,
             autonomy=body.autonomy,
             session=session,
             llm=llm,
-        ),
+        )
+    )
+    return StreamingResponse(
+        generator,
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
@@ -632,6 +663,49 @@ async def agent_stream(trace_id: str, session: AsyncSession = Depends(get_sessio
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# --- Cancel a durable job (Celery phase, slice 5) ------------------------------------
+
+
+@router.post("/agent/{trace_id}/cancel", response_model=AgentRunResponse)
+async def agent_cancel(trace_id: str, session: AsyncSession = Depends(get_session)) -> AgentRunResponse:
+    """Cancel a running/queued Celery-backed run: revoke the worker task (SIGTERM) and mark the
+    Trace `cancelled`. The status write is authoritative -- it owns the transition regardless of
+    whether the SIGTERM lands cleanly; whatever steps the worker already committed remain as an
+    honest partial trace. This is what the P1b Stop button calls in celery mode.
+
+    Inline runs are cancelled by disconnecting the SSE stream (the backend cancels the in-process
+    task on disconnect), so /cancel rejects them (409). A run that is already terminal -- or paused
+    at `pending_approval`, which is declined via /approve -- is not cancellable here (409)."""
+    trace = (await session.execute(select(Trace).where(Trace.id == trace_id))).scalar_one_or_none()
+    if trace is None:
+        raise HTTPException(status_code=404, detail=f"Trace {trace_id!r} not found")
+    if trace.job_backend != "celery":
+        raise HTTPException(
+            status_code=409,
+            detail="Inline runs are cancelled by disconnecting the stream, not via /cancel.",
+        )
+    if _is_job_terminal(trace.status):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Trace {trace_id!r} is not cancellable (current status: {trace.status!r}).",
+        )
+
+    # Revoke the worker task. Best-effort: the authoritative state is the status write below, so a
+    # missed revoke (worker already finishing) still leaves an honest `cancelled` record.
+    if trace.task_id:
+        from bioforge.tasks.celery_app import celery_app
+
+        celery_app.control.revoke(trace.task_id, terminate=True, signal="SIGTERM")
+
+    trace.status = "cancelled"
+    if not trace.response_text:
+        trace.response_text = "Run cancelled by user."
+    trace.awaiting_approval_plan = None
+    trace.completed_at = datetime.now(UTC)
+    await session.flush()
+    return _trace_to_response(trace)
 
 
 @router.get("/traces/{trace_id}")
