@@ -17,11 +17,32 @@ redis://redis:6379/0 matches the docker-compose service name.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Coroutine
 from typing import Any
 
 from celery import Celery
 
 from bioforge.config import settings
+
+
+def _run_async(coro: Coroutine[Any, Any, Any]) -> Any:
+    """Run an async coroutine to completion from Celery's synchronous task body.
+
+    A real worker process has no running event loop, so ``asyncio.run`` works directly. Under
+    ``task_always_eager=True`` (the hermetic test path) the task executes INSIDE the caller's
+    running loop, where ``asyncio.run`` raises -- so we run the coroutine on a dedicated thread
+    with its own loop. Either way the coroutine builds its own DB engine, so the fresh loop is
+    safe.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    import concurrent.futures
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(asyncio.run, coro).result()
+
 
 REDIS_URL = settings.redis_url
 
@@ -60,3 +81,23 @@ def run_tool_task(tool_name: str, tool_input: dict[str, Any]) -> dict[str, Any]:
     # Celery tasks run in a synchronous worker context; bridge to asyncio.
     result = asyncio.run(execute_tool(tool_name, tool_input))
     return result.model_dump()
+
+
+@celery_app.task(name="bioforge.tasks.run_agent_job")
+def run_agent_job_task(
+    trace_id: str,
+    goal: str,
+    project_id: str,
+    autonomy: str = "auto",
+) -> dict[str, str]:
+    """Per-run durable job: execute a queued agent run to completion in the worker.
+
+    The whole ``run_agent`` loop runs here (not just one tool) so a long run survives an API
+    restart or client disconnect -- the durability win of the phase. The trace row already exists
+    (created ``queued`` + committed by the enqueueing request); we load it, stream each step into
+    the DB, and write the terminal state. Returns a small JSON-safe summary for the result backend.
+    """
+    # Lazy import so the worker only loads the agent stack when it picks up its first run.
+    from bioforge.agent.jobs import run_agent_job_async
+
+    return _run_async(run_agent_job_async(trace_id=trace_id, goal=goal, project_id=project_id, autonomy=autonomy))

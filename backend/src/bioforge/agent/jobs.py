@@ -50,11 +50,19 @@ async def create_queued_trace(
     return trace
 
 
-def make_step_persister(session: AsyncSession, trace: Trace):
+def make_step_persister(session: AsyncSession, trace: Trace, *, commit: bool = False):
     """Build an ``on_step`` sink that appends each :class:`AgentStep` to ``trace.steps`` and
-    flips the job ``queued -> running`` on the first step (stamping ``started_at``). Flushing
+    flips the job ``queued -> running`` on the first step (stamping ``started_at``). Persisting
     per step is what lets a polling reader watch a live job; the same callback is what a Celery
-    worker will pass to ``run_agent`` to stream progress into the DB.
+    worker passes to ``run_agent`` to stream progress into the DB.
+
+    ``commit`` controls visibility. The default (``False``, a ``flush``) is enough when the
+    READER shares this session -- the in-process proof path. A Celery worker, whose progress is
+    read by the API in ANOTHER process/connection, must pass ``commit=True``: a flush alone keeps
+    the rows inside an uncommitted transaction that a separate connection cannot see, so the
+    polling stream would observe nothing until the run ended. Per-step commits are best-effort
+    progress (``run_agent`` swallows ``on_step`` errors); :func:`finalize_trace` is the
+    authoritative terminal write either way.
     """
 
     async def _persist(step: AgentStep) -> None:
@@ -64,7 +72,12 @@ def make_step_persister(session: AsyncSession, trace: Trace):
         # Reassign (not in-place append): SQLAlchemy only tracks JSON column mutations on
         # attribute set, matching how the rest of the codebase mutates trace.steps.
         trace.steps = list(trace.steps) + [asdict(step)]
-        await session.flush()
+        # expire_on_commit=False (set on every sessionmaker in the codebase) keeps `trace`
+        # usable after a commit, so the next step can keep appending.
+        if commit:
+            await session.commit()
+        else:
+            await session.flush()
 
     return _persist
 
@@ -91,3 +104,66 @@ async def finalize_trace(session: AsyncSession, trace: Trace, result: AgentResul
     trace.completed_at = datetime.now(UTC)
     await session.flush()
     return trace
+
+
+async def run_agent_job_async(
+    *,
+    trace_id: str,
+    goal: str,
+    project_id: str,
+    autonomy: str = "auto",
+    llm: object | None = None,
+) -> dict[str, str]:
+    """Execute a queued run to completion inside a Celery worker, persisting progress as it goes.
+
+    This is the worker-side core that the ``bioforge.tasks.run_agent_job`` Celery task bridges to.
+    The trace row was already created (``queued``) and committed by the enqueueing request, so we
+    LOAD it by id rather than create it.
+
+    The worker is a separate process from the API, so it owns its OWN engine + sessionmaker built
+    from ``settings.db_url`` (never the request-scoped session), and disposes the engine when done
+    -- which also keeps it correct under the one-event-loop-per-task model the sync bridge uses.
+
+    Progress streams to the DB via a COMMITTING step sink so the API's polling stream (another
+    connection) can see each step; :func:`finalize_trace` writes the authoritative terminal state.
+    A failure flips the job to ``error`` (committed) so it never hangs in ``running``; whatever
+    steps were committed before the failure remain as an honest partial trace.
+    """
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from bioforge.agent import run_agent
+    from bioforge.agent.context import AgentContextScope
+
+    engine = create_async_engine(settings.db_url, future=True)
+    maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    try:
+        async with maker() as session:
+            trace = (await session.execute(select(Trace).where(Trace.id == trace_id))).scalar_one_or_none()
+            if trace is None:
+                return {"trace_id": trace_id, "status": "error", "error": "trace not found"}
+            try:
+                with AgentContextScope(project_id=project_id, session=session):
+                    result = await run_agent(
+                        goal,
+                        project_id=project_id,
+                        llm=llm,  # type: ignore[arg-type]  # None -> run_agent builds a real LLM
+                        autonomy=autonomy,  # type: ignore[arg-type]  # "auto" | "review"
+                        on_step=make_step_persister(session, trace, commit=True),
+                    )
+                await finalize_trace(session, trace, result)
+                await session.commit()
+                return {"trace_id": trace_id, "status": result.status}
+            except Exception as e:  # noqa: BLE001 -- recorded on the trace, never silently dropped
+                await session.rollback()
+                # Re-load after rollback (the object is expired) and mark the job errored so a
+                # dead/throwing run does not stay 'running' forever. Committed partial steps stay.
+                trace = (await session.execute(select(Trace).where(Trace.id == trace_id))).scalar_one_or_none()
+                if trace is not None:
+                    trace.status = "error"
+                    trace.response_text = f"Job failed: {type(e).__name__}: {e}"
+                    trace.completed_at = datetime.now(UTC)
+                    await session.commit()
+                return {"trace_id": trace_id, "status": "error"}
+    finally:
+        await engine.dispose()

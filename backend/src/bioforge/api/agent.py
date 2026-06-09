@@ -15,8 +15,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bioforge.agent import AgentResult, AgentStep, Plan, resume_agent, run_agent
 from bioforge.agent.context import AgentContextScope
+from bioforge.agent.jobs import create_queued_trace
 from bioforge.agent.llm import LLM
 from bioforge.api.sse import format_event, format_keepalive
+from bioforge.config import settings
 from bioforge.constants import DEFAULT_PROJECT_ID
 from bioforge.db.engine import get_session
 from bioforge.db.models import Trace
@@ -159,12 +161,43 @@ def get_llm() -> LLM:
     return LLM()
 
 
+def _celery_mode() -> bool:
+    """True when runs should be dispatched to the Celery worker pool. Read at call time
+    (not import time) so tests can flip BIOFORGE_TASK_QUEUE via the Settings singleton."""
+    return settings.task_queue.strip().lower() == "celery"
+
+
+async def _enqueue_agent_run(body: AgentRunRequest, session: AsyncSession) -> AgentRunResponse:
+    """Celery mode: persist a ``queued`` Trace, enqueue the durable run job, and return the
+    trace_id IMMEDIATELY (status ``queued``). The client then watches it via
+    ``GET /agent/{trace_id}/stream``. The queued row is committed BEFORE enqueueing so the
+    worker -- a separate process -- can load it; the task id is recorded for cancellation."""
+    trace = await create_queued_trace(session, goal=body.goal, project_id=body.project_id, backend="celery")
+    await session.commit()  # the worker reads this row from another connection -- it must be durable first.
+
+    # apply_async (not send_task-by-name): the task lives in our own codebase, so referencing it
+    # directly is cleaner AND honors task_always_eager for the hermetic tests. send_task always
+    # publishes to the broker even in eager mode.
+    from bioforge.tasks.celery_app import run_agent_job_task
+
+    async_result = run_agent_job_task.apply_async(
+        args=[trace.id, body.goal, body.project_id, body.autonomy],
+    )
+    # Only task_id changed since the last commit, so this UPDATE touches that column alone and
+    # cannot clobber a status the worker may already have advanced (matters under eager mode).
+    trace.task_id = async_result.id
+    await session.commit()
+    return _trace_to_response(trace)
+
+
 @router.post("/agent/run", response_model=AgentRunResponse)
 async def agent_run(
     body: AgentRunRequest,
     session: AsyncSession = Depends(get_session),
     llm: LLM = Depends(get_llm),
 ) -> AgentRunResponse:
+    if _celery_mode():
+        return await _enqueue_agent_run(body, session)
     with AgentContextScope(project_id=body.project_id, session=session):
         result = await run_agent(body.goal, project_id=body.project_id, llm=llm, autonomy=body.autonomy)
     trace = await _persist_new_trace(session, result)
