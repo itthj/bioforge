@@ -20,6 +20,25 @@ Open http://localhost:5173. The backend lives in the `bioforge-backend` containe
 
 > **Deploying to a host?** See [`docs/deploy.md`](docs/deploy.md) — configuration, persistence (SQLite vs Postgres + Alembic), the optional worker/storage profiles, and **how to expose it safely** (it has no auth layer yet, and the agent endpoint spends your API budget).
 
+### Running with Celery (durable jobs)
+
+By default a run executes in-process and streams over SSE — fine for single-user local. For **durability** (a run survives an API restart or client disconnect, executes in a worker, and can be reconnected to or cancelled), bring up the `workers` profile, which adds **Redis** (broker) + **Postgres** (the shared run DB the API and worker both read/write) + a **Celery worker**:
+
+```powershell
+# In the .env beside docker-compose.yml: your ANTHROPIC_API_KEY, plus the two switches that
+# point the API at the shared stack (the worker already defaults to them):
+#   BIOFORGE_TASK_QUEUE=celery
+#   BIOFORGE_DB_URL=postgresql+asyncpg://bioforge:bioforge@postgres:5432/bioforge
+docker compose --profile workers up --build
+```
+
+`POST /agent/run` then enqueues the run and returns a `trace_id` immediately (status `queued`); `GET /agent/{trace_id}/stream` streams its progress (a live job, or catching up a finished one); `POST /agent/{trace_id}/cancel` revokes it. The UI uses these automatically in celery mode. Inline (`BIOFORGE_TASK_QUEUE=inline`, the default) stays byte-for-byte the previous behavior. The full enqueue → worker → persist → stream path is covered hermetically (Celery eager) in `test_celery_jobs.py`; a real cross-process round-trip is an opt-in docker test:
+
+```powershell
+$env:BIOFORGE_CELERY_E2E = "1"   # plus ANTHROPIC_API_KEY in the environment
+.\.venv\Scripts\python.exe -m pytest backend/tests/test_celery_e2e_docker.py -m docker -q
+```
+
 ### Backend
 
 ```powershell
@@ -239,7 +258,8 @@ CRITIC ── forced tool_use(submit_verdict) ──► CriticVerdict        ─
 - **Prompt caching markers** on the last tool definition + last system block; activate automatically once the prefix crosses Sonnet 4.6's 2048-token minimum.
 - **Every persisted row carries `project_id`** (hardcoded to `default-project` until project CRUD lands).
 - **Trace step types**: `plan` / `replan` / `approval_requested` / `approval_decision` / `llm_call` / `tool_call` / `tool_error` / `refusal` / `critique` / `final`. Each carries its own structured payload.
-- **BLAST is remote-only** for now (NCBI public API via `Bio.Blast.NCBIWWW`, wrapped in `asyncio.to_thread`). Local BLAST+ binary integration and a job queue (Celery) are deferred until the synchronous round-trip becomes the bottleneck.
+- **BLAST is remote-only** for now (NCBI public API via `Bio.Blast.NCBIWWW`, wrapped in `asyncio.to_thread`). Local BLAST+ binary integration is deferred until the synchronous round-trip becomes the bottleneck.
+- **Durable jobs (opt-in Celery).** With `BIOFORGE_TASK_QUEUE=celery` (+ Redis + Postgres + a worker; the `workers` compose profile) a run becomes a persisted job: `POST /agent/run` enqueues and returns immediately, the worker executes it and streams each step into the shared `Trace` row, and `GET /agent/{id}/stream` polls that row (live or catch-up) while `POST /agent/{id}/cancel` revokes it. The default `inline` backend runs everything in-process, behaviorally unchanged. See [Running with Celery](#running-with-celery-durable-jobs).
 - **Streaming via `on_step` callback.** Every step-producing function in the agent loop accepts `on_step: Callable[[AgentStep], Awaitable[None]]`. The SSE endpoints plug a queue-backed callback in and drain it into `text/event-stream`. Default `None` preserves the synchronous JSON path. Callback errors are swallowed so a disconnected SSE client doesn't abort the agent run.
 - **Memory injected into the planner, NOT the system prompt.** System prompt is cached (Anthropic prompt-caching); injecting per-project context there would break the cache. Instead memory rides on the planner's user message, which is per-run anyway. `load_relevant_memory()` returns the empty string when there's nothing useful, so the planner's input stays unchanged for empty projects.
 - **Memory tools reach DB via ContextVars, not parameters.** `recall_memory` and `remember` read `get_current_project_id()` / `get_current_db_session()` set by `AgentContextScope` in the API layer. Bio tools that don't need DB access ignore the ContextVars entirely. Tools called outside a scope raise `ToolError` rather than silently no-op'ing.

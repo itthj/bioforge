@@ -139,7 +139,17 @@ export interface AgentDoneEvent {
   approval_reasons: string[];
 }
 
+// Emitted first when a run is dispatched to the Celery worker (celery mode): the run isn't
+// in-process, so the client learns its trace_id here to enable Stop -> /cancel. Absent in
+// inline mode.
+export interface AgentQueuedEvent {
+  trace_id: string;
+  status: string;
+  job_backend: string;
+}
+
 export type SseEvent =
   | { event: "step"; data: AgentStep }
   | { event: "done"; data: AgentDoneEvent }
+  | { event: "queued"; data: AgentQueuedEvent }
   | { event: "error"; data: { message: string } };

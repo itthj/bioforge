@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import AsyncIterator
 from dataclasses import asdict, fields
 from datetime import UTC, datetime
@@ -15,8 +16,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bioforge.agent import AgentResult, AgentStep, Plan, resume_agent, run_agent
 from bioforge.agent.context import AgentContextScope
+from bioforge.agent.jobs import create_queued_trace
 from bioforge.agent.llm import LLM
 from bioforge.api.sse import format_event, format_keepalive
+from bioforge.config import settings
 from bioforge.constants import DEFAULT_PROJECT_ID
 from bioforge.db.engine import get_session
 from bioforge.db.models import Trace
@@ -33,6 +36,15 @@ router = APIRouter()
 # enough that intermediate proxies don't drop the connection during a slow BLAST run;
 # long enough that we don't spam the wire with empty lines on a fast trivial goal.
 _SSE_KEEPALIVE_SECONDS = 15.0
+
+# How often GET /agent/{id}/stream re-reads the Trace while a job runs in the worker. ~0.5s is
+# the documented latency floor of the DB-polling design (plan B1); fine for a research tool.
+_STREAM_POLL_SECONDS = 0.5
+# Backstop for a worker that died WITHOUT writing a terminal state: once a job has been non-terminal
+# for longer than the worker's hard time limit plus this margin, the stream reports staleness
+# honestly (never a fake `completed`) and stops. The worker's own soft-time-limit normally flips a
+# stuck job to `error` first; this only catches a truly lost worker.
+_STREAM_STALE_MARGIN_SECONDS = 60.0
 
 
 class AgentRunRequest(BaseModel):
@@ -159,12 +171,87 @@ def get_llm() -> LLM:
     return LLM()
 
 
+def _celery_mode() -> bool:
+    """True when runs should be dispatched to the Celery worker pool. Read at call time
+    (not import time) so tests can flip BIOFORGE_TASK_QUEUE via the Settings singleton."""
+    return settings.task_queue.strip().lower() == "celery"
+
+
+async def _enqueue_agent_run(body: AgentRunRequest, session: AsyncSession) -> AgentRunResponse:
+    """Celery mode: persist a ``queued`` Trace, enqueue the durable run job, and return the
+    trace_id IMMEDIATELY (status ``queued``). The client then watches it via
+    ``GET /agent/{trace_id}/stream``. The queued row is committed BEFORE enqueueing so the
+    worker -- a separate process -- can load it; the task id is recorded for cancellation."""
+    trace = await create_queued_trace(session, goal=body.goal, project_id=body.project_id, backend="celery")
+    await session.commit()  # the worker reads this row from another connection -- it must be durable first.
+
+    # apply_async (not send_task-by-name): the task lives in our own codebase, so referencing it
+    # directly is cleaner AND honors task_always_eager for the hermetic tests. send_task always
+    # publishes to the broker even in eager mode.
+    from bioforge.tasks.celery_app import run_agent_job_task
+
+    async_result = run_agent_job_task.apply_async(
+        args=[trace.id, body.goal, body.project_id, body.autonomy],
+    )
+    # Only task_id changed since the last commit, so this UPDATE touches that column alone and
+    # cannot clobber a status the worker may already have advanced (matters under eager mode).
+    trace.task_id = async_result.id
+    await session.commit()
+    return _trace_to_response(trace)
+
+
+async def _enqueue_and_stream(body: AgentRunRequest, session: AsyncSession) -> AsyncIterator[str]:
+    """Celery mode for the SSE entrypoint: enqueue the run, announce its trace_id immediately via
+    a ``queued`` event (so the client can wire Stop -> /cancel), then DELEGATE to the same Trace
+    poller the standalone /stream endpoint uses. This keeps the frontend's run entrypoint identical
+    between inline and celery -- only the transport changes."""
+    trace = await create_queued_trace(session, goal=body.goal, project_id=body.project_id, backend="celery")
+    await session.commit()  # durable before the worker (another process) loads it.
+
+    from bioforge.tasks.celery_app import run_agent_job_task
+
+    async_result = run_agent_job_task.apply_async(
+        args=[trace.id, body.goal, body.project_id, body.autonomy],
+    )
+    trace.task_id = async_result.id
+    await session.commit()
+
+    # The client learns the trace_id here (the poller's step events don't carry it), which is what
+    # the Stop button needs to revoke the right Celery task.
+    yield format_event("queued", {"trace_id": trace.id, "status": "queued", "job_backend": "celery"})
+    async for event in _stream_trace_progress(trace_id=trace.id, session=session):
+        yield event
+
+
+async def _enqueue_approved_resume(
+    trace: Trace, plan: Plan, decision_step: dict, session: AsyncSession
+) -> AgentRunResponse:
+    """Celery mode for an approved resume (slice 6): append the decision step, persist the approved
+    plan, flip the trace to ``running``, enqueue the durable resume job, and return immediately. The
+    resumed steps are followed via GET /agent/{id}/stream (or the approve/stream variant). Mirrors
+    the in-request approve handler's bookkeeping, but the executor runs in a worker."""
+    trace.awaiting_approval_plan = plan.model_dump()
+    trace.steps = list(trace.steps) + [decision_step]
+    step_idx_start = len(trace.steps)  # resumed steps start right after the decision step
+    trace.status = "running"
+    await session.commit()  # durable before the worker (another process) loads it.
+
+    from bioforge.tasks.celery_app import resume_agent_job_task
+
+    async_result = resume_agent_job_task.apply_async(args=[trace.id, plan.model_dump(), step_idx_start])
+    trace.task_id = async_result.id
+    await session.commit()
+    return _trace_to_response(trace)
+
+
 @router.post("/agent/run", response_model=AgentRunResponse)
 async def agent_run(
     body: AgentRunRequest,
     session: AsyncSession = Depends(get_session),
     llm: LLM = Depends(get_llm),
 ) -> AgentRunResponse:
+    if _celery_mode():
+        return await _enqueue_agent_run(body, session)
     with AgentContextScope(project_id=body.project_id, session=session):
         result = await run_agent(body.goal, project_id=body.project_id, llm=llm, autonomy=body.autonomy)
     trace = await _persist_new_trace(session, result)
@@ -251,15 +338,23 @@ async def agent_run_stream(
 ) -> StreamingResponse:
     """SSE variant of /agent/run. Emits `step` events as they happen, ends with a
     `done` event carrying the trace_id, response_text, usage, and (if applicable)
-    pending_plan + approval_reasons for the approval-gate path."""
-    return StreamingResponse(
-        _stream_agent_run(
+    pending_plan + approval_reasons for the approval-gate path.
+
+    In celery mode the run executes in a worker and we stream its persisted progress (preceded by
+    a `queued` event); inline mode runs it in-process as before."""
+    generator = (
+        _enqueue_and_stream(body, session)
+        if _celery_mode()
+        else _stream_agent_run(
             goal=body.goal,
             project_id=body.project_id,
             autonomy=body.autonomy,
             session=session,
             llm=llm,
-        ),
+        )
+    )
+    return StreamingResponse(
+        generator,
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
@@ -306,6 +401,10 @@ async def agent_approve(
     if error is not None:
         raise HTTPException(status_code=error[0], detail=error[1])
     assert plan is not None  # error is None => plan is set
+
+    if _celery_mode():
+        return await _enqueue_approved_resume(trace, plan, decision_step, session)
+
     # Persist the approved (possibly edited) plan before resuming, so a failure mid-run leaves
     # the trace reflecting exactly what the user signed off on.
     trace.awaiting_approval_plan = plan.model_dump()
@@ -408,6 +507,29 @@ async def _stream_agent_approve(
         yield format_event("error", {"message": error[1]})
         return
     assert plan is not None  # error is None => plan is set
+
+    if _celery_mode():
+        # Persist the decision + approved plan, enqueue the durable resume job, then poll the
+        # resumed steps. The decision step was already emitted above, so stream from AFTER it
+        # (start_index) to avoid re-sending the plan/approval/decision the client already has.
+        trace.awaiting_approval_plan = plan.model_dump()
+        trace.steps = list(trace.steps) + [decision_step_dict]
+        start_index = len(trace.steps)
+        trace.status = "running"
+        await session.commit()
+
+        from bioforge.tasks.celery_app import resume_agent_job_task
+
+        async_result = resume_agent_job_task.apply_async(args=[trace.id, plan.model_dump(), start_index])
+        trace.task_id = async_result.id
+        await session.commit()
+
+        # Let the client wire Stop -> /cancel for the resumed run.
+        yield format_event("queued", {"trace_id": trace.id, "status": "running", "job_backend": "celery"})
+        async for event in _stream_trace_progress(trace_id=trace.id, session=session, start_index=start_index):
+            yield event
+        return
+
     # Persist the approved (possibly edited) plan before resuming (see the sync handler).
     trace.awaiting_approval_plan = plan.model_dump()
 
@@ -496,6 +618,147 @@ async def agent_approve_stream(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# --- Durable-job progress stream (Celery phase, slice 4) -----------------------------
+#
+# When a run executes in a Celery worker (another process), the API can't read its `on_step`
+# callbacks from memory. Instead the worker persists each step to the Trace (committing as it
+# goes, see agent/jobs.py), and this endpoint POLLS that row, relaying new steps as SSE until
+# the job is terminal. The same endpoint catches up a finished run (reconnect / history replay):
+# it emits everything already persisted, sees a terminal status, and ends.
+
+
+def _is_job_terminal(status: str) -> bool:
+    """A run job is terminal once it leaves the queued/running lifecycle. `pending_approval` is
+    terminal for streaming -- the run paused for the user and resumes later via /approve."""
+    return status not in ("queued", "running")
+
+
+async def _refetch_trace(session: AsyncSession, trace_id: str) -> Trace | None:
+    """Read the Trace fresh so commits from the worker's OWN connection are visible: end our
+    transaction (rollback) and force the row to repopulate from the DB rather than the identity
+    map. The stream never writes, so the rollback is a cheap snapshot reset, not data loss."""
+    await session.rollback()
+    result = await session.execute(select(Trace).where(Trace.id == trace_id).execution_options(populate_existing=True))
+    return result.scalar_one_or_none()
+
+
+async def _stream_trace_progress(*, trace_id: str, session: AsyncSession, start_index: int = 0) -> AsyncIterator[str]:
+    """Poll a Trace and emit its steps from ``start_index`` onward as SSE until terminal.
+
+    ``start_index`` lets the resume path skip the steps the client already has (plan + approval +
+    the decision step it was just sent), emitting only the newly-resumed steps; a fresh run leaves
+    it 0 to catch up everything."""
+    trace = await _refetch_trace(session, trace_id)
+    if trace is None:
+        yield format_event("error", {"message": f"Trace {trace_id!r} not found"})
+        return
+
+    # Catch-up: emit everything already persisted from start_index, in order.
+    emitted = start_index
+    for step in trace.steps[start_index:]:
+        yield format_event("step", step)
+        emitted += 1
+    if _is_job_terminal(trace.status):
+        yield format_event("done", _done_payload_from_trace(trace))
+        return
+
+    # Live: poll until terminal, emitting each newly-persisted step.
+    start = time.monotonic()
+    last_emit = start
+    max_wall = settings.celery_task_time_limit + _STREAM_STALE_MARGIN_SECONDS
+    while True:
+        await asyncio.sleep(_STREAM_POLL_SECONDS)
+        trace = await _refetch_trace(session, trace_id)
+        if trace is None:  # deleted out from under us -- vanishingly unlikely, but be honest.
+            yield format_event("error", {"message": f"Trace {trace_id!r} disappeared mid-stream"})
+            return
+
+        new_steps = trace.steps[emitted:]
+        if new_steps:
+            for step in new_steps:
+                yield format_event("step", step)
+            emitted += len(new_steps)
+            last_emit = time.monotonic()
+
+        if _is_job_terminal(trace.status):
+            yield format_event("done", _done_payload_from_trace(trace))
+            return
+
+        now = time.monotonic()
+        if now - start > max_wall:
+            yield format_event(
+                "error",
+                {
+                    "message": (
+                        "Job is still not terminal past the worker time limit; the worker may "
+                        f"have died. Last known status: {trace.status!r}."
+                    )
+                },
+            )
+            # Emit the current (non-terminal) state honestly -- never a fabricated `completed`.
+            yield format_event("done", _done_payload_from_trace(trace))
+            return
+
+        if now - last_emit > _SSE_KEEPALIVE_SECONDS:
+            yield format_keepalive()
+            last_emit = now
+
+
+@router.get("/agent/{trace_id}/stream")
+async def agent_stream(trace_id: str, session: AsyncSession = Depends(get_session)) -> StreamingResponse:
+    """Stream a durable run's progress by polling its Trace. Emits each persisted step as an SSE
+    `step` event until the job reaches a terminal state, then a `done` event. Works for a LIVE job
+    (a Celery worker writing concurrently) and to CATCH UP a finished one (reconnect / replay)."""
+    return StreamingResponse(
+        _stream_trace_progress(trace_id=trace_id, session=session),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+# --- Cancel a durable job (Celery phase, slice 5) ------------------------------------
+
+
+@router.post("/agent/{trace_id}/cancel", response_model=AgentRunResponse)
+async def agent_cancel(trace_id: str, session: AsyncSession = Depends(get_session)) -> AgentRunResponse:
+    """Cancel a running/queued Celery-backed run: revoke the worker task (SIGTERM) and mark the
+    Trace `cancelled`. The status write is authoritative -- it owns the transition regardless of
+    whether the SIGTERM lands cleanly; whatever steps the worker already committed remain as an
+    honest partial trace. This is what the P1b Stop button calls in celery mode.
+
+    Inline runs are cancelled by disconnecting the SSE stream (the backend cancels the in-process
+    task on disconnect), so /cancel rejects them (409). A run that is already terminal -- or paused
+    at `pending_approval`, which is declined via /approve -- is not cancellable here (409)."""
+    trace = (await session.execute(select(Trace).where(Trace.id == trace_id))).scalar_one_or_none()
+    if trace is None:
+        raise HTTPException(status_code=404, detail=f"Trace {trace_id!r} not found")
+    if trace.job_backend != "celery":
+        raise HTTPException(
+            status_code=409,
+            detail="Inline runs are cancelled by disconnecting the stream, not via /cancel.",
+        )
+    if _is_job_terminal(trace.status):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Trace {trace_id!r} is not cancellable (current status: {trace.status!r}).",
+        )
+
+    # Revoke the worker task. Best-effort: the authoritative state is the status write below, so a
+    # missed revoke (worker already finishing) still leaves an honest `cancelled` record.
+    if trace.task_id:
+        from bioforge.tasks.celery_app import celery_app
+
+        celery_app.control.revoke(trace.task_id, terminate=True, signal="SIGTERM")
+
+    trace.status = "cancelled"
+    if not trace.response_text:
+        trace.response_text = "Run cancelled by user."
+    trace.awaiting_approval_plan = None
+    trace.completed_at = datetime.now(UTC)
+    await session.flush()
+    return _trace_to_response(trace)
 
 
 @router.get("/traces/{trace_id}")

@@ -30,6 +30,7 @@ import type {
 vi.mock("../api/agent", () => ({
   streamAgentRun: vi.fn(),
   streamAgentApprove: vi.fn(),
+  cancelRun: vi.fn(),
 }));
 
 vi.mock("../api/projects", () => ({
@@ -262,6 +263,58 @@ describe("App state machine", () => {
       expect(screen.getByText(/BLAST returned 0 hits\./)).toBeInTheDocument(),
     );
     expect(screen.queryByRole("button", { name: /^Approve$/i })).not.toBeInTheDocument();
+  });
+
+  it("celery mode: Stop revokes the worker via cancelRun with the queued trace_id", async () => {
+    const { streamAgentRun, cancelRun } = await import("../api/agent");
+    // A celery run announces its trace_id with a `queued` event, then streams; we leave it
+    // hanging (never `done`) so the run stays in `running` and the Stop button is offered.
+    vi.mocked(streamAgentRun).mockImplementationOnce(
+      () =>
+        (async function* () {
+          yield {
+            event: "queued",
+            data: { trace_id: "trace_celery_1", status: "queued", job_backend: "celery" },
+          };
+          yield { event: "step", data: makeStep(0, { type: "plan" }) };
+          await new Promise(() => {}); // run stays live until the user stops it
+        })() as AsyncGenerator<SseEvent>,
+    );
+
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.type(
+      screen.getByPlaceholderText(/What do you want BioForge to do/i),
+      "a long celery run",
+    );
+    await user.click(screen.getByRole("button", { name: /^Send$/i }));
+
+    const stopBtn = await screen.findByRole("button", { name: /Stop/i });
+    await user.click(stopBtn);
+
+    // The worker task is revoked by trace_id (inline runs, which emit no queued event, would not).
+    expect(cancelRun).toHaveBeenCalledWith("trace_celery_1");
+  });
+
+  it("inline mode: Stop does NOT call cancelRun (no queued event, nothing to revoke)", async () => {
+    const { streamAgentRun, cancelRun } = await import("../api/agent");
+    vi.mocked(streamAgentRun).mockImplementationOnce(
+      () =>
+        (async function* () {
+          yield { event: "step", data: makeStep(0, { type: "plan" }) };
+          await new Promise(() => {});
+        })() as AsyncGenerator<SseEvent>,
+    );
+
+    const user = userEvent.setup();
+    render(<App />);
+    await user.type(screen.getByPlaceholderText(/What do you want BioForge to do/i), "an inline run");
+    await user.click(screen.getByRole("button", { name: /^Send$/i }));
+    const stopBtn = await screen.findByRole("button", { name: /Stop/i });
+    await user.click(stopBtn);
+
+    expect(cancelRun).not.toHaveBeenCalled();
   });
 
   it("New goal resets state: previous trace + result disappear, input is empty", async () => {

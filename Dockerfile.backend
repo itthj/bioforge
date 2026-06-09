@@ -30,10 +30,11 @@ WORKDIR /build
 COPY pyproject.toml ./
 COPY backend/ ./backend/
 
-# Install into the venv. The optional `[dev]` extras stay OUT of the image —
-# pytest/ruff/etc. aren't needed at runtime.
+# Install into the venv with the `[postgres]` extra so both the API and the Celery worker can
+# talk to Postgres (the shared durable-job DB). `[dev]` extras stay OUT — pytest/ruff aren't
+# needed at runtime. The default SQLite path still works; the drivers just sit unused there.
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir .
+    && pip install --no-cache-dir ".[postgres]"
 
 # --- Stage 2: runtime --------------------------------------------------------
 FROM python:3.11-slim AS runtime

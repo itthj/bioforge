@@ -12,10 +12,13 @@
 # running.
 #
 # Optional services:
-#   - redis + worker (Celery): set BIOFORGE_TASK_QUEUE=celery in env to route
-#     expensive tools (blast, fetch_alphafold, fetch_pdb) through the worker
-#     instead of running them in-process. Default 'inline' executes tools
-#     synchronously in the agent loop, which is fine for single-user local.
+#   - redis + worker + postgres (Celery durable jobs): a run becomes a persisted job that
+#     executes in the worker and survives an API restart / client disconnect. Bring the stack up
+#     with the `workers` profile and point the API at the shared DB + queue:
+#       BIOFORGE_TASK_QUEUE=celery \
+#       BIOFORGE_DB_URL=postgresql+asyncpg://bioforge:bioforge@postgres:5432/bioforge \
+#       docker compose --profile workers up --build
+#     Default 'inline' + SQLite runs everything in-process, which is fine for single-user local.
 #   - minio: S3-compatible object store for large outputs. Set
 #     BIOFORGE_STORAGE_BACKEND=minio to enable.
 
@@ -39,6 +42,10 @@ services:
       # Switch to 'celery' to route expensive tools through the Celery worker.
       BIOFORGE_TASK_QUEUE: ${BIOFORGE_TASK_QUEUE:-inline}
       BIOFORGE_REDIS_URL: ${BIOFORGE_REDIS_URL:-redis://redis:6379/0}
+      # Default SQLite for the zero-config single-process path. For the durable-job stack, set
+      # BIOFORGE_TASK_QUEUE=celery and BIOFORGE_DB_URL=postgresql+asyncpg://bioforge:bioforge@postgres:5432/bioforge
+      # (matching the worker) so the API and worker share Postgres.
+      BIOFORGE_DB_URL: ${BIOFORGE_DB_URL:-sqlite+aiosqlite:////data/bioforge.db}
       # Storage backend: 'local' (default, in-container) or 'minio'.
       BIOFORGE_STORAGE_BACKEND: ${BIOFORGE_STORAGE_BACKEND:-local}
       BIOFORGE_MINIO_ENDPOINT: ${BIOFORGE_MINIO_ENDPOINT:-minio:9000}
@@ -72,6 +79,30 @@ services:
       timeout: 3s
       retries: 3
 
+  # Durable-job shared database. The API and the worker are separate processes that must
+  # read/write the SAME Trace rows (the polling stream reads while the worker writes), so the
+  # Celery stack uses Postgres rather than a shared SQLite file (which is unreliable across
+  # containers). Part of the `workers` profile, so a plain `docker compose up` stays SQLite.
+  postgres:
+    # Digest-pinned (rule 19 / section 10; resolved 2026-06-09 via `docker buildx imagetools inspect postgres:16-alpine`).
+    image: postgres:16-alpine@sha256:16bc17c64a573ef34162af9298258d1aec548232985b33ed7b1eac33ba35c229
+    container_name: bioforge-postgres
+    profiles: ["workers"]
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-bioforge}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bioforge}
+      POSTGRES_DB: ${POSTGRES_DB:-bioforge}
+    expose:
+      - "5432"
+    volumes:
+      - bioforge-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bioforge} -d ${POSTGRES_DB:-bioforge}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   worker:
     build:
       context: .
@@ -83,9 +114,15 @@ services:
     environment:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY must be set}
       BIOFORGE_REDIS_URL: redis://redis:6379/0
+      # The worker shares the API's DB. Defaults to the compose Postgres; if you override
+      # BIOFORGE_DB_URL, set it identically on the backend so both point at the same database.
+      BIOFORGE_DB_URL: ${BIOFORGE_DB_URL:-postgresql+asyncpg://bioforge:bioforge@postgres:5432/bioforge}
+      BIOFORGE_TASK_QUEUE: celery
       BIOFORGE_ENTREZ_EMAIL: ${BIOFORGE_ENTREZ_EMAIL:-}
     depends_on:
       redis:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     volumes:
       - bioforge-data:/data
@@ -135,5 +172,7 @@ services:
 volumes:
   bioforge-data:
     # Named volume — survives `docker compose down` (use `down -v` to wipe).
+  bioforge-postgres:
+    # Durable-job Postgres data. Wipe with `docker compose --profile workers down -v`.
   bioforge-minio:
     # MinIO object store. Wipe with `docker compose --profile storage down -v`.

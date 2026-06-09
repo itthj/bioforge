@@ -103,6 +103,16 @@ class Trace(Base):
     awaiting_approval_plan: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     approval_reasons: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
 
+    # --- Durable job model (Celery phase) ---
+    # Which queue executed this run ("inline" | "celery"): provenance, and it drives how the
+    # frontend cancels (disconnect-cancel vs Celery revoke).
+    job_backend: Mapped[str] = mapped_column(String(16), nullable=False, default="inline")
+    # The Celery task id when job_backend == "celery"; null for inline runs.
+    task_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # When the worker actually began executing -- distinct from created_at (enqueued) and
+    # completed_at (finished). Null while the job is still queued.
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
     completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
 

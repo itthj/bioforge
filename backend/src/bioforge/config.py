@@ -213,5 +213,19 @@ class Settings(BaseSettings):
     # (an impossible value) before it feeds downstream steps -- the §0 execution boundary acting.
     soundness_gate: str = Field(default="off", alias="BIOFORGE_SOUNDNESS_GATE")  # off | block
 
+    # --- Task queue / durable jobs (roadmap Phase 1) ---
+    # "inline" (default): run tools/runs in-process, zero infrastructure (single-user local;
+    # behaviorally identical to the pre-queue agent). "celery": dispatch to the Celery worker
+    # pool (requires the Redis broker + a running worker -- both defined in docker-compose).
+    # Read once at process start, so flipping the backend is a deployment/config change, not a
+    # code change; the default keeps behavior identical to today until you opt in.
+    task_queue: str = Field(default="inline", alias="BIOFORGE_TASK_QUEUE")  # inline | celery
+    # Celery broker + result backend. Matches the docker-compose `redis` service name.
+    redis_url: str = Field(default="redis://redis:6379/0", alias="BIOFORGE_REDIS_URL")
+    # Per-task limits for long-running tools (BLAST etc.). The soft limit fires a catchable
+    # exception first (so a task can flush a partial result) before the hard kill.
+    celery_task_time_limit: int = Field(default=15 * 60, alias="BIOFORGE_CELERY_TASK_TIME_LIMIT")
+    celery_task_soft_time_limit: int = Field(default=14 * 60, alias="BIOFORGE_CELERY_TASK_SOFT_TIME_LIMIT")
+
 
 settings = Settings()

@@ -8,7 +8,7 @@ import { ProjectSwitcher } from "./components/ProjectSwitcher";
 import { RunDetail } from "./components/RunDetail";
 import { RunHistory } from "./components/RunHistory";
 import { TraceView } from "./components/TraceView";
-import { streamAgentApprove, streamAgentRun } from "./api/agent";
+import { cancelRun, streamAgentApprove, streamAgentRun } from "./api/agent";
 import { getTrace } from "./api/traces";
 import { cn } from "./lib/cn";
 import type {
@@ -44,6 +44,9 @@ export function App() {
 
   // Aborts the in-flight run (closes the SSE -> backend cancels the agent task).
   const abortRef = useRef<AbortController | null>(null);
+  // The trace_id of an in-flight CELERY-backed run, learned from the `queued` event. Null for
+  // inline runs (which carry no queued event) -- Stop then just aborts the stream as before.
+  const celeryTraceIdRef = useRef<string | null>(null);
   // Last submitted goal, so the user can Retry after an error or a Stop.
   const [lastGoal, setLastGoal] = useState("");
 
@@ -63,9 +66,13 @@ export function App() {
 
   async function consume(generator: AsyncGenerator<SseEvent>) {
     for await (const ev of generator) {
-      if (ev.event === "step") {
+      if (ev.event === "queued") {
+        // Celery-backed run: remember the trace_id so Stop can revoke the worker task.
+        celeryTraceIdRef.current = ev.data.trace_id;
+      } else if (ev.event === "step") {
         setSteps((prev) => [...prev, ev.data]);
       } else if (ev.event === "done") {
+        celeryTraceIdRef.current = null; // terminal -- nothing left to cancel
         setDone(ev.data);
         if (ev.data.status === "pending_approval") {
           setRunState("pending_approval");
@@ -88,6 +95,7 @@ export function App() {
     setLastGoal(goal);
     const controller = new AbortController();
     abortRef.current = controller;
+    celeryTraceIdRef.current = null;
     setSteps([]);
     setDone(null);
     setError(null);
@@ -131,8 +139,14 @@ export function App() {
   }
 
   function handleStop() {
-    // Closes the SSE; the backend cancels the in-flight agent task on disconnect.
+    // Closes the SSE; for an inline run the backend cancels the in-flight agent task on
+    // disconnect. A celery run executes in a worker that a disconnect can't reach, so also
+    // revoke it explicitly via /cancel (best-effort; errors are swallowed in cancelRun).
     abortRef.current?.abort();
+    if (celeryTraceIdRef.current) {
+      void cancelRun(celeryTraceIdRef.current);
+      celeryTraceIdRef.current = null;
+    }
   }
 
   function handleRetry() {
