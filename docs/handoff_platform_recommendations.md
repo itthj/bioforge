@@ -9,9 +9,11 @@ Read this together with the authoritative `docs/handoff.md` (backend/grounding s
 > 2. `git status` / `git branch` — confirm state (below).
 > 3. **The platform deep-dive thread is COMPLETE on the buildable surface.** P0, P1a, P1b,
 >    P2a, and P2b are all MERGED to `main` (HEAD `866aa52`; P2a = PR #6, P2b = PR #7).
-> 4. The only remaining items are **P3** (both phase-sized / blocked): file-upload is BLOCKED
->    on auth (do not build); the durable job model + Celery queue is a deliberate future phase
->    (roadmap Phase 1) — design it as its own phase, not a quick slice. See §5.
+> 4. **The durable job model + Celery queue (roadmap Phase 1) is now BUILT** — slices 1-7 on
+>    `feat/celery-durable-jobs` (PR #14): typed queue config, durable run persistence, the
+>    `run_agent_job` worker + `POST /agent/run` enqueue, `GET /agent/{id}/stream` polling,
+>    `POST /agent/{id}/cancel`, approval-resume as a job, and a Postgres-backed docker e2e. The
+>    one remaining P3 item is **file-upload**, still BLOCKED on auth (do not build). See §5.
 
 ---
 
@@ -40,7 +42,7 @@ Read this together with the authoritative `docs/handoff.md` (backend/grounding s
 | **P2a** | Linked viewers + figure/data export | ✅ DONE, merged (PR #6) | see §4/§5 |
 | **P2b** | Edit the plan before approving | ✅ DONE, merged (PR #7) | see §4/§5 |
 | **P3** | File/dataset upload + registry | ⛔ **BLOCKED on auth** — do NOT build yet | see §5 |
-| **P3** | Durable job model + queue (Celery) | ⏳ TODO, phase-sized (roadmap Phase 1) | see §5 |
+| **P3** | Durable job model + queue (Celery) | ✅ BUILT (PR #14, slices 1-7) | see §5 |
 
 **Differentiators to protect (don't dilute):** the grounding/anti-hallucination layer (unique
 vs. all surveyed platforms), provenance/RO-Crate (already FAIR-aligned), and the agentic NL
@@ -185,10 +187,18 @@ Needs auth. The storage layer exists (`backend/src/bioforge/storage/adapter.py`:
 Local + MinIO, project-isolated) but is **unwired** ("until auth lands"). This is a real
 prerequisite; building file upload before auth would be premature. Defer to the auth phase.
 
-### P3 — Durable job model + queue (Celery) (phase-sized, last)
-On the roadmap (Phase 1: Celery + Redis). A run becomes a persisted job; long tools (BLAST)
-run async and stream status; pairs naturally with the run-history work already shipped. This is
-infra-sized — design it as its own phase, not a quick slice.
+### P3 — Durable job model + queue (Celery) — BUILT (PR #14, slices 1-7)
+Shipped on `feat/celery-durable-jobs`. A run is now a persisted job: with `BIOFORGE_TASK_QUEUE=celery`,
+`POST /agent/run[/stream]` enqueues a `run_agent_job` Celery task and returns a `queued` trace_id; the
+worker (its own engine/sessionmaker on the shared DB) executes `run_agent`, committing each step into
+the `Trace` so a separate reader sees progress; `GET /agent/{id}/stream` polls that row (live or
+catch-up) until terminal; `POST /agent/{id}/cancel` revokes the task; approval-resume enqueues the
+same way. Streaming is DB-polling (B1); Redis pub/sub (B2) is the documented latency upgrade. Inline
+stays the default and behaviorally identical. Infra: `docker compose --profile workers` now bundles
+Redis + a Celery worker + **Postgres** (the shared run DB); an opt-in `-m docker` e2e
+(`test_celery_e2e_docker.py`) drives a real submit -> poll -> terminal round-trip, and the in-process
+path is covered hermetically with Celery eager (`test_celery_jobs.py`). See the plan
+`docs/plan_celery_durable_jobs.md` (PR #13) for the full design.
 
 ## 6. The deep-dive synthesis (rationale, for context)
 - **Benchling** → linked, browsable, searchable artifacts (drove P0). Avoid its "overwhelming"

@@ -1,0 +1,26 @@
+# Test-only override for the durable-job (Celery) end-to-end test
+# (backend/tests/test_celery_e2e_docker.py). It publishes the API port to the host and pins the
+# backend onto the same celery + Postgres stack the worker uses, so a host-side test can drive a
+# real submit -> poll -> terminal round-trip through the actual API, broker, worker, and DB:
+#
+#   BIOFORGE_CELERY_E2E=1 ANTHROPIC_API_KEY=sk-... \
+#     docker compose -f docker-compose.yml -f docker-compose.e2e.yml --profile workers \
+#       up -d --build postgres redis backend worker
+#
+# Not used by `docker compose up` (the normal stack); it only applies when explicitly passed with
+# a second -f. Tear down with the same -f pair plus `down -v`.
+services:
+  backend:
+    # Publish on a non-default host port so it never clashes with a dev server on 8000.
+    ports:
+      - "18000:8000"
+    environment:
+      # Same DB + queue the worker uses, so the API the test talks to and the worker that runs the
+      # job share one Postgres -- the whole point of the durable-job model.
+      BIOFORGE_TASK_QUEUE: celery
+      BIOFORGE_DB_URL: postgresql+asyncpg://bioforge:bioforge@postgres:5432/bioforge
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy

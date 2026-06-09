@@ -38,8 +38,8 @@ requires `ANTHROPIC_API_KEY`.
 | `BIOFORGE_DEFAULT_MODEL` | no | `claude-sonnet-4-6` | Tool-routing / agent model. |
 | `BIOFORGE_DEFAULT_PROJECT_ID` | no | `default-project` | Bootstrap project. |
 | `BIOFORGE_ENTREZ_EMAIL` | recommended | empty | NCBI Entrez courtesy email (BLAST / ClinVar / dbSNP lookups). |
-| `BIOFORGE_TASK_QUEUE` | no | `inline` | `inline` runs tools in-process; `celery` offloads expensive tools to the worker. |
-| `BIOFORGE_REDIS_URL` | if celery | `redis://redis:6379/0` | Celery broker. |
+| `BIOFORGE_TASK_QUEUE` | no | `inline` | `inline` runs each agent run in-process; `celery` runs it as a durable job in the worker (needs Redis + a DB the API and worker share). |
+| `BIOFORGE_REDIS_URL` | if celery | `redis://redis:6379/0` | Celery broker + result backend. |
 | `BIOFORGE_STORAGE_BACKEND` | no | `local` | `local` (in-container) or `minio` (S3). |
 | `BIOFORGE_MINIO_*` | if minio | see compose | Endpoint / keys / bucket. |
 | `BIOFORGE_OTEL_ENABLED` | no | `false` | OpenTelemetry trace export. |
@@ -56,7 +56,7 @@ app — they power the benchmark-regeneration / heavy-scoring paths only.
 |---|---|---|---|
 | `backend` | yes | (default) | FastAPI + agent loop |
 | `frontend` | yes | (default) | nginx SPA + API proxy |
-| `redis` + `worker` | no | `docker compose --profile workers up` | Celery offload for expensive tools (also set `BIOFORGE_TASK_QUEUE=celery`) |
+| `redis` + `worker` + `postgres` | no | `docker compose --profile workers up` | Durable jobs: a run executes in the worker and persists to the shared Postgres (also set `BIOFORGE_TASK_QUEUE=celery` + point `BIOFORGE_DB_URL` at the bundled Postgres) |
 | `minio` | no | `docker compose --profile storage up` | S3-compatible store for large outputs (also set `BIOFORGE_STORAGE_BACKEND=minio`) |
 
 All external images are **digest-pinned** (`@sha256:`), never `:latest` — reproducibility starts at
@@ -69,11 +69,13 @@ the image layer.
 - **SQLite (default).** Zero-config, single-node, in the `bioforge-data` volume. Fine for a
   single-user prototype / demo host. It does **not** support multiple backend replicas writing
   concurrently.
-- **Postgres (for durability / multiple replicas).** Set
+- **Postgres (for durability / multiple replicas / the Celery stack).** Set
   `BIOFORGE_DB_URL=postgresql+asyncpg://user:pass@host:5432/bioforge` and run the Alembic migrations
   (`alembic.ini` at `backend/`; `alembic upgrade head`). The migration path is covered by
-  `backend/tests/test_migrations.py`. Provide Postgres yourself (a managed instance or an added
-  compose service) — it is intentionally not bundled in the default compose.
+  `backend/tests/test_migrations.py`. The `workers` profile **bundles a Postgres service** for the
+  durable-job stack (the API and worker must share one DB the polling stream can read while the
+  worker writes); for production, point `BIOFORGE_DB_URL` at a managed instance instead. The default
+  (non-workers) compose stays SQLite.
 
 ---
 

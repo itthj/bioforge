@@ -43,6 +43,16 @@ indelphi = [
     "scikit-learn>=1.5",
     "pandas>=2.2",
 ]
+# Postgres backend for the durable-job / Celery deployment: the API and the worker run in
+# separate processes and must share one DB the polling stream can read while the worker writes
+# (SQLite over a shared volume is unreliable for that). asyncpg is the async driver the app uses
+# (postgresql+asyncpg://...); psycopg is the SYNC driver Alembic runs migrations through (engine.py
+# rewrites the URL +asyncpg -> +psycopg for the upgrade). The default SQLite path needs neither, so
+# this stays an opt-in extra installed into the Docker images (see Dockerfile.backend).
+postgres = [
+    "asyncpg>=0.30",
+    "psycopg[binary]>=3.2",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["backend/src/bioforge"]
