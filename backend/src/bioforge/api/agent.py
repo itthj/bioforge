@@ -223,6 +223,27 @@ async def _enqueue_and_stream(body: AgentRunRequest, session: AsyncSession) -> A
         yield event
 
 
+async def _enqueue_approved_resume(
+    trace: Trace, plan: Plan, decision_step: dict, session: AsyncSession
+) -> AgentRunResponse:
+    """Celery mode for an approved resume (slice 6): append the decision step, persist the approved
+    plan, flip the trace to ``running``, enqueue the durable resume job, and return immediately. The
+    resumed steps are followed via GET /agent/{id}/stream (or the approve/stream variant). Mirrors
+    the in-request approve handler's bookkeeping, but the executor runs in a worker."""
+    trace.awaiting_approval_plan = plan.model_dump()
+    trace.steps = list(trace.steps) + [decision_step]
+    step_idx_start = len(trace.steps)  # resumed steps start right after the decision step
+    trace.status = "running"
+    await session.commit()  # durable before the worker (another process) loads it.
+
+    from bioforge.tasks.celery_app import resume_agent_job_task
+
+    async_result = resume_agent_job_task.apply_async(args=[trace.id, plan.model_dump(), step_idx_start])
+    trace.task_id = async_result.id
+    await session.commit()
+    return _trace_to_response(trace)
+
+
 @router.post("/agent/run", response_model=AgentRunResponse)
 async def agent_run(
     body: AgentRunRequest,
@@ -380,6 +401,10 @@ async def agent_approve(
     if error is not None:
         raise HTTPException(status_code=error[0], detail=error[1])
     assert plan is not None  # error is None => plan is set
+
+    if _celery_mode():
+        return await _enqueue_approved_resume(trace, plan, decision_step, session)
+
     # Persist the approved (possibly edited) plan before resuming, so a failure mid-run leaves
     # the trace reflecting exactly what the user signed off on.
     trace.awaiting_approval_plan = plan.model_dump()
@@ -482,6 +507,29 @@ async def _stream_agent_approve(
         yield format_event("error", {"message": error[1]})
         return
     assert plan is not None  # error is None => plan is set
+
+    if _celery_mode():
+        # Persist the decision + approved plan, enqueue the durable resume job, then poll the
+        # resumed steps. The decision step was already emitted above, so stream from AFTER it
+        # (start_index) to avoid re-sending the plan/approval/decision the client already has.
+        trace.awaiting_approval_plan = plan.model_dump()
+        trace.steps = list(trace.steps) + [decision_step_dict]
+        start_index = len(trace.steps)
+        trace.status = "running"
+        await session.commit()
+
+        from bioforge.tasks.celery_app import resume_agent_job_task
+
+        async_result = resume_agent_job_task.apply_async(args=[trace.id, plan.model_dump(), start_index])
+        trace.task_id = async_result.id
+        await session.commit()
+
+        # Let the client wire Stop -> /cancel for the resumed run.
+        yield format_event("queued", {"trace_id": trace.id, "status": "running", "job_backend": "celery"})
+        async for event in _stream_trace_progress(trace_id=trace.id, session=session, start_index=start_index):
+            yield event
+        return
+
     # Persist the approved (possibly edited) plan before resuming (see the sync handler).
     trace.awaiting_approval_plan = plan.model_dump()
 
@@ -596,15 +644,20 @@ async def _refetch_trace(session: AsyncSession, trace_id: str) -> Trace | None:
     return result.scalar_one_or_none()
 
 
-async def _stream_trace_progress(*, trace_id: str, session: AsyncSession) -> AsyncIterator[str]:
+async def _stream_trace_progress(*, trace_id: str, session: AsyncSession, start_index: int = 0) -> AsyncIterator[str]:
+    """Poll a Trace and emit its steps from ``start_index`` onward as SSE until terminal.
+
+    ``start_index`` lets the resume path skip the steps the client already has (plan + approval +
+    the decision step it was just sent), emitting only the newly-resumed steps; a fresh run leaves
+    it 0 to catch up everything."""
     trace = await _refetch_trace(session, trace_id)
     if trace is None:
         yield format_event("error", {"message": f"Trace {trace_id!r} not found"})
         return
 
-    # Catch-up: emit everything already persisted, in order.
-    emitted = 0
-    for step in trace.steps:
+    # Catch-up: emit everything already persisted from start_index, in order.
+    emitted = start_index
+    for step in trace.steps[start_index:]:
         yield format_event("step", step)
         emitted += 1
     if _is_job_terminal(trace.status):

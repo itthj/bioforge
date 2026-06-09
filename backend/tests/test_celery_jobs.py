@@ -17,7 +17,7 @@ import re
 from typing import Any
 
 import pytest_asyncio
-from bioforge.agent.jobs import create_queued_trace, run_agent_job_async
+from bioforge.agent.jobs import create_queued_trace, resume_agent_job_async, run_agent_job_async
 from bioforge.api.agent import get_llm
 from bioforge.config import settings
 from bioforge.constants import DEFAULT_PROJECT_ID
@@ -376,3 +376,155 @@ async def test_run_stream_celery_emits_queued_then_streams_to_done(
     done = next(d for n, d in events if n == "done")
     assert done["status"] == "completed"
     assert done["trace_id"] == queued["trace_id"]
+
+
+# --- 6. Approval resume as a durable job (slice 6) ----------------------------------
+
+
+async def _make_pending_approval_trace(maker, plan_dict: dict) -> str:
+    """A review-mode run paused at approval: plan + approval_requested steps, the proposed plan
+    persisted, and some planning tokens already counted (so additive usage is observable)."""
+    async with maker() as s:
+        trace = Trace(
+            project_id=DEFAULT_PROJECT_ID,
+            goal="rc then gc",
+            status="pending_approval",
+            model="claude-sonnet-4-6",
+            job_backend="celery",
+            awaiting_approval_plan=plan_dict,
+            approval_reasons=["review mode"],
+            tokens_input=200,
+            tokens_output=80,
+            steps=[
+                {"idx": 0, "type": "plan", "duration_ms": 0},
+                {"idx": 1, "type": "approval_requested", "duration_ms": 0},
+            ],
+        )
+        s.add(trace)
+        await s.commit()
+        return trace.id
+
+
+async def test_resume_agent_job_async_appends_steps_and_adds_usage(
+    worker_db,
+    fake_llm_factory,
+    make_tool_use_response,
+    make_text_response,
+    make_submit_verdict_response,
+    passing_verdict,
+    multi_step_plan,
+) -> None:
+    """The resume worker core continues from step_idx_start, appends the resumed steps onto the
+    existing prefix (never rewriting it), and ADDS its usage to the planning tokens already there."""
+    plan_dict = multi_step_plan([("reverse_complement", "rc"), ("gc_content", "gc")])
+    trace_id = await _make_pending_approval_trace(worker_db, plan_dict)
+    # Emulate what the enqueueing request does: append the decision step + flip to running.
+    async with worker_db() as s:
+        row = (await s.execute(select(Trace).where(Trace.id == trace_id))).scalar_one()
+        row.steps = [*row.steps, {"idx": 2, "type": "approval_decision", "duration_ms": 0, "approved": True}]
+        row.status = "running"
+        await s.commit()
+
+    fake = fake_llm_factory(
+        [
+            make_tool_use_response("reverse_complement", {"sequence": "ATGCATGC"}),
+            make_tool_use_response("gc_content", {"sequence": "GCATGCAT"}),
+            make_text_response("GC of reverse complement: 50%."),
+            make_submit_verdict_response(passing_verdict()),
+        ]
+    )
+
+    out = await resume_agent_job_async(trace_id=trace_id, plan=plan_dict, step_idx_start=3, llm=fake)
+    assert out["status"] in ("completed", "completed_after_replan")
+
+    async with worker_db() as s:
+        row = (await s.execute(select(Trace).where(Trace.id == trace_id))).scalar_one()
+        assert row.status in ("completed", "completed_after_replan")
+        types = [st["type"] for st in row.steps]
+        # Prefix preserved, resumed steps appended after it.
+        assert types[:3] == ["plan", "approval_requested", "approval_decision"]
+        assert "tool_call" in types[3:]
+        assert row.tokens_input > 200  # added to the planning tokens, not overwritten
+        assert row.response_text
+        assert row.awaiting_approval_plan is None
+
+
+async def test_approve_stream_celery_resumes_as_durable_job(
+    celery_eager_client,
+    monkeypatch,
+    fake_llm_factory,
+    make_tool_use_response,
+    make_text_response,
+    make_submit_verdict_response,
+    passing_verdict,
+    multi_step_plan,
+) -> None:
+    """Approving in celery mode enqueues the resume; the stream emits the decision + a queued
+    event + the resumed steps + done, and does NOT re-send the plan/approval prefix."""
+    client, maker = celery_eager_client
+    plan_dict = multi_step_plan([("reverse_complement", "rc"), ("gc_content", "gc")])
+    trace_id = await _make_pending_approval_trace(maker, plan_dict)
+
+    fake = fake_llm_factory(
+        [
+            make_tool_use_response("reverse_complement", {"sequence": "ATGCATGC"}),
+            make_tool_use_response("gc_content", {"sequence": "GCATGCAT"}),
+            make_text_response("done."),
+            make_submit_verdict_response(passing_verdict()),
+        ]
+    )
+    monkeypatch.setattr("bioforge.agent.loop.LLM", lambda: fake)
+
+    raw = ""
+    async with client.stream("POST", f"/agent/{trace_id}/approve/stream", json={"approved": True}) as resp:
+        assert resp.status_code == 200
+        async for chunk in resp.aiter_text():
+            raw += chunk
+
+    events = _parse_sse(raw)
+    names = [n for n, _ in events]
+    step_types = [d.get("type") for n, d in events if n == "step" and isinstance(d, dict)]
+    assert "queued" in names
+    assert "approval_decision" in step_types
+    assert "tool_call" in step_types
+    # The prefix the client already has is not re-streamed (start_index skips it).
+    assert "plan" not in step_types
+    assert "approval_requested" not in step_types
+    done = next(d for n, d in events if n == "done")
+    assert done["status"] in ("completed", "completed_after_replan")
+
+
+async def test_approve_sync_celery_enqueues_resume(
+    streaming_client, test_session_maker, monkeypatch, multi_step_plan
+) -> None:
+    """The non-stream approve endpoint, in celery mode, persists the decision, flips to running,
+    and enqueues the resume job with [trace_id, plan, step_idx_start] -- returning immediately."""
+    from bioforge.main import app
+    from bioforge.tasks import celery_app as celery_mod
+
+    monkeypatch.setattr(settings, "task_queue", "celery")
+    app.dependency_overrides[get_llm] = lambda: object()
+    plan_dict = multi_step_plan([("gc_content", "gc")])
+    trace_id = await _make_pending_approval_trace(test_session_maker, plan_dict)
+
+    sent: dict[str, Any] = {}
+
+    def fake_apply_async(args=None, **kwargs):  # noqa: ANN001
+        sent["args"] = args
+        return type("R", (), {"id": "resume-task-1"})()
+
+    monkeypatch.setattr(celery_mod.resume_agent_job_task, "apply_async", fake_apply_async)
+
+    resp = await streaming_client.post(f"/agent/{trace_id}/approve", json={"approved": True})
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "running"
+
+    assert sent["args"][0] == trace_id
+    assert sent["args"][1]["summary"]  # the approved plan dict
+    assert sent["args"][2] == 3  # 2 prefix steps + the decision step -> resume starts at idx 3
+
+    async with test_session_maker() as s:
+        row = (await s.execute(select(Trace).where(Trace.id == trace_id))).scalar_one()
+        assert row.status == "running"
+        assert row.task_id == "resume-task-1"
+        assert any(st["type"] == "approval_decision" for st in row.steps)

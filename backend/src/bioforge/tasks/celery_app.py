@@ -101,3 +101,14 @@ def run_agent_job_task(
     from bioforge.agent.jobs import run_agent_job_async
 
     return _run_async(run_agent_job_async(trace_id=trace_id, goal=goal, project_id=project_id, autonomy=autonomy))
+
+
+@celery_app.task(name="bioforge.tasks.resume_agent_job")
+def resume_agent_job_task(trace_id: str, plan: dict[str, Any], step_idx_start: int) -> dict[str, str]:
+    """Durable resume of an APPROVED run (P2b). The whole post-approval executor/critic loop runs
+    in the worker, just like the initial run, so a review-mode run is durable too. The enqueueing
+    request persisted the decision step + approved plan and flipped the trace to running; we
+    continue from step_idx_start. `plan` is the JSON-safe approved plan dict."""
+    from bioforge.agent.jobs import resume_agent_job_async
+
+    return _run_async(resume_agent_job_async(trace_id=trace_id, plan=plan, step_idx_start=step_idx_start))

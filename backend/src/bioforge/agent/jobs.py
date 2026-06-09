@@ -167,3 +167,80 @@ async def run_agent_job_async(
                 return {"trace_id": trace_id, "status": "error"}
     finally:
         await engine.dispose()
+
+
+async def finalize_resumed_trace(session: AsyncSession, trace: Trace, result: AgentResult) -> Trace:
+    """Terminal write for a RESUMED run (post-approval). Unlike :func:`finalize_trace` it does NOT
+    rewrite ``trace.steps`` -- the committing sink already appended the decision + resumed steps
+    onto the existing plan/approval prefix -- and it ADDS the resume's usage to the totals already
+    on the row (the paused run's planning tokens are already counted), mirroring the in-request
+    approve handler's additive accounting."""
+    trace.status = result.status
+    trace.response_text = result.response_text
+    if result.model:
+        trace.model = result.model
+    trace.awaiting_approval_plan = None
+    if result.usage is not None:
+        trace.tokens_input += result.usage.input_tokens
+        trace.tokens_output += result.usage.output_tokens
+        trace.tokens_cache_creation += result.usage.cache_creation_tokens
+        trace.tokens_cache_read += result.usage.cache_read_tokens
+        trace.cost_usd = round(trace.cost_usd + result.usage.cost_usd, 6)
+    trace.completed_at = datetime.now(UTC)
+    await session.flush()
+    return trace
+
+
+async def resume_agent_job_async(
+    *,
+    trace_id: str,
+    plan: dict,
+    step_idx_start: int,
+    llm: object | None = None,
+) -> dict[str, str]:
+    """Worker-side core for resuming an APPROVED run as a durable job (the celery_app
+    ``bioforge.tasks.resume_agent_job`` task bridges to it).
+
+    The enqueueing request has already appended the approval-decision step, persisted the approved
+    plan, and flipped the trace to ``running`` + committed. Here we load that trace, run
+    :func:`resume_agent` from ``step_idx_start`` with a committing sink (so the polling stream sees
+    the resumed steps land), and write the merged terminal state via :func:`finalize_resumed_trace`.
+    Own engine/sessionmaker + dispose, same as :func:`run_agent_job_async`."""
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from bioforge.agent import Plan, resume_agent
+    from bioforge.agent.context import AgentContextScope
+
+    engine = create_async_engine(settings.db_url, future=True)
+    maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    try:
+        async with maker() as session:
+            trace = (await session.execute(select(Trace).where(Trace.id == trace_id))).scalar_one_or_none()
+            if trace is None:
+                return {"trace_id": trace_id, "status": "error", "error": "trace not found"}
+            try:
+                plan_obj = Plan.model_validate(plan)
+                with AgentContextScope(project_id=trace.project_id, session=session):
+                    result = await resume_agent(
+                        goal=trace.goal,
+                        plan=plan_obj,
+                        project_id=trace.project_id,
+                        step_idx_start=step_idx_start,
+                        llm=llm,  # type: ignore[arg-type]  # None -> resume_agent builds a real LLM
+                        on_step=make_step_persister(session, trace, commit=True),
+                    )
+                await finalize_resumed_trace(session, trace, result)
+                await session.commit()
+                return {"trace_id": trace_id, "status": result.status}
+            except Exception as e:  # noqa: BLE001 -- recorded on the trace, never silently dropped
+                await session.rollback()
+                trace = (await session.execute(select(Trace).where(Trace.id == trace_id))).scalar_one_or_none()
+                if trace is not None:
+                    trace.status = "error"
+                    trace.response_text = f"Resume failed: {type(e).__name__}: {e}"
+                    trace.completed_at = datetime.now(UTC)
+                    await session.commit()
+                return {"trace_id": trace_id, "status": "error"}
+    finally:
+        await engine.dispose()
