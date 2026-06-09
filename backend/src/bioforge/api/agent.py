@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import AsyncIterator
 from dataclasses import asdict, fields
 from datetime import UTC, datetime
@@ -35,6 +36,15 @@ router = APIRouter()
 # enough that intermediate proxies don't drop the connection during a slow BLAST run;
 # long enough that we don't spam the wire with empty lines on a fast trivial goal.
 _SSE_KEEPALIVE_SECONDS = 15.0
+
+# How often GET /agent/{id}/stream re-reads the Trace while a job runs in the worker. ~0.5s is
+# the documented latency floor of the DB-polling design (plan B1); fine for a research tool.
+_STREAM_POLL_SECONDS = 0.5
+# Backstop for a worker that died WITHOUT writing a terminal state: once a job has been non-terminal
+# for longer than the worker's hard time limit plus this margin, the stream reports staleness
+# honestly (never a fake `completed`) and stops. The worker's own soft-time-limit normally flips a
+# stuck job to `error` first; this only catches a truly lost worker.
+_STREAM_STALE_MARGIN_SECONDS = 60.0
 
 
 class AgentRunRequest(BaseModel):
@@ -526,6 +536,99 @@ async def agent_approve_stream(
             session=session,
             llm=llm,
         ),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+# --- Durable-job progress stream (Celery phase, slice 4) -----------------------------
+#
+# When a run executes in a Celery worker (another process), the API can't read its `on_step`
+# callbacks from memory. Instead the worker persists each step to the Trace (committing as it
+# goes, see agent/jobs.py), and this endpoint POLLS that row, relaying new steps as SSE until
+# the job is terminal. The same endpoint catches up a finished run (reconnect / history replay):
+# it emits everything already persisted, sees a terminal status, and ends.
+
+
+def _is_job_terminal(status: str) -> bool:
+    """A run job is terminal once it leaves the queued/running lifecycle. `pending_approval` is
+    terminal for streaming -- the run paused for the user and resumes later via /approve."""
+    return status not in ("queued", "running")
+
+
+async def _refetch_trace(session: AsyncSession, trace_id: str) -> Trace | None:
+    """Read the Trace fresh so commits from the worker's OWN connection are visible: end our
+    transaction (rollback) and force the row to repopulate from the DB rather than the identity
+    map. The stream never writes, so the rollback is a cheap snapshot reset, not data loss."""
+    await session.rollback()
+    result = await session.execute(select(Trace).where(Trace.id == trace_id).execution_options(populate_existing=True))
+    return result.scalar_one_or_none()
+
+
+async def _stream_trace_progress(*, trace_id: str, session: AsyncSession) -> AsyncIterator[str]:
+    trace = await _refetch_trace(session, trace_id)
+    if trace is None:
+        yield format_event("error", {"message": f"Trace {trace_id!r} not found"})
+        return
+
+    # Catch-up: emit everything already persisted, in order.
+    emitted = 0
+    for step in trace.steps:
+        yield format_event("step", step)
+        emitted += 1
+    if _is_job_terminal(trace.status):
+        yield format_event("done", _done_payload_from_trace(trace))
+        return
+
+    # Live: poll until terminal, emitting each newly-persisted step.
+    start = time.monotonic()
+    last_emit = start
+    max_wall = settings.celery_task_time_limit + _STREAM_STALE_MARGIN_SECONDS
+    while True:
+        await asyncio.sleep(_STREAM_POLL_SECONDS)
+        trace = await _refetch_trace(session, trace_id)
+        if trace is None:  # deleted out from under us -- vanishingly unlikely, but be honest.
+            yield format_event("error", {"message": f"Trace {trace_id!r} disappeared mid-stream"})
+            return
+
+        new_steps = trace.steps[emitted:]
+        if new_steps:
+            for step in new_steps:
+                yield format_event("step", step)
+            emitted += len(new_steps)
+            last_emit = time.monotonic()
+
+        if _is_job_terminal(trace.status):
+            yield format_event("done", _done_payload_from_trace(trace))
+            return
+
+        now = time.monotonic()
+        if now - start > max_wall:
+            yield format_event(
+                "error",
+                {
+                    "message": (
+                        "Job is still not terminal past the worker time limit; the worker may "
+                        f"have died. Last known status: {trace.status!r}."
+                    )
+                },
+            )
+            # Emit the current (non-terminal) state honestly -- never a fabricated `completed`.
+            yield format_event("done", _done_payload_from_trace(trace))
+            return
+
+        if now - last_emit > _SSE_KEEPALIVE_SECONDS:
+            yield format_keepalive()
+            last_emit = now
+
+
+@router.get("/agent/{trace_id}/stream")
+async def agent_stream(trace_id: str, session: AsyncSession = Depends(get_session)) -> StreamingResponse:
+    """Stream a durable run's progress by polling its Trace. Emits each persisted step as an SSE
+    `step` event until the job reaches a terminal state, then a `done` event. Works for a LIVE job
+    (a Celery worker writing concurrently) and to CATCH UP a finished one (reconnect / replay)."""
+    return StreamingResponse(
+        _stream_trace_progress(trace_id=trace_id, session=session),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
