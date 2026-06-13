@@ -161,3 +161,14 @@ async def test_expired_session_is_rejected(streaming_client, test_session_maker,
 
     resp = await streaming_client.get("/auth/me", headers={"Authorization": f"Bearer {raw}"})
     assert resp.status_code == 401
+
+
+async def test_config_reports_auth_state(streaming_client, monkeypatch) -> None:
+    """The frontend reads /config to decide whether to show the login screen."""
+    monkeypatch.setattr(settings, "auth_enabled", True)
+    cfg = (await streaming_client.get("/config")).json()
+    assert cfg["auth_enabled"] is True
+    assert "version" in cfg
+
+    monkeypatch.setattr(settings, "auth_enabled", False)
+    assert (await streaming_client.get("/config")).json()["auth_enabled"] is False

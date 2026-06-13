@@ -9,6 +9,7 @@ user, it's just the default one. When ON, a valid Bearer token (from POST /auth/
 from __future__ import annotations
 
 import re
+import uuid
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Header, HTTPException
@@ -148,6 +149,10 @@ async def register(body: RegisterRequest, session: AsyncSession = Depends(get_se
         await session.flush()
     except IntegrityError as e:
         raise HTTPException(status_code=409, detail="An account with that email already exists.") from e
+    # Give the new user a starter project so they land in a usable workspace -- the global
+    # default-project belongs to the default user and is invisible to them under isolation.
+    session.add(Project(id=f"proj-{uuid.uuid4().hex[:10]}", name="My project", user_id=user.id))
+    await session.flush()
     return _to_user_response(user)
 
 

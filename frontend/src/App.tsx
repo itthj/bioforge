@@ -8,7 +8,10 @@ import { ProjectSwitcher } from "./components/ProjectSwitcher";
 import { RunDetail } from "./components/RunDetail";
 import { RunHistory } from "./components/RunHistory";
 import { TraceView } from "./components/TraceView";
+import { FilesPanel } from "./components/FilesPanel";
+import type { AuthContext } from "./components/AuthGate";
 import { cancelRun, streamAgentApprove, streamAgentRun } from "./api/agent";
+import { listProjects } from "./api/projects";
 import { getTrace } from "./api/traces";
 import { cn } from "./lib/cn";
 import type {
@@ -28,11 +31,11 @@ type RunState =
   | "pending_approval"
   | "error"
   | "cancelled";
-type Tab = "chat" | "history" | "memory" | "accuracy";
+type Tab = "chat" | "history" | "memory" | "accuracy" | "data";
 
 const DEFAULT_PROJECT_ID = "default-project";
 
-export function App() {
+export function App({ auth }: { auth?: AuthContext } = {}) {
   const [projectId, setProjectId] = useState(DEFAULT_PROJECT_ID);
   const [tab, setTab] = useState<Tab>("chat");
   const [autonomy, setAutonomy] = useState<Autonomy>("auto");
@@ -63,6 +66,23 @@ export function App() {
       .then(setOpenedRun)
       .catch((e) => setRunError(e instanceof Error ? e.message : String(e)));
   }, []);
+
+  // When signed in (auth on), land in one of YOUR OWN projects -- the global default-project
+  // belongs to the default user and isn't yours. No-op in single-user mode (auth off).
+  useEffect(() => {
+    if (!auth?.user) return;
+    let cancelled = false;
+    listProjects()
+      .then((ps) => {
+        if (!cancelled && ps.length > 0) setProjectId(ps[0].id);
+      })
+      .catch(() => {
+        /* leave the default selection; the switcher still lets them pick/create */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [auth?.user?.id]);
 
   async function consume(generator: AsyncGenerator<SseEvent>) {
     for await (const ev of generator) {
@@ -241,6 +261,20 @@ export function App() {
             onChange={(p) => handleProjectChange(p.id)}
             disabled={switcherDisabled}
           />
+          {auth?.user && (
+            <div className="flex items-center gap-2 border-l border-border pl-2">
+              <span className="max-w-[14ch] truncate text-xs text-fg-subtle" title={auth.user.email}>
+                {auth.user.display_name || auth.user.email}
+              </span>
+              <button
+                type="button"
+                onClick={() => void auth.logout()}
+                className="rounded-md border border-border bg-surface-2 px-2 py-1 text-xs text-fg-subtle shadow-sm transition-colors hover:text-fg"
+              >
+                Sign out
+              </button>
+            </div>
+          )}
         </div>
       </header>
 
@@ -250,6 +284,9 @@ export function App() {
         </TabButton>
         <TabButton active={tab === "history"} onClick={() => setTab("history")}>
           History
+        </TabButton>
+        <TabButton active={tab === "data"} onClick={() => setTab("data")}>
+          Data
         </TabButton>
         <TabButton active={tab === "memory"} onClick={() => setTab("memory")}>
           Memory
@@ -285,6 +322,7 @@ export function App() {
             <RunHistory projectId={projectId} onOpen={handleOpenRun} />
           </>
         ))}
+      {tab === "data" && <FilesPanel projectId={projectId} />}
       {tab === "memory" && <MemoryInspector projectId={projectId} />}
       {tab === "accuracy" && <AccuracyReport />}
     </div>
