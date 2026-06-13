@@ -227,6 +227,17 @@ class Settings(BaseSettings):
     # Minimum password length enforced at registration. An honest floor, not a policy engine.
     auth_min_password_length: int = Field(default=10, alias="BIOFORGE_AUTH_MIN_PASSWORD_LENGTH")
 
+    # --- Cost controls / quotas (Phase 6) ---
+    # Both default OFF so single-user/local behavior is unchanged. When on, they gate a run BEFORE
+    # it starts, per current user (the bootstrapped default user when auth is off).
+    # Rate limit: max runs started per rolling hour (guards against runaway loops / abuse).
+    rate_limit_enabled: bool = Field(default=False, alias="BIOFORGE_RATE_LIMIT_ENABLED")
+    rate_limit_runs_per_hour: int = Field(default=60, alias="BIOFORGE_RATE_LIMIT_RUNS_PER_HOUR")
+    # Budget: per-user spend cap (USD) for the current calendar month. 0 = unlimited. A pre-gate on
+    # spend-so-far (a single run can still finish past the cap; the NEXT run is what's blocked).
+    budget_enabled: bool = Field(default=False, alias="BIOFORGE_BUDGET_ENABLED")
+    monthly_budget_usd: float = Field(default=0.0, alias="BIOFORGE_MONTHLY_BUDGET_USD")
+
     # --- File / dataset uploads (Phase 6) ---
     # Max size of a single uploaded file. Default 50 MB -- enough for sequences/VCFs/result tables;
     # raw reads (FASTQ/BAM) belong in object storage + a job, not an inline upload.

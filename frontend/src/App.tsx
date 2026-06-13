@@ -9,6 +9,7 @@ import { RunDetail } from "./components/RunDetail";
 import { RunHistory } from "./components/RunHistory";
 import { TraceView } from "./components/TraceView";
 import { FilesPanel } from "./components/FilesPanel";
+import { UsageChip } from "./components/UsageChip";
 import type { AuthContext } from "./components/AuthGate";
 import { cancelRun, streamAgentApprove, streamAgentRun } from "./api/agent";
 import { listProjects } from "./api/projects";
@@ -263,6 +264,7 @@ export function App({ auth }: { auth?: AuthContext } = {}) {
           />
           {auth?.user && (
             <div className="flex items-center gap-2 border-l border-border pl-2">
+              <UsageChip />
               <span className="max-w-[14ch] truncate text-xs text-fg-subtle" title={auth.user.email}>
                 {auth.user.display_name || auth.user.email}
               </span>

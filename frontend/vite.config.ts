@@ -28,6 +28,7 @@ export default defineConfig({
       "/benchmarks": { target: "http://localhost:8000", changeOrigin: true },
       "/traces": { target: "http://localhost:8000", changeOrigin: true },
       "/config": { target: "http://localhost:8000", changeOrigin: true },
+      "/usage": { target: "http://localhost:8000", changeOrigin: true },
       "/health": { target: "http://localhost:8000", changeOrigin: true },
     },
   },
