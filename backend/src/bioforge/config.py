@@ -12,6 +12,10 @@ class Settings(BaseSettings):
 
     anthropic_api_key: str = Field(default="", alias="ANTHROPIC_API_KEY")
     db_url: str = Field(default="sqlite+aiosqlite:///./bioforge.db", alias="BIOFORGE_DB_URL")
+    # Allowed browser origins for CORS (comma-separated). Default = the local Vite/dev ports, so
+    # local behavior is unchanged; set BIOFORGE_CORS_ORIGINS to your deployed frontend origin(s)
+    # before exposing the API publicly. "*" allows any origin (do not combine with credentials).
+    cors_origins: str = Field(default="http://localhost:5173,http://localhost:3000", alias="BIOFORGE_CORS_ORIGINS")
     default_model: str = Field(default="claude-sonnet-4-6", alias="BIOFORGE_DEFAULT_MODEL")
     default_project_id: str = Field(default="default-project", alias="BIOFORGE_DEFAULT_PROJECT_ID")
     entrez_email: str = Field(default="", alias="BIOFORGE_ENTREZ_EMAIL")

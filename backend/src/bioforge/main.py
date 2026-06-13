@@ -86,11 +86,18 @@ def create_app() -> FastAPI:
         lifespan=_lifespan,
     )
 
-    # Permissive CORS for local frontend dev. Tighten before any non-local deploy.
+    # CORS origins come from settings (BIOFORGE_CORS_ORIGINS, comma-separated). Default is the
+    # local Vite/dev ports, so local behavior is unchanged; set it to your deployed origin(s)
+    # before exposing the API. "*" disables credentialed requests per the CORS spec, so when "*"
+    # is requested we drop allow_credentials to keep the browser from rejecting every response.
+    from bioforge.config import settings as _settings
+
+    origins = [o.strip() for o in _settings.cors_origins.split(",") if o.strip()]
+    allow_any = origins == ["*"]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:5173", "http://localhost:3000"],
-        allow_credentials=True,
+        allow_origins=origins or ["http://localhost:5173", "http://localhost:3000"],
+        allow_credentials=not allow_any,
         allow_methods=["*"],
         allow_headers=["*"],
     )
