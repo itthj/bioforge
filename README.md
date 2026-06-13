@@ -39,6 +39,21 @@ $env:BIOFORGE_CELERY_E2E = "1"   # plus ANTHROPIC_API_KEY in the environment
 .\.venv\Scripts\python.exe -m pytest backend/tests/test_celery_e2e_docker.py -m docker -q
 ```
 
+### Accounts & your own data (opt-in)
+
+By default BioForge is single-user with no login. Set **`BIOFORGE_AUTH_ENABLED=true`** to turn on **accounts**: `POST /auth/register` then `POST /auth/login` returns a bearer token; send it as `Authorization: Bearer <token>`. Every project — and its runs, memory, and files — then belongs to the user who created it; another user gets a 404. With auth off, everything resolves to a built-in default user, so the single-user experience is byte-for-byte unchanged (passwords are argon2id; tokens are stored only as a SHA-256).
+
+**Bring your own data:** upload files into a project and the agent works on them.
+
+```bash
+# Upload a FASTA/VCF/table (≤50 MB; allowed: fasta, vcf, bed, csv, tsv, gb, txt, …)
+curl -F "file=@guides.fasta" http://localhost:8000/projects/default-project/files
+# List / download / delete
+curl http://localhost:8000/projects/default-project/files
+```
+
+Then just ask the agent: *"read guides.fasta and design CRISPR guides for the first sequence."* The `read_uploaded_file` tool loads it (parsing FASTA into sequences) and feeds it into the design/scoring tools. (Add `-H "Authorization: Bearer <token>"` to every call when auth is on.)
+
 ### Backend
 
 ```powershell
