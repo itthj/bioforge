@@ -1,5 +1,10 @@
 # BioForge — Session handoff (v4 finalization)
 
+> **➡ LATEST / READ FIRST: [`docs/handoff_session8_product.md`](handoff_session8_product.md)** — the
+> live resume point for the product-hardening arc (durable Celery jobs, accounts + bring-your-own-data,
+> cost controls; and the remaining limitations roadmap). This file below is older history (v4
+> benchmark finalization, sessions 1-7) — still accurate for its own work, but start with session 8.
+
 ## ★ START HERE — session 7 entry point (written 2026-06-02, end of session 6)
 
 ### Session 7 kickoff prompt (copy-paste this into the new session)
