@@ -10,6 +10,7 @@ import { RunHistory } from "./components/RunHistory";
 import { TraceView } from "./components/TraceView";
 import { FilesPanel } from "./components/FilesPanel";
 import { PipelinesPanel } from "./components/PipelinesPanel";
+import { FeedbackPanel } from "./components/FeedbackPanel";
 import { UsageChip } from "./components/UsageChip";
 import type { AuthContext } from "./components/AuthGate";
 import { cancelRun, streamAgentApprove, streamAgentRun } from "./api/agent";
@@ -33,7 +34,7 @@ type RunState =
   | "pending_approval"
   | "error"
   | "cancelled";
-type Tab = "chat" | "history" | "memory" | "accuracy" | "data" | "pipelines";
+type Tab = "chat" | "history" | "memory" | "accuracy" | "data" | "pipelines" | "feedback";
 
 const DEFAULT_PROJECT_ID = "default-project";
 
@@ -300,6 +301,9 @@ export function App({ auth }: { auth?: AuthContext } = {}) {
         <TabButton active={tab === "pipelines"} onClick={() => setTab("pipelines")}>
           Pipelines
         </TabButton>
+        <TabButton active={tab === "feedback"} onClick={() => setTab("feedback")}>
+          Feedback
+        </TabButton>
       </nav>
 
       {tab === "chat" && (
@@ -330,6 +334,7 @@ export function App({ auth }: { auth?: AuthContext } = {}) {
         ))}
       {tab === "data" && <FilesPanel projectId={projectId} />}
       {tab === "pipelines" && <PipelinesPanel projectId={projectId} />}
+      {tab === "feedback" && <FeedbackPanel projectId={projectId} />}
       {tab === "memory" && <MemoryInspector projectId={projectId} />}
       {tab === "accuracy" && <AccuracyReport />}
     </div>
