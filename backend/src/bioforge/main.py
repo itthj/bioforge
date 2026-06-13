@@ -11,6 +11,7 @@ from bioforge.api.agent import router as agent_router
 from bioforge.api.auth import router as auth_router
 from bioforge.api.benchmarks import router as benchmarks_router
 from bioforge.api.files import router as files_router
+from bioforge.api.pipelines import router as pipelines_router
 from bioforge.api.projects import router as projects_router
 from bioforge.api.usage import router as usage_router
 from bioforge.auth.passwords import NON_VERIFIABLE_HASH
@@ -96,6 +97,7 @@ def create_app() -> FastAPI:
     app.include_router(agent_router)
     app.include_router(projects_router)
     app.include_router(files_router)
+    app.include_router(pipelines_router)
     app.include_router(usage_router)
     app.include_router(benchmarks_router)
 

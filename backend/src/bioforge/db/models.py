@@ -166,6 +166,40 @@ class User(Base):
     )
 
 
+class PipelineJob(Base):
+    """One nf-core pipeline run. Tracks status + streams events like a Trace row, but for
+    long-running Nextflow executions rather than agent conversations. Project-scoped."""
+
+    __tablename__ = "pipeline_jobs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_id)
+    project_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+
+    pipeline: Mapped[str] = mapped_column(String(120), nullable=False)   # e.g. "nf-core/rnaseq"
+    revision: Mapped[str] = mapped_column(String(40), nullable=False)    # pinned version tag
+    profile: Mapped[str] = mapped_column(String(120), nullable=False, default="test")
+    samplesheet: Mapped[str | None] = mapped_column(Text, nullable=True)  # CSV text, written at submit time
+    params_json: Mapped[str | None] = mapped_column(Text, nullable=True)  # extra --param key=val JSON
+
+    # queued / running / completed / failed / cancelled
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="queued")
+
+    celery_task_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    nextflow_run_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    # Append-only event log persisted as a JSON array.
+    # Each element: {seq, type, step_name|null, payload|null, ts (ISO-8601)}
+    events: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (Index("ix_pipeline_jobs_project_created", "project_id", "created_at"),)
+
+
 class AuthSession(Base):
     """A login session. We store only the SHA-256 of the bearer token, never the token itself, so a
     database leak cannot be replayed as a live login. Lookups hash the presented token and match."""
