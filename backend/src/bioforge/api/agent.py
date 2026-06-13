@@ -20,6 +20,7 @@ from bioforge.agent.jobs import create_queued_trace
 from bioforge.agent.llm import LLM
 from bioforge.api.auth import get_current_user, require_project_access
 from bioforge.api.sse import format_event, format_keepalive
+from bioforge.api.usage import enforce_run_quota
 from bioforge.config import settings
 from bioforge.constants import DEFAULT_PROJECT_ID
 from bioforge.db.engine import get_session
@@ -262,6 +263,7 @@ async def agent_run(
     current_user: User = Depends(get_current_user),
 ) -> AgentRunResponse:
     await require_project_access(session, body.project_id, current_user)
+    await enforce_run_quota(session, current_user)
     if _celery_mode():
         return await _enqueue_agent_run(body, session)
     with AgentContextScope(project_id=body.project_id, session=session):
@@ -356,6 +358,7 @@ async def agent_run_stream(
     In celery mode the run executes in a worker and we stream its persisted progress (preceded by
     a `queued` event); inline mode runs it in-process as before."""
     await require_project_access(session, body.project_id, current_user)
+    await enforce_run_quota(session, current_user)
     generator = (
         _enqueue_and_stream(body, session)
         if _celery_mode()
