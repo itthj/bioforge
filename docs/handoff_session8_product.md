@@ -127,7 +127,26 @@ From the capabilities review the user asked for. Status after this arc:
 | 5 | Pipelines / instruments (nf-core, LIMS) | DONE + MERGED | PR #18. |
 | 2 | Accuracy you can stake a decision on | DONE + MERGED | PR #19. benchmarks/calibration.py (ECE/MCE/Brier) + GIAB QUAL consumer + CalibrationDiagram. |
 | 4 | Wet-lab feedback loop | DONE + MERGED | PR #20. Prediction model, record->outcome->agreement reusing #2 modules; FeedbackPanel. |
-| 3 | Always-on GPU compute | EXECUTION PATH DONE, NEEDS MERGE | feat/gpu-execution-path: provider-agnostic opt-in cloud-GPU backend (Null refuses honestly; Http runnable). Live GPU still a hardware/$$ decision. |
+| 3 | Always-on GPU compute | EXECUTION PATH DONE + MERGED | PR #21. Provider-agnostic opt-in cloud-GPU backend (Null refuses honestly; Http runnable). Live GPU still a hardware/$$ decision. |
+
+### Post-audit "make it a product" follow-ups (after the user installed the model images)
+
+A full code audit (the user had pulled deepcrispr/forecast/lindel/azimuth legacy + google/deepvariant
++ the staphb/ncbi bio-tool images + minio/postgres/redis) found "images installed != images wired"
+and a few real gaps. Shipped:
+
+| PR | What |
+|----|------|
+| #22 | Readiness: `BIOFORGE_CORS_ORIGINS` (configurable, default local), full `.env.example` (every `*_ENABLED`+`*_DOCKER_IMAGE` pair, GIAB data paths, consent flags, GPU, nextflow), `docs/READINESS.md` turn-on checklist, the **MAFFT Dockerfile** (the one un-built image, core-only/BSD), and bio binaries (blast/samtools/bcftools/bwa/minimap2/primer3) bundled into `Dockerfile.backend`. |
+| #23 | **`call_variants`** agent tool — DeepVariant over a BAM (variant tools were annotation-only). Gated, reference-build required, hermetic via injected run_fn. |
+| #24 | Wire **QUAL probability-calibration into the live GIAB run** — #19 added the field but nothing populated it; now a real GIAB run writes ECE/Brier into the published artifact (Accuracy Report already renders it). |
+
+Remaining is genuinely NOT code (the honest residue): install Nextflow (JVM tool) for pipelines;
+stage GIAB reference+truth (~3 GB) for the live variant benchmark; provision a GPU endpoint; record
+real wet-lab outcomes for the feedback loop; flip the `*_ENABLED`+image env vars to engage the deep
+models (all documented in `docs/READINESS.md`). The one open TODO is the DeepCRISPR weight-provenance
+commit pin (`config.py` default "master") — left unpinned on purpose: inventing a SHA from memory
+would violate the no-provenance-from-memory rule.
 
 Honest framing to keep using with the user: 1/6/5 are pure software we can ship; 2/4 are buildable
 scaffolding whose VALUE needs external inputs; 3 is hardware/money. "The integrity IS the product" --
