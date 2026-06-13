@@ -249,6 +249,12 @@ class Settings(BaseSettings):
         alias="BIOFORGE_UPLOAD_ALLOWED_EXTENSIONS",
     )
 
+    # --- nf-core pipeline execution (Limitation #5) ---
+    # Scratch directory for Nextflow work dirs. Each pipeline job gets its own sub-directory under
+    # this root. The BIOFORGE_NEXTFLOW_ENABLED env flag (read at run time by NextflowEngine and the
+    # runner) is the primary gate; pipeline_work_dir just controls where the scratch goes.
+    pipeline_work_dir: str = Field(default=".pipeline_work", alias="BIOFORGE_PIPELINE_WORK_DIR")
+
     # --- Task queue / durable jobs (roadmap Phase 1) ---
     # "inline" (default): run tools/runs in-process, zero infrastructure (single-user local;
     # behaviorally identical to the pre-queue agent). "celery": dispatch to the Celery worker

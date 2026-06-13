@@ -103,6 +103,19 @@ def run_agent_job_task(
     return _run_async(run_agent_job_async(trace_id=trace_id, goal=goal, project_id=project_id, autonomy=autonomy))
 
 
+@celery_app.task(name="bioforge.tasks.run_pipeline_job")
+def run_pipeline_job_task(job_id: str) -> dict[str, str]:
+    """Execute an nf-core pipeline job end-to-end in the worker.
+
+    The PipelineJob row must already exist with status='queued'. The task loads it,
+    runs the pipeline, persists each event back to the row, and writes the terminal
+    status. Returns a small JSON-safe summary for the result backend.
+    """
+    from bioforge.pipelines.jobs import run_pipeline_job_async
+
+    return _run_async(run_pipeline_job_async(job_id=job_id))
+
+
 @celery_app.task(name="bioforge.tasks.resume_agent_job")
 def resume_agent_job_task(trace_id: str, plan: dict[str, Any], step_idx_start: int) -> dict[str, str]:
     """Durable resume of an APPROVED run (P2b). The whole post-approval executor/critic loop runs
