@@ -101,6 +101,18 @@ def create_app() -> FastAPI:
     async def health() -> dict:
         return {"status": "ok", "version": __version__}
 
+    @app.get("/config")
+    async def config() -> dict:
+        """Public client config -- lets the frontend decide whether to show the login screen
+        (auth on) or go straight in (single-user). No secrets here."""
+        from bioforge.config import settings
+
+        return {
+            "version": __version__,
+            "auth_enabled": settings.auth_enabled,
+            "auth_allow_registration": settings.auth_allow_registration,
+        }
+
     return app
 
 
