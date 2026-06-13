@@ -123,9 +123,9 @@ From the capabilities review the user asked for. Status after this arc:
 | # | Limitation | Status | Notes |
 |---|---|---|---|
 | 1 | Logins + bring-your-own-data | DONE + MERGED | PRs #15/#16. The biggest unlock. |
-| 6 | Cost controls (budgets/rate-limits) | DONE, NEEDS MERGE | feat/cost-controls pushed + green; open PR. |
-| 5 | Pipelines / instruments (nf-core, LIMS) | TODO (next) | `workflows/nextflow_engine.py` already exists. |
-| 2 | Accuracy you can stake a decision on | TODO | Honest/partial: scale + CALIBRATE benchmarks; cannot fake accuracy or train models (banned). |
+| 6 | Cost controls (budgets/rate-limits) | DONE + MERGED | PR #17. |
+| 5 | Pipelines / instruments (nf-core, LIMS) | DONE, NEEDS MERGE | feat/nfcore-pipelines pushed + green; PR #18. |
+| 2 | Accuracy you can stake a decision on | TODO (next) | Honest/partial: scale + CALIBRATE benchmarks; cannot fake accuracy or train models (banned). |
 | 4 | Wet-lab feedback loop | TODO | Buildable: record predictions -> ingest results -> recalibrate. Real data is the user's; or calibrate vs published datasets. |
 | 3 | Always-on GPU compute | NOT code | Needs real GPUs/$$; only a cloud-GPU execution path is buildable. Flag, don't pretend. |
 
@@ -202,7 +202,9 @@ wsl -d Ubuntu -- bash -lc "gh pr create -R itthj/bioforge --base main --head fea
 Then poll CI on the head SHA (Monitor or `gh api .../check-runs`), `gh pr merge <n> --merge`, and
 `git fetch; git checkout main; git merge --ff-only origin/main`. It's green locally; CI will mirror.
 
-### Step 2: build Limitation #5 - pipelines (nf-core / Nextflow), its own branch off main
+### Step 2: DONE - Limitation #5 pipelines on feat/nfcore-pipelines (PR #18, awaiting CI+merge)
+
+### Step 3: build Limitation #2 - accuracy calibration, its own branch off main
 There is already a `backend/src/bioforge/workflows/nextflow_engine.py` (gated by the `nextflow`
 pytest marker / `BIOFORGE_NEXTFLOW_ENABLED`) -- READ IT FIRST; build on it, don't rebuild. Sketch:
 - A tool (e.g. `run_nextflow_pipeline`) or an API + a durable job (reuse the Celery job machinery

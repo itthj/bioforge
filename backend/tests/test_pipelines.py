@@ -14,12 +14,10 @@ I/O side-effects.
 from __future__ import annotations
 
 import asyncio
-import json
 from pathlib import Path
 
 import pytest
-from httpx import AsyncClient
-
+from bioforge.constants import DEFAULT_PROJECT_ID
 from bioforge.db.models import PipelineJob
 from bioforge.pipelines.runner import (
     SUPPORTED_PIPELINES,
@@ -28,6 +26,7 @@ from bioforge.pipelines.runner import (
     build_nextflow_argv,
     run_pipeline,
 )
+from httpx import AsyncClient
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -209,8 +208,6 @@ def test_supported_pipelines_catalogue() -> None:
 # Fixtures: `streaming_client` (httpx + app), `test_session_maker` (DB).
 # The default project is pre-seeded by streaming_client; its id comes from constants.
 # ---------------------------------------------------------------------------
-
-from bioforge.constants import DEFAULT_PROJECT_ID
 
 
 @pytest.mark.asyncio
