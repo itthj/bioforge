@@ -18,11 +18,12 @@ from bioforge.agent import AgentResult, AgentStep, Plan, resume_agent, run_agent
 from bioforge.agent.context import AgentContextScope
 from bioforge.agent.jobs import create_queued_trace
 from bioforge.agent.llm import LLM
+from bioforge.api.auth import get_current_user, require_project_access
 from bioforge.api.sse import format_event, format_keepalive
 from bioforge.config import settings
 from bioforge.constants import DEFAULT_PROJECT_ID
 from bioforge.db.engine import get_session
-from bioforge.db.models import Trace
+from bioforge.db.models import Trace, User
 from bioforge.provenance import (
     build_run_manifest,
     render_methods_report,
@@ -177,6 +178,15 @@ def _celery_mode() -> bool:
     return settings.task_queue.strip().lower() == "celery"
 
 
+async def _authorize_existing_trace(session: AsyncSession, trace_id: str, current_user: User) -> None:
+    """Pre-flight access check for the streaming endpoints: if the trace exists, enforce that the
+    current user may access its project (404 otherwise). A genuinely missing trace is left to the
+    stream generator, which reports it as an SSE error event -- the established behavior."""
+    trace = (await session.execute(select(Trace).where(Trace.id == trace_id))).scalar_one_or_none()
+    if trace is not None:
+        await require_project_access(session, trace.project_id, current_user)
+
+
 async def _enqueue_agent_run(body: AgentRunRequest, session: AsyncSession) -> AgentRunResponse:
     """Celery mode: persist a ``queued`` Trace, enqueue the durable run job, and return the
     trace_id IMMEDIATELY (status ``queued``). The client then watches it via
@@ -249,7 +259,9 @@ async def agent_run(
     body: AgentRunRequest,
     session: AsyncSession = Depends(get_session),
     llm: LLM = Depends(get_llm),
+    current_user: User = Depends(get_current_user),
 ) -> AgentRunResponse:
+    await require_project_access(session, body.project_id, current_user)
     if _celery_mode():
         return await _enqueue_agent_run(body, session)
     with AgentContextScope(project_id=body.project_id, session=session):
@@ -335,6 +347,7 @@ async def agent_run_stream(
     body: AgentRunRequest,
     session: AsyncSession = Depends(get_session),
     llm: LLM = Depends(get_llm),
+    current_user: User = Depends(get_current_user),
 ) -> StreamingResponse:
     """SSE variant of /agent/run. Emits `step` events as they happen, ends with a
     `done` event carrying the trace_id, response_text, usage, and (if applicable)
@@ -342,6 +355,7 @@ async def agent_run_stream(
 
     In celery mode the run executes in a worker and we stream its persisted progress (preceded by
     a `queued` event); inline mode runs it in-process as before."""
+    await require_project_access(session, body.project_id, current_user)
     generator = (
         _enqueue_and_stream(body, session)
         if _celery_mode()
@@ -366,11 +380,13 @@ async def agent_approve(
     body: AgentApproveRequest,
     session: AsyncSession = Depends(get_session),
     llm: LLM = Depends(get_llm),
+    current_user: User = Depends(get_current_user),
 ) -> AgentRunResponse:
     """Resume a paused agent run. The trace must be in `pending_approval` state."""
     trace = (await session.execute(select(Trace).where(Trace.id == trace_id))).scalar_one_or_none()
     if trace is None:
         raise HTTPException(status_code=404, detail=f"Trace {trace_id!r} not found")
+    await require_project_access(session, trace.project_id, current_user)
     if trace.status != "pending_approval":
         raise HTTPException(
             status_code=409,
@@ -603,9 +619,11 @@ async def agent_approve_stream(
     body: AgentApproveRequest,
     session: AsyncSession = Depends(get_session),
     llm: LLM = Depends(get_llm),
+    current_user: User = Depends(get_current_user),
 ) -> StreamingResponse:
     """SSE variant of the approve endpoint. Streams the resumed execution after
     approval; emits a single `step`+`done` pair on cancel."""
+    await _authorize_existing_trace(session, trace_id, current_user)
     return StreamingResponse(
         _stream_agent_approve(
             trace_id=trace_id,
@@ -707,10 +725,15 @@ async def _stream_trace_progress(*, trace_id: str, session: AsyncSession, start_
 
 
 @router.get("/agent/{trace_id}/stream")
-async def agent_stream(trace_id: str, session: AsyncSession = Depends(get_session)) -> StreamingResponse:
+async def agent_stream(
+    trace_id: str,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> StreamingResponse:
     """Stream a durable run's progress by polling its Trace. Emits each persisted step as an SSE
     `step` event until the job reaches a terminal state, then a `done` event. Works for a LIVE job
     (a Celery worker writing concurrently) and to CATCH UP a finished one (reconnect / replay)."""
+    await _authorize_existing_trace(session, trace_id, current_user)
     return StreamingResponse(
         _stream_trace_progress(trace_id=trace_id, session=session),
         media_type="text/event-stream",
@@ -722,7 +745,11 @@ async def agent_stream(trace_id: str, session: AsyncSession = Depends(get_sessio
 
 
 @router.post("/agent/{trace_id}/cancel", response_model=AgentRunResponse)
-async def agent_cancel(trace_id: str, session: AsyncSession = Depends(get_session)) -> AgentRunResponse:
+async def agent_cancel(
+    trace_id: str,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> AgentRunResponse:
     """Cancel a running/queued Celery-backed run: revoke the worker task (SIGTERM) and mark the
     Trace `cancelled`. The status write is authoritative -- it owns the transition regardless of
     whether the SIGTERM lands cleanly; whatever steps the worker already committed remain as an
@@ -734,6 +761,7 @@ async def agent_cancel(trace_id: str, session: AsyncSession = Depends(get_sessio
     trace = (await session.execute(select(Trace).where(Trace.id == trace_id))).scalar_one_or_none()
     if trace is None:
         raise HTTPException(status_code=404, detail=f"Trace {trace_id!r} not found")
+    await require_project_access(session, trace.project_id, current_user)
     if trace.job_backend != "celery":
         raise HTTPException(
             status_code=409,
@@ -762,11 +790,12 @@ async def agent_cancel(trace_id: str, session: AsyncSession = Depends(get_sessio
 
 
 @router.get("/traces/{trace_id}")
-async def get_trace(trace_id: str, session: AsyncSession = Depends(get_session)) -> dict:
-    result = await session.execute(select(Trace).where(Trace.id == trace_id))
-    trace = result.scalar_one_or_none()
-    if trace is None:
-        raise HTTPException(status_code=404, detail=f"Trace {trace_id!r} not found")
+async def get_trace(
+    trace_id: str,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    trace = await _load_trace_or_404(trace_id, session, current_user)
     return {
         "id": trace.id,
         "project_id": trace.project_id,
@@ -810,26 +839,35 @@ def _result_from_trace(trace: Trace) -> AgentResult:
     )
 
 
-async def _load_trace_or_404(trace_id: str, session: AsyncSession) -> Trace:
+async def _load_trace_or_404(trace_id: str, session: AsyncSession, current_user: User) -> Trace:
     result = await session.execute(select(Trace).where(Trace.id == trace_id))
     trace = result.scalar_one_or_none()
     if trace is None:
         raise HTTPException(status_code=404, detail=f"Trace {trace_id!r} not found")
+    await require_project_access(session, trace.project_id, current_user)
     return trace
 
 
 @router.get("/traces/{trace_id}/manifest")
-async def get_trace_manifest(trace_id: str, session: AsyncSession = Depends(get_session)) -> dict:
+async def get_trace_manifest(
+    trace_id: str,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> dict:
     """Content-addressed run manifest (machine-readable JSON)."""
-    trace = await _load_trace_or_404(trace_id, session)
+    trace = await _load_trace_or_404(trace_id, session, current_user)
     manifest = build_run_manifest(_result_from_trace(trace))
     return manifest.model_dump()
 
 
 @router.get("/traces/{trace_id}/ro-crate")
-async def get_trace_ro_crate(trace_id: str, session: AsyncSession = Depends(get_session)) -> JSONResponse:
+async def get_trace_ro_crate(
+    trace_id: str,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> JSONResponse:
     """RO-Crate 1.1 metadata document (JSON-LD) for the run."""
-    trace = await _load_trace_or_404(trace_id, session)
+    trace = await _load_trace_or_404(trace_id, session, current_user)
     crate = to_ro_crate(build_run_manifest(_result_from_trace(trace)))
     return JSONResponse(
         content=crate,
@@ -839,9 +877,13 @@ async def get_trace_ro_crate(trace_id: str, session: AsyncSession = Depends(get_
 
 
 @router.get("/traces/{trace_id}/report", response_class=PlainTextResponse)
-async def get_trace_report(trace_id: str, session: AsyncSession = Depends(get_session)) -> PlainTextResponse:
+async def get_trace_report(
+    trace_id: str,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> PlainTextResponse:
     """Publication-grade Markdown methods/reproducibility record for the run."""
-    trace = await _load_trace_or_404(trace_id, session)
+    trace = await _load_trace_or_404(trace_id, session, current_user)
     result = _result_from_trace(trace)
     report = render_methods_report(build_run_manifest(result), result)
     return PlainTextResponse(
@@ -852,9 +894,13 @@ async def get_trace_report(trace_id: str, session: AsyncSession = Depends(get_se
 
 
 @router.get("/traces/{trace_id}/script", response_class=PlainTextResponse)
-async def get_trace_script(trace_id: str, session: AsyncSession = Depends(get_session)) -> PlainTextResponse:
+async def get_trace_script(
+    trace_id: str,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> PlainTextResponse:
     """Runnable Python script that re-executes the run's deterministic tool pipeline."""
-    trace = await _load_trace_or_404(trace_id, session)
+    trace = await _load_trace_or_404(trace_id, session, current_user)
     script = render_reproduce_script(_result_from_trace(trace))
     return PlainTextResponse(
         content=script,
@@ -899,11 +945,13 @@ def _to_trace_summary(t: Trace) -> TraceSummary:
 async def list_project_traces(
     project_id: str,
     session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     q: str | None = Query(default=None, max_length=200, description="Case-insensitive substring match on the goal."),
 ) -> list[TraceSummary]:
     """List a project's runs, newest first — the run-history feed. Read-only; paginated."""
+    await require_project_access(session, project_id, current_user)
     stmt = select(Trace).where(Trace.project_id == project_id)
     if q:
         stmt = stmt.where(Trace.goal.ilike(f"%{q}%"))

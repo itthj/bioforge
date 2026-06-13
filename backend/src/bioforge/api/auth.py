@@ -22,7 +22,7 @@ from bioforge.auth.passwords import NON_VERIFIABLE_HASH
 from bioforge.config import settings
 from bioforge.constants import DEFAULT_USER_EMAIL, DEFAULT_USER_ID
 from bioforge.db.engine import get_session
-from bioforge.db.models import AuthSession, User
+from bioforge.db.models import AuthSession, Project, User
 
 router = APIRouter()
 
@@ -194,3 +194,28 @@ async def logout(
 @router.get("/auth/me", response_model=UserResponse)
 async def me(user: User = Depends(get_current_user)) -> UserResponse:
     return _to_user_response(user)
+
+
+# --- Authorization helpers (used by the project + agent endpoints) -------------------
+
+
+def owns(project: Project | None, user: User) -> bool:
+    """Whether `user` may access `project`. When auth is OFF, ownership isn't enforced (single
+    user), so any existing project is accessible -- preserving the pre-auth behavior exactly."""
+    if project is None:
+        return False
+    if not settings.auth_enabled:
+        return True
+    return project.user_id == user.id
+
+
+async def require_project_access(session: AsyncSession, project_id: str, user: User) -> None:
+    """Raise 404 if `user` can't access `project_id`. No-op when auth is OFF (we don't even require
+    the project to exist there -- traces have always carried free-form project_ids). When auth is
+    ON, a missing OR other-user project is reported as 404, never 403, so the response can't be used
+    to probe which projects exist for other accounts."""
+    if not settings.auth_enabled:
+        return
+    project = await session.get(Project, project_id)
+    if not owns(project, user):
+        raise HTTPException(status_code=404, detail=f"Project {project_id!r} not found")
