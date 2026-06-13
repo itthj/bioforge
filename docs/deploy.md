@@ -5,10 +5,11 @@ an nginx-served React frontend, with **optional** Celery workers and MinIO objec
 compose profiles. It runs on any Docker host. This doc is the honest operator's guide — what to
 set, how to persist state, and **how not to expose it unsafely**.
 
-> ⚠️ **Read "Exposing it safely" before any public deploy.** BioForge has **no authentication layer
-> yet** (auth/multi-tenancy is deferred — see the v4 blueprint Phase 6). The `/agent` endpoint spends
-> your Anthropic API budget on every call, so an unauthenticated public endpoint is both a security
-> and a cost exposure.
+> ⚠️ **Read "Exposing it safely" before any public deploy.** BioForge ships an **opt-in auth layer**
+> (`BIOFORGE_AUTH_ENABLED=true` — accounts + per-user isolation), but there are **no per-user budgets
+> or rate limits yet**, and auth is **off by default**. The `/agent` endpoint spends your Anthropic
+> API budget on every call, so a public endpoint left unauthenticated (or without spend controls) is
+> both a security and a cost exposure.
 
 ---
 
@@ -40,8 +41,11 @@ requires `ANTHROPIC_API_KEY`.
 | `BIOFORGE_ENTREZ_EMAIL` | recommended | empty | NCBI Entrez courtesy email (BLAST / ClinVar / dbSNP lookups). |
 | `BIOFORGE_TASK_QUEUE` | no | `inline` | `inline` runs each agent run in-process; `celery` runs it as a durable job in the worker (needs Redis + a DB the API and worker share). |
 | `BIOFORGE_REDIS_URL` | if celery | `redis://redis:6379/0` | Celery broker + result backend. |
-| `BIOFORGE_STORAGE_BACKEND` | no | `local` | `local` (in-container) or `minio` (S3). |
+| `BIOFORGE_STORAGE_BACKEND` | no | `local` | `local` (in-container) or `minio` (S3). Also backs file uploads. |
 | `BIOFORGE_MINIO_*` | if minio | see compose | Endpoint / keys / bucket. |
+| `BIOFORGE_AUTH_ENABLED` | no | `false` | `true` requires login (bearer tokens) and isolates projects/data per user; `false` = single default user. |
+| `BIOFORGE_AUTH_ALLOW_REGISTRATION` | no | `true` | Set `false` to lock `POST /auth/register` after seeding accounts. |
+| `BIOFORGE_UPLOAD_MAX_BYTES` | no | `52428800` (50 MB) | Max size of a single uploaded file. |
 | `BIOFORGE_OTEL_ENABLED` | no | `false` | OpenTelemetry trace export. |
 
 The optional legacy model images (DeepCRISPR, FORECasT, Lindel, Azimuth, DeepVariant) are **opt-in**
@@ -110,7 +114,9 @@ network-reachable deploy:
 
 This is a **research prototype**, not a hardened SaaS. Known gaps a production deploy must own:
 
-- **No auth / multi-tenancy / billing** (deferred — blueprint Phase 6). See §5.
+- **Auth is opt-in + minimal** — accounts + per-user isolation exist (`BIOFORGE_AUTH_ENABLED`), but
+  there is **no billing, no per-user budgets/rate-limits, and no admin UI** yet. The bearer-token
+  auth has no refresh/rotation flow. Put a reverse proxy + spend controls in front of a public deploy.
 - **SQLite by default** — switch to Postgres (§4) for anything beyond a single-node demo.
 - **The gated benchmarks** (CRISPR scoring, GIAB, edit-outcome) need Docker-in-Docker or host Docker
   access + opt-in model images + datasets; the core app does not.

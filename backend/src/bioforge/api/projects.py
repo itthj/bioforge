@@ -18,10 +18,21 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from bioforge.api.auth import get_current_user, owns
+from bioforge.config import settings
 from bioforge.db.engine import get_session
-from bioforge.db.models import Project, ProjectMemory
+from bioforge.db.models import Project, ProjectMemory, User
 
 router = APIRouter()
+
+
+def _require_owner(project: Project | None, project_id: str, user: User) -> Project:
+    """404 if the project is missing or (when auth is on) not the current user's. Used by the
+    endpoints that already load the project, so it both gates access and gives the 404."""
+    if project is None or not owns(project, user):
+        raise HTTPException(status_code=404, detail=f"Project {project_id!r} not found")
+    return project
+
 
 _SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 _KIND_VALUES = ("fact", "preference", "summary", "file_reference")
@@ -115,7 +126,11 @@ def _to_memory_entry(m: ProjectMemory) -> MemoryEntry:
 
 
 @router.post("/projects", response_model=ProjectResponse, status_code=201)
-async def create_project(body: ProjectCreate, session: AsyncSession = Depends(get_session)) -> ProjectResponse:
+async def create_project(
+    body: ProjectCreate,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> ProjectResponse:
     _validate_slug(body.id)
     project = Project(
         id=body.id,
@@ -123,6 +138,7 @@ async def create_project(body: ProjectCreate, session: AsyncSession = Depends(ge
         description=body.description,
         organism=body.organism,
         reference_genome=body.reference_genome,
+        user_id=current_user.id,  # the creator owns it
     )
     session.add(project)
     try:
@@ -138,16 +154,22 @@ async def create_project(body: ProjectCreate, session: AsyncSession = Depends(ge
 @router.get("/projects", response_model=list[ProjectResponse])
 async def list_projects(
     session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> list[ProjectResponse]:
-    rows = (await session.execute(select(Project).order_by(Project.created_at.desc()))).scalars().all()
+    stmt = select(Project).order_by(Project.created_at.desc())
+    if settings.auth_enabled:
+        stmt = stmt.where(Project.user_id == current_user.id)  # only your own projects
+    rows = (await session.execute(stmt)).scalars().all()
     return [_to_project_response(p) for p in rows]
 
 
 @router.get("/projects/{project_id}", response_model=ProjectResponse)
-async def get_project(project_id: str, session: AsyncSession = Depends(get_session)) -> ProjectResponse:
-    project = await session.get(Project, project_id)
-    if project is None:
-        raise HTTPException(status_code=404, detail=f"Project {project_id!r} not found")
+async def get_project(
+    project_id: str,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> ProjectResponse:
+    project = _require_owner(await session.get(Project, project_id), project_id, current_user)
     return _to_project_response(project)
 
 
@@ -156,10 +178,9 @@ async def update_project(
     project_id: str,
     body: ProjectUpdate,
     session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> ProjectResponse:
-    project = await session.get(Project, project_id)
-    if project is None:
-        raise HTTPException(status_code=404, detail=f"Project {project_id!r} not found")
+    project = _require_owner(await session.get(Project, project_id), project_id, current_user)
     if body.name is not None:
         project.name = body.name
     if body.description is not None:
@@ -174,10 +195,12 @@ async def update_project(
 
 
 @router.delete("/projects/{project_id}", status_code=204)
-async def delete_project(project_id: str, session: AsyncSession = Depends(get_session)) -> None:
-    project = await session.get(Project, project_id)
-    if project is None:
-        raise HTTPException(status_code=404, detail=f"Project {project_id!r} not found")
+async def delete_project(
+    project_id: str,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> None:
+    project = _require_owner(await session.get(Project, project_id), project_id, current_user)
     await session.delete(project)
     await session.flush()
 
@@ -186,11 +209,13 @@ async def delete_project(project_id: str, session: AsyncSession = Depends(get_se
 
 
 @router.get("/projects/{project_id}/memory", response_model=list[MemoryEntry])
-async def list_memory(project_id: str, session: AsyncSession = Depends(get_session)) -> list[MemoryEntry]:
-    # Confirm the project exists so the response distinguishes "no memory" from "no project".
-    project = await session.get(Project, project_id)
-    if project is None:
-        raise HTTPException(status_code=404, detail=f"Project {project_id!r} not found")
+async def list_memory(
+    project_id: str,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> list[MemoryEntry]:
+    # Confirm the project exists + is yours so the response distinguishes "no memory" from "no project".
+    _require_owner(await session.get(Project, project_id), project_id, current_user)
     rows = (
         (
             await session.execute(
@@ -214,12 +239,11 @@ async def upsert_memory(
     key: str,
     body: MemoryUpsert,
     session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> MemoryEntry:
     """User-driven upsert. `source` is set to `user` so the audit trail distinguishes
     human edits from agent writes."""
-    project = await session.get(Project, project_id)
-    if project is None:
-        raise HTTPException(status_code=404, detail=f"Project {project_id!r} not found")
+    _require_owner(await session.get(Project, project_id), project_id, current_user)
     existing = (
         await session.execute(
             select(ProjectMemory).where(ProjectMemory.project_id == project_id, ProjectMemory.key == key)
@@ -248,7 +272,13 @@ async def upsert_memory(
 
 
 @router.delete("/projects/{project_id}/memory/{key}", status_code=204)
-async def delete_memory(project_id: str, key: str, session: AsyncSession = Depends(get_session)) -> None:
+async def delete_memory(
+    project_id: str,
+    key: str,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> None:
+    _require_owner(await session.get(Project, project_id), project_id, current_user)
     row = (
         await session.execute(
             select(ProjectMemory).where(ProjectMemory.project_id == project_id, ProjectMemory.key == key)
