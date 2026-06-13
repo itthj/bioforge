@@ -125,6 +125,26 @@ class Trace(Base):
     __table_args__ = (Index("ix_traces_project_created", "project_id", "created_at"),)
 
 
+class UploadedFile(Base):
+    """A user-uploaded data file (the registry row). The bytes live in the storage adapter under
+    `storage_key`; this row is the catalog the API + the agent list, look up, and reference. Scoped
+    to a project (same isolation boundary as Trace/ProjectMemory)."""
+
+    __tablename__ = "uploaded_files"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_id)
+    project_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)  # the original name, as uploaded
+    storage_key: Mapped[str] = mapped_column(String(255), nullable=False)  # key within the storage adapter
+    content_type: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)  # content hash (provenance + dedupe signal)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    __table_args__ = (Index("ix_uploaded_files_project_created", "project_id", "created_at"),)
+
+
 class User(Base):
     """An account. The unit of ownership + isolation once auth is enabled. When auth is OFF the
     single bootstrapped default user owns everything, so the rest of the code never special-cases

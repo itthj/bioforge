@@ -219,3 +219,13 @@ async def require_project_access(session: AsyncSession, project_id: str, user: U
     project = await session.get(Project, project_id)
     if not owns(project, user):
         raise HTTPException(status_code=404, detail=f"Project {project_id!r} not found")
+
+
+async def require_owned_project(session: AsyncSession, project_id: str, user: User) -> Project:
+    """Like require_project_access, but the project must EXIST (returns it). Used by file ops, which
+    physically store bytes under a project_id -- uploading into a non-existent project would orphan
+    them. Existence is enforced regardless of auth; ownership only when auth is on."""
+    project = await session.get(Project, project_id)
+    if project is None or not owns(project, user):
+        raise HTTPException(status_code=404, detail=f"Project {project_id!r} not found")
+    return project

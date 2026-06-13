@@ -227,6 +227,17 @@ class Settings(BaseSettings):
     # Minimum password length enforced at registration. An honest floor, not a policy engine.
     auth_min_password_length: int = Field(default=10, alias="BIOFORGE_AUTH_MIN_PASSWORD_LENGTH")
 
+    # --- File / dataset uploads (Phase 6) ---
+    # Max size of a single uploaded file. Default 50 MB -- enough for sequences/VCFs/result tables;
+    # raw reads (FASTQ/BAM) belong in object storage + a job, not an inline upload.
+    upload_max_bytes: int = Field(default=50 * 1024 * 1024, alias="BIOFORGE_UPLOAD_MAX_BYTES")
+    # Allowed upload extensions (comma-separated, lowercase, no dot): the bioinformatics inputs the
+    # tools can actually read. Keeps a project's storage to data files, not arbitrary blobs.
+    upload_allowed_extensions: str = Field(
+        default="fasta,fa,fna,ffn,faa,vcf,csv,tsv,txt,bed,gb,gbk,genbank",
+        alias="BIOFORGE_UPLOAD_ALLOWED_EXTENSIONS",
+    )
+
     # --- Task queue / durable jobs (roadmap Phase 1) ---
     # "inline" (default): run tools/runs in-process, zero infrastructure (single-user local;
     # behaviorally identical to the pre-queue agent). "celery": dispatch to the Celery worker
