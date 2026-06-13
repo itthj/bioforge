@@ -221,6 +221,24 @@ _BENCHMARKS: list[BenchmarkStatus] = [
         ),
     ),
     BenchmarkStatus(
+        name="Variant-caller QUAL probability calibration (ECE / MCE / Brier)",
+        blueprint_section="§6 / §13 / Phase 3",
+        status="guard_only",
+        detail=(
+            "benchmarks.calibration provides textbook probability-calibration (numpy-only): "
+            "Expected + Maximum Calibration Error and the bin-free Brier score from "
+            "(predicted-probability, binary-outcome) pairs, with hard honesty rails -- probabilities "
+            "outside [0,1] or non-binary outcomes RAISE (a score is never silently read as a "
+            "probability). benchmarks.variant_concordance.score_call_calibration applies it to the "
+            "GIAB arm: each in-confident-region call contributes (1-10^(-QUAL/10), is_true_positive), "
+            "so DeepVariant's QUAL -- a genuine probability the platform did not previously check -- "
+            "gets a real calibration curve. The metric + rails are unit-tested against textbook "
+            "values; the live ECE/Brier rides on the offline-published GIAB artifact "
+            "(published_giab[].calibration). guard_only, not live: it needs the same Docker + staged "
+            "GIAB inputs as the concordance arm, so it never runs on a page load."
+        ),
+    ),
+    BenchmarkStatus(
         name="Edit-outcome distribution agreement (TVD + JSD)",
         blueprint_section="§13 / Phase 2",
         status="guard_only",
