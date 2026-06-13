@@ -175,8 +175,8 @@ class PipelineJob(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_id)
     project_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
 
-    pipeline: Mapped[str] = mapped_column(String(120), nullable=False)   # e.g. "nf-core/rnaseq"
-    revision: Mapped[str] = mapped_column(String(40), nullable=False)    # pinned version tag
+    pipeline: Mapped[str] = mapped_column(String(120), nullable=False)  # e.g. "nf-core/rnaseq"
+    revision: Mapped[str] = mapped_column(String(40), nullable=False)  # pinned version tag
     profile: Mapped[str] = mapped_column(String(120), nullable=False, default="test")
     samplesheet: Mapped[str | None] = mapped_column(Text, nullable=True)  # CSV text, written at submit time
     params_json: Mapped[str | None] = mapped_column(Text, nullable=True)  # extra --param key=val JSON
