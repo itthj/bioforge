@@ -201,6 +201,54 @@ def score_variant_concordance(
     )
 
 
+@dataclass(frozen=True)
+class QualifiedCall:
+    """A called variant carrying the caller's QUAL (PHRED). Used for QUAL calibration."""
+
+    call: VariantCall
+    qual: float
+
+
+def score_call_calibration(
+    called: Iterable[QualifiedCall],
+    truth: Iterable[VariantCall],
+    regions: Iterable[ConfidentRegion],
+    *,
+    n_bins: int = 10,
+):
+    """Calibrate a caller's QUAL against ground truth: is a QUAL->probability actually borne out?
+
+    Each called variant inside the confident regions contributes a pair
+    `(P(true)=1-10^(-QUAL/10), is_true_positive)` where the outcome is 1 iff the normalized key is
+    in the truth set. Returns a `CalibrationCurve` (ECE / MCE / Brier + reliability bins).
+
+    This is the honest probability-calibration arm of the GIAB benchmark: DeepVariant's QUAL is a
+    genuine probability the platform did not previously check. Restricted to the confident regions
+    for the same reason precision/recall is -- a caller is not judged on regions GIAB does not
+    assert. Raises (via calibration_curve) on fewer than 2 in-region calls.
+    """
+    from bioforge.benchmarks.calibration import calibration_curve, phred_to_probability
+
+    truth_keys = {v.normalized_key() for v in truth}
+    index = _build_region_index(regions)
+    pairs: list[tuple[float, float]] = []
+    for qc in called:
+        v = qc.call
+        if not _in_regions(index, v.chrom, v.start0):
+            continue
+        outcome = 1.0 if v.normalized_key() in truth_keys else 0.0
+        pairs.append((phred_to_probability(qc.qual), outcome))
+
+    return calibration_curve(
+        pairs,
+        n_bins=n_bins,
+        strategy="equal_width",
+        kind="probability",
+        predicted_label="QUAL -> P(variant is real)",
+        observed_label="fraction matching truth set",
+    )
+
+
 def variant_calls_from_parsed(parsed: Iterable[object]) -> list[VariantCall]:
     """Adapt `parse_vcf.Variant` records into `VariantCall`s, exploding multi-allelic sites.
 

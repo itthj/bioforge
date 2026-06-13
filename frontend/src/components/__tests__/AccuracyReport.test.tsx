@@ -137,6 +137,7 @@ function makeGiab() {
       { variant_class: "INDEL" as const, tp: 4, fp: 0, fn: 0, precision: 1.0, recall: 1.0, f1: 1.0 },
       { variant_class: "ALL" as const, tp: 49, fp: 1, fn: 0, precision: 0.98, recall: 1.0, f1: 0.9899 },
     ],
+    calibration: null,
     caveat: "genotype-agnostic, not haplotype-aware like hap.py",
     interpretation: "small validation region, not a genome-wide HG002 claim",
   };

@@ -84,6 +84,31 @@ export interface PublishedBenchmark {
   reliability: ReliabilityCurve;
 }
 
+// Mirror of bioforge.benchmarks.calibration.CalibrationBin / CalibrationCurve.
+export interface CalibrationBin {
+  bin_index: number;
+  n: number;
+  predicted_mean: number;
+  observed_freq: number;
+  gap: number;
+  bin_low: number;
+  bin_high: number;
+}
+
+export interface CalibrationCurve {
+  n: number;
+  n_bins: number;
+  bins: CalibrationBin[];
+  ece: number;
+  mce: number;
+  brier: number;
+  base_rate: number;
+  kind: "probability" | "squashed_score";
+  predicted_label: string;
+  observed_label: string;
+  caveat: string;
+}
+
 // A real, dated GIAB variant-calling concordance measurement (precision/recall/F1 by class).
 // Mirror of bioforge.benchmarks.published.PublishedGiabBenchmark.
 export interface ConcordanceMetrics {
@@ -108,6 +133,7 @@ export interface PublishedGiabBenchmark {
   n_truth_in_regions: number;
   n_called_in_regions: number;
   by_class: ConcordanceMetrics[];
+  calibration: CalibrationCurve | null;
   caveat: string;
   interpretation: string;
 }

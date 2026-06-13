@@ -11,6 +11,7 @@ import type {
 } from "../types/benchmarks";
 import { downloadBlob, svgToString, toCsv } from "../lib/download";
 import { ReliabilityDiagram } from "./ReliabilityDiagram";
+import { CalibrationDiagram } from "./CalibrationDiagram";
 import { ExportButton } from "./ui/ExportButton";
 
 /** lowercase a benchmark name into a filesystem-safe slug for export filenames. */
@@ -255,6 +256,11 @@ function GiabConcordanceResults({ published }: { published: PublishedGiabBenchma
             </div>
             <p className="mt-1 text-[11px] text-fg-muted">{gb.interpretation}</p>
             <p className="mt-1 text-[11px] italic text-warn">{gb.caveat}</p>
+            {gb.calibration && (
+              <div className="mt-3">
+                <CalibrationDiagram curve={gb.calibration} />
+              </div>
+            )}
           </div>
         ))}
       </div>

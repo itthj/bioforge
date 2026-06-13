@@ -20,6 +20,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from bioforge.benchmarks.calibration import CalibrationCurve
 from bioforge.benchmarks.reliability import ReliabilityCurve, reliability_curve, reliability_from_pairs
 from bioforge.benchmarks.variant_concordance import ConcordanceMetrics
 
@@ -169,6 +170,10 @@ class PublishedGiabBenchmark(BaseModel):
     n_truth_in_regions: int
     n_called_in_regions: int
     by_class: list[ConcordanceMetrics]
+    calibration: CalibrationCurve | None = Field(
+        default=None,
+        description="QUAL calibration (ECE/MCE/Brier) when the caller emits per-call QUAL; null otherwise.",
+    )
     caveat: str
     interpretation: str
 
@@ -196,9 +201,13 @@ def generate_giab_artifact(
     name: str,
     slug: str,
     result=None,
+    calibration: CalibrationCurve | None = None,
 ) -> Path:
     """Run the real GIAB concordance benchmark (or accept a precomputed result) and write its
-    artifact to `published/giab_<slug>.json`. Requires DeepVariant + staged GIAB inputs."""
+    artifact to `published/giab_<slug>.json`. Requires DeepVariant + staged GIAB inputs.
+
+    `calibration` is the optional QUAL CalibrationCurve (score_call_calibration) -- pass it when the
+    offline run parsed per-call QUAL, so the published artifact carries the honest ECE/Brier too."""
     from bioforge.benchmarks.giab import run_giab_benchmark
 
     res = result if result is not None else run_giab_benchmark(settings=settings)
@@ -214,6 +223,7 @@ def generate_giab_artifact(
         n_truth_in_regions=res.concordance.n_truth_in_regions,
         n_called_in_regions=res.concordance.n_called_in_regions,
         by_class=res.concordance.by_class,
+        calibration=calibration,
         caveat=res.concordance.caveat,
         interpretation=interpretation,
     )
