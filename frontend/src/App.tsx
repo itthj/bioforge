@@ -12,6 +12,7 @@ import { FilesPanel } from "./components/FilesPanel";
 import { PipelinesPanel } from "./components/PipelinesPanel";
 import { FeedbackPanel } from "./components/FeedbackPanel";
 import { UsageChip } from "./components/UsageChip";
+import { GpuChip } from "./components/GpuChip";
 import type { AuthContext } from "./components/AuthGate";
 import { cancelRun, streamAgentApprove, streamAgentRun } from "./api/agent";
 import { listProjects } from "./api/projects";
@@ -259,6 +260,7 @@ export function App({ auth }: { auth?: AuthContext } = {}) {
               New goal
             </button>
           )}
+          <GpuChip />
           <ProjectSwitcher
             currentProjectId={projectId}
             onChange={(p) => handleProjectChange(p.id)}

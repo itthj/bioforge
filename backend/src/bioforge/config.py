@@ -249,6 +249,19 @@ class Settings(BaseSettings):
         alias="BIOFORGE_UPLOAD_ALLOWED_EXTENSIONS",
     )
 
+    # --- Cloud-GPU execution path (Limitation #3) ---
+    # Always-on GPU is a hardware/budget question, not a code one. The only buildable piece is an
+    # EXECUTION PATH: dispatch a GPU-requiring job to a cloud endpoint the user provisions. Default
+    # "none" = no GPU backend; a GPU job then REFUSES with a setup message (never fakes a result).
+    # "http" = a provider-agnostic backend that POSTs the job to `gpu_endpoint` (bearer
+    # `gpu_api_key`) and polls -- works against any compliant HTTP GPU service (a self-hosted server,
+    # a Modal/RunPod/Replicate web endpoint). Opt-in keeps the default single-user path unchanged.
+    gpu_backend: str = Field(default="none", alias="BIOFORGE_GPU_BACKEND")  # none | http
+    gpu_endpoint: str = Field(default="", alias="BIOFORGE_GPU_ENDPOINT")  # base URL of the GPU service
+    gpu_api_key: str = Field(default="", alias="BIOFORGE_GPU_API_KEY")  # bearer token, if the service needs one
+    gpu_timeout_seconds: float = Field(default=600.0, alias="BIOFORGE_GPU_TIMEOUT_SECONDS")
+    gpu_poll_seconds: float = Field(default=2.0, alias="BIOFORGE_GPU_POLL_SECONDS")
+
     # --- nf-core pipeline execution (Limitation #5) ---
     # Scratch directory for Nextflow work dirs. Each pipeline job gets its own sub-directory under
     # this root. The BIOFORGE_NEXTFLOW_ENABLED env flag (read at run time by NextflowEngine and the

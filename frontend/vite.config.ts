@@ -31,6 +31,7 @@ export default defineConfig({
       "/usage": { target: "http://localhost:8000", changeOrigin: true },
       "/pipelines": { target: "http://localhost:8000", changeOrigin: true },
       "/predictions": { target: "http://localhost:8000", changeOrigin: true },
+      "/gpu": { target: "http://localhost:8000", changeOrigin: true },
       "/health": { target: "http://localhost:8000", changeOrigin: true },
     },
   },

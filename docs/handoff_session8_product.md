@@ -126,8 +126,8 @@ From the capabilities review the user asked for. Status after this arc:
 | 6 | Cost controls (budgets/rate-limits) | DONE + MERGED | PR #17. |
 | 5 | Pipelines / instruments (nf-core, LIMS) | DONE + MERGED | PR #18. |
 | 2 | Accuracy you can stake a decision on | DONE + MERGED | PR #19. benchmarks/calibration.py (ECE/MCE/Brier) + GIAB QUAL consumer + CalibrationDiagram. |
-| 4 | Wet-lab feedback loop | DONE, NEEDS MERGE | feat/wetlab-feedback: Prediction model, record->outcome->agreement reusing #2 modules; FeedbackPanel. |
-| 3 | Always-on GPU compute | NOT code | Needs real GPUs/$$; only a cloud-GPU execution path is buildable. Flag, don't pretend. |
+| 4 | Wet-lab feedback loop | DONE + MERGED | PR #20. Prediction model, record->outcome->agreement reusing #2 modules; FeedbackPanel. |
+| 3 | Always-on GPU compute | EXECUTION PATH DONE, NEEDS MERGE | feat/gpu-execution-path: provider-agnostic opt-in cloud-GPU backend (Null refuses honestly; Http runnable). Live GPU still a hardware/$$ decision. |
 
 Honest framing to keep using with the user: 1/6/5 are pure software we can ship; 2/4 are buildable
 scaffolding whose VALUE needs external inputs; 3 is hardware/money. "The integrity IS the product" --
