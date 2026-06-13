@@ -14,7 +14,9 @@ from bioforge.benchmarks.deepvariant_runner import (
 )
 from bioforge.benchmarks.giab import (
     GiabUnavailable,
+    giab_quality_calibration,
     parse_confident_regions,
+    qualified_calls_from_vcf_text,
     run_giab_benchmark,
     score_giab,
     variant_calls_from_vcf_text,
@@ -137,3 +139,63 @@ def test_run_giab_benchmark_with_mock_caller(monkeypatch, tmp_path) -> None:
     assert "DeepVariant" in result.caller
     by = {m.variant_class: m for m in result.concordance.by_class}
     assert (by["SNV"].tp, by["SNV"].fp, by["SNV"].fn) == (2, 1, 0)
+
+
+# --- QUAL calibration wiring (the §13 calibration arm going live) --------------------
+
+# Truth: two in-region SNVs. Called: those two at high QUAL (TP) + two FPs, one high one low QUAL.
+_TRUTH_CAL = (
+    "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+    "chr20\t1001\t.\tA\tG\t.\tPASS\t.\n"
+    "chr20\t1500\t.\tC\tT\t.\tPASS\t.\n"
+)
+_CALLED_CAL = (
+    "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+    "chr20\t1001\t.\tA\tG\t30\tPASS\t.\n"  # TP, P~0.999
+    "chr20\t1500\t.\tC\tT\t30\tPASS\t.\n"  # TP, P~0.999
+    "chr20\t1700\t.\tG\tA\t30\tPASS\t.\n"  # FP, P~0.999 (overconfident)
+    "chr20\t1800\t.\tT\tC\t.\tPASS\t.\n"  # no QUAL -> excluded from calibration
+)
+_BED_CAL = "chr20\t1000\t2000\n"
+
+
+def test_qualified_calls_parse_qual_and_skip_missing() -> None:
+    calls = qualified_calls_from_vcf_text(_CALLED_CAL)
+    # The '.' QUAL row at 1800 is excluded; the other three carry QUAL 30.
+    assert len(calls) == 3
+    assert all(c.qual == 30.0 for c in calls)
+
+
+def test_giab_quality_calibration_curve() -> None:
+    curve = giab_quality_calibration(_CALLED_CAL, _TRUTH_CAL, _BED_CAL)
+    assert curve is not None
+    # 3 QUAL-carrying in-region calls, all P~0.999; 2 of 3 are true positives.
+    assert curve.n == 3
+    top = curve.bins[-1]
+    assert top.observed_freq == pytest.approx(2 / 3, abs=1e-9)
+
+
+def test_giab_quality_calibration_none_when_too_few() -> None:
+    one_call = "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\nchr20\t1001\t.\tA\tG\t30\tPASS\t.\n"
+    assert giab_quality_calibration(one_call, _TRUTH_CAL, _BED_CAL) is None
+
+
+def test_run_giab_benchmark_includes_calibration(monkeypatch, tmp_path) -> None:
+    truth = tmp_path / "truth.vcf"
+    bed = tmp_path / "conf.bed"
+    called = tmp_path / "calls.vcf"
+    truth.write_text(_TRUTH_CAL, encoding="utf-8")
+    bed.write_text(_BED_CAL, encoding="utf-8")
+    called.write_text(_CALLED_CAL, encoding="utf-8")
+    monkeypatch.setattr(settings, "deepvariant_enabled", True)
+    monkeypatch.setattr(settings, "deepvariant_docker_image", "google/deepvariant@sha256:abc")
+    monkeypatch.setattr(settings, "giab_reference_path", str(tmp_path / "ref.fa"))
+    monkeypatch.setattr(settings, "giab_reference_build", "GRCh38.test")
+    monkeypatch.setattr(settings, "giab_reads_path", str(tmp_path / "hg002.bam"))
+    monkeypatch.setattr(settings, "giab_truth_vcf_path", str(truth))
+    monkeypatch.setattr(settings, "giab_confident_bed_path", str(bed))
+    monkeypatch.setattr(settings, "giab_regions", "chr20")
+
+    result = run_giab_benchmark(settings=settings, caller=lambda s: called)
+    assert result.calibration is not None
+    assert result.calibration.n == 3

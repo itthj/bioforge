@@ -211,6 +211,8 @@ def generate_giab_artifact(
     from bioforge.benchmarks.giab import run_giab_benchmark
 
     res = result if result is not None else run_giab_benchmark(settings=settings)
+    # Prefer an explicitly-passed curve; otherwise use the one the benchmark computed from QUAL.
+    cal = calibration if calibration is not None else getattr(res, "calibration", None)
     artifact = PublishedGiabBenchmark(
         name=name,
         blueprint_section="§13 / Phase 3",
@@ -223,7 +225,7 @@ def generate_giab_artifact(
         n_truth_in_regions=res.concordance.n_truth_in_regions,
         n_called_in_regions=res.concordance.n_called_in_regions,
         by_class=res.concordance.by_class,
-        calibration=calibration,
+        calibration=cal,
         caveat=res.concordance.caveat,
         interpretation=interpretation,
     )
