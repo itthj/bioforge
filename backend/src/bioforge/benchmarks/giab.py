@@ -22,11 +22,14 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from bioforge.benchmarks.calibration import CalibrationCurve
 from bioforge.benchmarks.deepvariant_runner import run_caller
 from bioforge.benchmarks.variant_concordance import (
     ConfidentRegion,
+    QualifiedCall,
     VariantCall,
     VariantConcordanceResult,
+    score_call_calibration,
     score_variant_concordance,
 )
 from bioforge.config import Settings
@@ -46,6 +49,11 @@ class GiabBenchmarkResult(BaseModel):
         description="The variant caller + image used, e.g. 'DeepVariant google/deepvariant@sha256:...'."
     )
     concordance: VariantConcordanceResult
+    calibration: CalibrationCurve | None = Field(
+        default=None,
+        description="QUAL probability-calibration (ECE/MCE/Brier) of the calls vs truth, when the "
+        "called VCF carries QUAL; null otherwise.",
+    )
 
 
 def _read_text(path: str | Path) -> str:
@@ -101,6 +109,50 @@ def variant_calls_from_vcf_text(vcf_text: str) -> list[VariantCall]:
     return calls
 
 
+def qualified_calls_from_vcf_text(vcf_text: str) -> list[QualifiedCall]:
+    """Like `variant_calls_from_vcf_text`, but keeps each call's QUAL (PHRED) for calibration.
+
+    A call whose QUAL is missing ('.') or non-numeric is skipped -- calibration needs a real
+    probability per call, and a fabricated QUAL would defeat the point. Multi-allelic ALTs share
+    the row's QUAL; symbolic ALTs are skipped."""
+    out: list[QualifiedCall] = []
+    for line in vcf_text.splitlines():
+        if not line or line.startswith("#"):
+            continue
+        cols = line.split("\t")
+        if len(cols) < 6:
+            continue
+        chrom, pos_s, _id, ref, alt_field, qual_s = cols[0], cols[1], cols[2], cols[3].upper(), cols[4].upper(), cols[5]
+        try:
+            pos = int(pos_s)
+            qual = float(qual_s)
+        except ValueError:
+            continue  # no usable position or QUAL -> excluded, never guessed
+        for alt in alt_field.split(","):
+            a = alt.strip()
+            if not a or a == "." or a.startswith("<") or "[" in a or "]" in a or a == "*":
+                continue
+            out.append(QualifiedCall(call=VariantCall(chrom=chrom, pos=pos, ref=ref, alt=a), qual=qual))
+    return out
+
+
+def giab_quality_calibration(
+    called_vcf_text: str, truth_vcf_text: str, confident_bed_text: str, *, n_bins: int = 10
+) -> CalibrationCurve | None:
+    """Probability-calibration (ECE/MCE/Brier) of the caller's QUAL against the truth set.
+
+    Each in-confident-region call contributes (P(true)=1-10^(-QUAL/10), is_true_positive). Returns
+    None when there are too few QUAL-carrying in-region calls to draw a curve (>=2 needed) -- honest
+    about insufficient evidence rather than emitting a one-point 'curve'."""
+    qualified = qualified_calls_from_vcf_text(called_vcf_text)
+    truth = variant_calls_from_vcf_text(truth_vcf_text)
+    regions = parse_confident_regions(confident_bed_text)
+    try:
+        return score_call_calibration(qualified, truth, regions, n_bins=n_bins)
+    except ValueError:
+        return None  # fewer than 2 in-region calls with QUAL
+
+
 def score_giab(called_vcf_text: str, truth_vcf_text: str, confident_bed_text: str) -> VariantConcordanceResult:
     """Pure scoring core: parse the three inputs and compute stratified concordance.
 
@@ -153,14 +205,15 @@ def run_giab_benchmark(*, settings: Settings | None = None, caller=None) -> Giab
 
     run_call = caller if caller is not None else _default_caller
     called_vcf_path = run_call(s)
-    result = score_giab(
-        _read_text(called_vcf_path),
-        _read_text(s.giab_truth_vcf_path),
-        _read_text(s.giab_confident_bed_path),
-    )
+    called_text = _read_text(called_vcf_path)
+    truth_text = _read_text(s.giab_truth_vcf_path)
+    bed_text = _read_text(s.giab_confident_bed_path)
+    result = score_giab(called_text, truth_text, bed_text)
+    calibration = giab_quality_calibration(called_text, truth_text, bed_text)
     return GiabBenchmarkResult(
         reference_build=s.giab_reference_build,
         regions=s.giab_regions or "(all)",
         caller=f"DeepVariant {s.deepvariant_docker_image or '(image unset)'} model_type={s.deepvariant_model_type}",
         concordance=result,
+        calibration=calibration,
     )
