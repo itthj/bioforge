@@ -40,9 +40,15 @@ RUN pip install --no-cache-dir --upgrade pip \
 FROM python:3.11-slim AS runtime
 
 # curl is handy for healthcheck + manual debugging; ca-certificates is required
-# for the Anthropic SDK + NCBI HTTPS calls.
+# for the Anthropic SDK + NCBI HTTPS calls. The bio binaries (all open-source, in Debian
+# main) are the external tools BioForge shells out to via shutil.which(): BLAST+, samtools,
+# bcftools, bwa, minimap2, primer3. Bundling them means those tools work in-container out of
+# the box; without them BLAST falls back to the NCBI web service and the rest refuse with
+# setup guidance. The heavy ML model images (DeepCRISPR/DeepVariant/...) are deliberately NOT
+# bundled -- those run as separate `docker run` images.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         curl ca-certificates \
+        ncbi-blast+ samtools bcftools bwa minimap2 primer3 \
         && rm -rf /var/lib/apt/lists/* \
     && useradd --create-home --shell /bin/bash --uid 1000 bioforge
 
