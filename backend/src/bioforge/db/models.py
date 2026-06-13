@@ -166,6 +166,46 @@ class User(Base):
     )
 
 
+class Prediction(Base):
+    """One recorded platform prediction + (later) its measured wet-lab outcome -- the feedback loop.
+
+    The loop (Limitation #4): the platform records a prediction for some subject (a guide RNA, a
+    variant, a sample), the user runs the experiment, then records the MEASURED outcome here. Once
+    enough predictions carry an outcome, the platform recomputes agreement / calibration over the
+    matched pairs (reusing benchmarks.reliability + benchmarks.calibration) -- so the displayed
+    confidence is grounded in the user's own results, not just published numbers.
+
+    A single table: `observed_value` is null until the result comes in (closing the loop is just an
+    UPDATE). `kind` drives which agreement curve is computed -- "probability" (-> calibration, the
+    outcome must be 0/1) or "regression" (-> ranking reliability, any float)."""
+
+    __tablename__ = "predictions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_id)
+    project_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+
+    # What was predicted. The join key between a prediction and its measured outcome (e.g. a guide
+    # sequence, a variant key, a sample id). Free-form; the user defines the namespace.
+    subject_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Human label for the assay/quantity (e.g. "on-target efficiency", "P(pathogenic)").
+    assay: Mapped[str] = mapped_column(String(120), nullable=False)
+    # "probability" (outcome in {0,1} -> calibration) or "regression" (any float -> ranking).
+    kind: Mapped[str] = mapped_column(String(20), nullable=False, default="regression")
+    predicted_value: Mapped[float] = mapped_column(Float, nullable=False)
+    # Provenance: which tool/model produced the prediction (e.g. "score_guide_on_target deepcrispr").
+    source: Mapped[str | None] = mapped_column(String(120), nullable=True)
+
+    # The measured wet-lab outcome. Null until the user records it -- this nullability IS the loop.
+    observed_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    observed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Optional note recorded with the outcome (e.g. replicate count, conditions).
+    outcome_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    __table_args__ = (Index("ix_predictions_project_created", "project_id", "created_at"),)
+
+
 class PipelineJob(Base):
     """One nf-core pipeline run. Tracks status + streams events like a Trace row, but for
     long-running Nextflow executions rather than agent conversations. Project-scoped."""

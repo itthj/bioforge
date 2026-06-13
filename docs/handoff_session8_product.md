@@ -124,9 +124,9 @@ From the capabilities review the user asked for. Status after this arc:
 |---|---|---|---|
 | 1 | Logins + bring-your-own-data | DONE + MERGED | PRs #15/#16. The biggest unlock. |
 | 6 | Cost controls (budgets/rate-limits) | DONE + MERGED | PR #17. |
-| 5 | Pipelines / instruments (nf-core, LIMS) | DONE, NEEDS MERGE | feat/nfcore-pipelines pushed + green; PR #18. |
-| 2 | Accuracy you can stake a decision on | TODO (next) | Honest/partial: scale + CALIBRATE benchmarks; cannot fake accuracy or train models (banned). |
-| 4 | Wet-lab feedback loop | TODO | Buildable: record predictions -> ingest results -> recalibrate. Real data is the user's; or calibrate vs published datasets. |
+| 5 | Pipelines / instruments (nf-core, LIMS) | DONE + MERGED | PR #18. |
+| 2 | Accuracy you can stake a decision on | DONE + MERGED | PR #19. benchmarks/calibration.py (ECE/MCE/Brier) + GIAB QUAL consumer + CalibrationDiagram. |
+| 4 | Wet-lab feedback loop | DONE, NEEDS MERGE | feat/wetlab-feedback: Prediction model, record->outcome->agreement reusing #2 modules; FeedbackPanel. |
 | 3 | Always-on GPU compute | NOT code | Needs real GPUs/$$; only a cloud-GPU execution path is buildable. Flag, don't pretend. |
 
 Honest framing to keep using with the user: 1/6/5 are pure software we can ship; 2/4 are buildable
