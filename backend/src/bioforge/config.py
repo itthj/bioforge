@@ -213,6 +213,20 @@ class Settings(BaseSettings):
     # (an impossible value) before it feeds downstream steps -- the §0 execution boundary acting.
     soundness_gate: str = Field(default="off", alias="BIOFORGE_SOUNDNESS_GATE")  # off | block
 
+    # --- Accounts / auth (roadmap Phase 6) ---
+    # "false" (default): no login -- every request resolves to the bootstrapped default user, so
+    # behavior is identical to the pre-auth single-user app. "true": the API requires a Bearer
+    # token (from POST /auth/login) and scopes projects/data to the authenticated user. Opt-in so
+    # the showcase/demo/single-user path stays unchanged until you turn multi-user on.
+    auth_enabled: bool = Field(default=False, alias="BIOFORGE_AUTH_ENABLED")
+    # Whether POST /auth/register is open. Default open (so the first user can self-serve); set
+    # false to lock registration after seeding accounts.
+    auth_allow_registration: bool = Field(default=True, alias="BIOFORGE_AUTH_ALLOW_REGISTRATION")
+    # Lifetime of a login session token (hours). A login older than this is rejected -> re-auth.
+    auth_session_ttl_hours: int = Field(default=24 * 14, alias="BIOFORGE_AUTH_SESSION_TTL_HOURS")
+    # Minimum password length enforced at registration. An honest floor, not a policy engine.
+    auth_min_password_length: int = Field(default=10, alias="BIOFORGE_AUTH_MIN_PASSWORD_LENGTH")
+
     # --- Task queue / durable jobs (roadmap Phase 1) ---
     # "inline" (default): run tools/runs in-process, zero infrastructure (single-user local;
     # behaviorally identical to the pre-queue agent). "celery": dispatch to the Celery worker

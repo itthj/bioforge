@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     DateTime,
     Float,
     ForeignKey,
@@ -39,6 +40,11 @@ class Project(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     organism: Mapped[str | None] = mapped_column(String(80), nullable=True)
     reference_genome: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    # Owner (users.id). Nullable for back-compat: legacy projects predate accounts and are
+    # backfilled to the default user by the auth migration. Every creation path sets it, so in
+    # practice it is always populated; queries scope by it when auth is enabled. Plain indexed
+    # string (no DB FK), matching how Trace.project_id references projects.
+    user_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(
@@ -117,3 +123,40 @@ class Trace(Base):
     completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
 
     __table_args__ = (Index("ix_traces_project_created", "project_id", "created_at"),)
+
+
+class User(Base):
+    """An account. The unit of ownership + isolation once auth is enabled. When auth is OFF the
+    single bootstrapped default user owns everything, so the rest of the code never special-cases
+    "no user" -- there is always a current user."""
+
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_new_id)
+    email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
+    # argon2id hash. The default user carries a non-verifiable sentinel so it can never be
+    # logged into -- it is an ownership identity, not an account.
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    display_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
+    )
+
+
+class AuthSession(Base):
+    """A login session. We store only the SHA-256 of the bearer token, never the token itself, so a
+    database leak cannot be replayed as a live login. Lookups hash the presented token and match."""
+
+    __tablename__ = "auth_sessions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_id)
+    user_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)  # sha256 hex
+    revoked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
