@@ -90,8 +90,9 @@ web fallback, so remote BLAST works even without the local binary.)
 ## 5. Pipelines (nf-core / Nextflow, #5) — 📦 install Nextflow
 
 Nextflow is a JVM tool, **not** a Docker image — installing the pipeline containers
-is not enough. Install it (https://www.nextflow.io/, needs Java 17+) so `nextflow`
-is on PATH, then:
+is not enough. Run [`scripts/setup_nextflow.sh`](../scripts/setup_nextflow.sh) (installs a userspace JDK 17 +
+Nextflow, no sudo) — or install it yourself (https://www.nextflow.io/, needs Java 17+) so
+`nextflow` is on PATH. Then:
 
 ```bash
 BIOFORGE_NEXTFLOW_ENABLED=true
@@ -102,7 +103,9 @@ jobs (`#7`) so the API isn't blocked.
 
 ## 6. Live benchmarks (turn guard_only → live numbers) — 📊 stage data
 
-The Accuracy Report already shows 4 published numbers. To recompute them live:
+The Accuracy Report already shows 4 published numbers. To recompute them live (fastest start:
+[`scripts/fetch_giab.sh`](../scripts/fetch_giab.sh) stages a small real GIAB set, then
+[`scripts/regenerate_benchmarks.py`](../scripts/regenerate_benchmarks.py) runs + publishes one):
 
 - **On/off-target + edit-outcome:** consent to the fetch-on-first-use datasets:
   ```bash
@@ -138,13 +141,16 @@ BIOFORGE_GPU_API_KEY=...
 ```
 
 Any HTTP service implementing the two-route contract in `gpu/backend.py` works
-(self-hosted, Modal, RunPod, Replicate). With `none`, GPU work refuses honestly.
+(self-hosted, Modal, RunPod, Replicate). [`scripts/gpu_server/`](../scripts/gpu_server) is a
+deployable reference implementation — run it on a GPU host and plug in your model. With `none`,
+GPU work refuses honestly.
 
 ## 9. Wet-lab feedback loop (#4) — 🧪 your data
 
 The loop computes agreement/calibration honestly over whatever you put in. Record
 predictions (`POST /predictions`), then measured outcomes (`/outcome` or bulk), then
-view agreement in the **Feedback** tab. No external setup — it just needs real results.
+view agreement in the **Feedback** tab — or bulk-load a CSV with
+[`scripts/load_outcomes.py`](../scripts/load_outcomes.py). No external setup — it just needs real results.
 
 ---
 
