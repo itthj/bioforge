@@ -82,8 +82,14 @@ class Settings(BaseSettings):
     deepcrispr_runner: str = Field(default="docker", alias="BIOFORGE_DEEPCRISPR_RUNNER")  # docker | local
     deepcrispr_docker_image: str = Field(default="", alias="BIOFORGE_DEEPCRISPR_DOCKER_IMAGE")
     deepcrispr_python: str = Field(default="", alias="BIOFORGE_DEEPCRISPR_PYTHON")
+    # Provenance note (resolved 2026-06-13): in the DOCKER path (the supported one) the weights are
+    # NOT fetched from a bm2-lab/DeepCRISPR git commit -- they ride inside the digest-pinned base
+    # image michaelchuai/deepcrispr@sha256:812deef... (baked in as DeepCRISPR.tar.gz), which the
+    # legacy Dockerfile pins by digest. So the auditable provenance is that base-image digest, and
+    # this field only applies to a hypothetical from-source weight fetch into `deepcrispr_data_dir`
+    # (not used by the Docker runner). Left as "master" for that unused path; do not treat it as the
+    # Docker weights' provenance.
     deepcrispr_upstream_commit: str = Field(
-        # TODO(validation): pin to a real bm2-lab/DeepCRISPR commit SHA before enabling.
         default="master",
         alias="BIOFORGE_DEEPCRISPR_UPSTREAM_COMMIT",
     )
