@@ -27,6 +27,7 @@ from bioforge.db.engine import get_session
 from bioforge.db.models import Trace, User
 from bioforge.provenance import (
     build_run_manifest,
+    render_methods_draft,
     render_methods_report,
     render_reproduce_script,
     to_ro_crate,
@@ -910,6 +911,46 @@ async def get_trace_script(
         media_type="text/x-python; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="bioforge-reproduce-{trace_id}.py"'},
     )
+
+
+class MethodsDraftResponse(BaseModel):
+    """JSON payload for the manuscript-ready methods draft endpoint."""
+
+    paragraph: str = Field(description="Validated methods paragraph — past tense, inline citations [N].")
+    bibtex_block: str = Field(description="All cited BibTeX entries, concatenated.")
+    param_table_md: str = Field(description="Supplementary parameter table in Markdown format.")
+    warnings: list[str] = Field(default_factory=list, description="Non-fatal issues from the grounding guard.")
+    trace_id: str
+
+
+@router.get("/traces/{trace_id}/methods-draft", response_model=MethodsDraftResponse)
+async def get_trace_methods_draft(
+    trace_id: str,
+    polish: bool = True,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> MethodsDraftResponse:
+    """Manuscript-ready methods draft: paragraph + BibTeX + parameter table.
+
+    Returns JSON with three copy-paste-ready components:
+      paragraph      — past-tense prose, inline citations, hardcoded benchmark accuracy numbers
+      bibtex_block   — BibTeX for every cited tool
+      param_table_md — Supplementary Methods parameter table (Markdown)
+
+    Set ?polish=false to skip the LLM fluency pass (faster; useful in tests).
+    """
+    trace = await _load_trace_or_404(trace_id, session, current_user)
+    result = _result_from_trace(trace)
+    manifest = build_run_manifest(result)
+    draft = await render_methods_draft(manifest, result, polish=polish, trace_id=trace_id)
+    return MethodsDraftResponse(
+        paragraph=draft.paragraph,
+        bibtex_block=draft.bibtex_block,
+        param_table_md=draft.param_table_md,
+        warnings=draft.warnings,
+        trace_id=trace_id,
+    )
+
 
 
 # --- Run history (P0) ----------------------------------------------------------------

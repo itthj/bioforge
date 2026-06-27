@@ -1,6 +1,7 @@
 import type { AgentDoneEvent, ValidationVerdict } from "../types/agent";
 import { Card } from "./ui/Card";
 import { GroundedResponse } from "./GroundedResponse";
+import { MethodsModal } from "./MethodsModal";
 
 interface FinalCardProps {
   done: AgentDoneEvent;
@@ -145,6 +146,10 @@ export function FinalCard({ done, grounding }: FinalCardProps) {
           >
             Manifest (JSON)
           </a>
+          <span className="text-fg-subtle" aria-hidden>
+            ·
+          </span>
+          <MethodsModal traceId={done.trace_id} />
         </div>
       </div>
     </Card>
