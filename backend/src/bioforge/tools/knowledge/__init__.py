@@ -8,8 +8,11 @@ leaving BioForge.
 from bioforge.tools.knowledge import (  # noqa: F401
     drug_gene_interaction,
     fetch_gene_info,
+    fetch_uniprot,
     gwas_catalog,
     open_targets,
+    protein_properties,
+    restriction_sites,
     search_pubmed,
     string_network,
 )
@@ -17,8 +20,11 @@ from bioforge.tools.knowledge import (  # noqa: F401
 __all__ = [
     "drug_gene_interaction",
     "fetch_gene_info",
+    "fetch_uniprot",
     "gwas_catalog",
     "open_targets",
+    "protein_properties",
+    "restriction_sites",
     "search_pubmed",
     "string_network",
 ]
