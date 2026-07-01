@@ -223,6 +223,24 @@ class Settings(BaseSettings):
     # (an impossible value) before it feeds downstream steps -- the §0 execution boundary acting.
     soundness_gate: str = Field(default="off", alias="BIOFORGE_SOUNDNESS_GATE")  # off | block
 
+    # CARD (Comprehensive Antibiotic Resistance Database) -- reference database for
+    # amr_detection's local blastx search. No public submission API exists (RGI, CARD's own
+    # tool, is designed to run against a locally-downloaded copy), so this is entirely a
+    # local-BLAST config surface, architecturally parallel to the local backend in blast.py.
+    # License gate: CARD is free for non-commercial research/academic/government/non-profit
+    # use; commercial (for-profit) use requires a written license from McMaster University
+    # (https://card.mcmaster.ca/about). Mirrors the inDelphi consent gate above -- the tool
+    # refuses to run at all until `card_consent_commercial_license=True`, a one-time
+    # deployment acknowledgement, not a per-request flag.
+    card_data_dir: str = Field(default="", alias="BIOFORGE_CARD_DATA_DIR")
+    card_blast_db: str = Field(
+        default="", alias="BIOFORGE_CARD_BLAST_DB"
+    )  # path prefix to a local `makeblastdb -dbtype prot` CARD protein database
+    card_consent_commercial_license: bool = Field(default=False, alias="BIOFORGE_CARD_CONSENT_COMMERCIAL_LICENSE")
+    card_version: str = Field(default="", alias="BIOFORGE_CARD_VERSION")  # e.g. "3.3.0" -- for provenance/citation only
+    card_min_identity_pct: float = Field(default=40.0, alias="BIOFORGE_CARD_MIN_IDENTITY_PCT")
+    card_min_coverage_pct: float = Field(default=40.0, alias="BIOFORGE_CARD_MIN_COVERAGE_PCT")
+
     # --- Accounts / auth (roadmap Phase 6) ---
     # "false" (default): no login -- every request resolves to the bootstrapped default user, so
     # behavior is identical to the pre-auth single-user app. "true": the API requires a Bearer

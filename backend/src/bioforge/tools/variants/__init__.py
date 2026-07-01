@@ -12,6 +12,7 @@ the variant is too new for Ensembl's release cadence.
 
 from bioforge.tools.variants import (  # noqa: F401  — register on import
     annotate_variant,
+    cadd_score,
     call_variants,
     format_hgvs,
     lookup_clinvar,
@@ -22,6 +23,7 @@ from bioforge.tools.variants import (  # noqa: F401  — register on import
 
 __all__ = [
     "annotate_variant",
+    "cadd_score",
     "call_variants",
     "format_hgvs",
     "lookup_clinvar",

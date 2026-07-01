@@ -5,11 +5,15 @@ GO enrichment, KEGG/Reactome pathways, and RNA-seq differential expression.
 """
 
 from bioforge.tools.functional import (  # noqa: F401
+    amr_detection,
     differential_expression,
     go_enrichment,
+    plot_results,
 )
 
 __all__ = [
+    "amr_detection",
     "differential_expression",
     "go_enrichment",
+    "plot_results",
 ]
