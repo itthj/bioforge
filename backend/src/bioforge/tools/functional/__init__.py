@@ -8,6 +8,7 @@ from bioforge.tools.functional import (  # noqa: F401
     amr_detection,
     differential_expression,
     go_enrichment,
+    phylogenetics,
     plot_results,
 )
 
@@ -15,5 +16,6 @@ __all__ = [
     "amr_detection",
     "differential_expression",
     "go_enrichment",
+    "phylogenetics",
     "plot_results",
 ]
